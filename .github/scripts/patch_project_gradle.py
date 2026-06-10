@@ -51,11 +51,18 @@ SETTINGS_GRADLE = '''pluginManagement {
 
 plugins {
     id "dev.flutter.flutter-plugin-loader" version "1.0.0"
-    id "com.android.application" version "8.7.3" apply false
+    id "com.android.application" version "8.1.0" apply false
     id "org.jetbrains.kotlin.android" version "2.1.0" apply false
 }
 
 include ":app"
+'''
+
+GRADLE_WRAPPER = '''distributionBase=GRADLE_USER_HOME
+distributionPath=wrapper/dists
+zipStoreBase=GRADLE_USER_HOME
+zipStorePath=wrapper/dists
+distributionUrl=https\\://services.gradle.org/distributions/gradle-8.9-all.zip
 '''
 
 def main():
@@ -69,6 +76,12 @@ def main():
     with open(path2, 'w') as f:
         f.write(SETTINGS_GRADLE)
     print(f'Written: {path2}')
+
+    path3 = 'android/gradle/wrapper/gradle-wrapper.properties'
+    os.makedirs(os.path.dirname(path3), exist_ok=True)
+    with open(path3, 'w') as f:
+        f.write(GRADLE_WRAPPER)
+    print(f'Written: {path3}')
 
 if __name__ == '__main__':
     main()
