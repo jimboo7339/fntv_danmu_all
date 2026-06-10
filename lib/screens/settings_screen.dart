@@ -9,141 +9,178 @@ class SettingsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final app = context.watch<AppState>();
-    return ListView(
-      padding: const EdgeInsets.all(16),
+    return Column(
       children: [
-        // User info card
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              children: [
-                CircleAvatar(
-                  radius: 28,
-                  backgroundColor: Theme.of(context).colorScheme.primary.withOpacity(0.2),
-                  child: Icon(Icons.person, size: 30, color: Theme.of(context).colorScheme.primary),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+        // Header
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+          child: Row(
+            children: [
+              Text('设置', style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                fontWeight: FontWeight.bold,
+              )),
+            ],
+          ),
+        ),
+        const SizedBox(height: 4),
+        // Scrollable content
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            children: [
+              // User info card
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Row(
                     children: [
-                      Text(app.api.baseUrl, style: const TextStyle(fontWeight: FontWeight.w600)),
-                      const SizedBox(height: 4),
-                      Text('已连接', style: TextStyle(color: Colors.green[400], fontSize: 12)),
+                      Container(
+                        width: 52, height: 52,
+                        decoration: BoxDecoration(
+                          color: FnTheme.danmuGreen.withOpacity(0.12),
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: const Icon(Icons.person_rounded, size: 28, color: FnTheme.danmuGreen),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(app.api.baseUrl,
+                              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+                              overflow: TextOverflow.ellipsis),
+                            const SizedBox(height: 3),
+                            Row(
+                              children: [
+                                Container(
+                                  width: 8, height: 8,
+                                  decoration: BoxDecoration(
+                                    color: Colors.green[400],
+                                    shape: BoxShape.circle,
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                Text('已连接', style: TextStyle(color: Colors.green[400], fontSize: 12)),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
                     ],
                   ),
                 ),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 16),
+              ),
+              const SizedBox(height: 20),
 
-        // 弹幕设置
-        _sectionTitle('弹幕设置'),
-        Card(
-          child: Column(
-            children: [
-              SwitchListTile(
-                title: const Text('开启弹幕'),
-                value: app.danmuOn,
-                onChanged: (v) => app.danmuOn = v,
-                activeColor: FnTheme.danmuGreen,
+              // 弹幕设置
+              _sectionTitle('弹幕设置'),
+              Card(
+                child: Column(
+                  children: [
+                    SwitchListTile(
+                      title: const Text('开启弹幕'),
+                      value: app.danmuOn,
+                      onChanged: (v) => app.danmuOn = v,
+                      activeColor: FnTheme.danmuGreen,
+                    ),
+                    _sliderTile('弹幕不透明度', app.danmuOpacity, 0.1, 1.0,
+                      (v) => app.danmuOpacity = v, (v) => '${(v * 100).toInt()}%'),
+                    _sliderTile('弹幕字号', app.danmuFontSize, 14, 36,
+                      (v) => app.danmuFontSize = v, (v) => '${v.toInt()}'),
+                    _sliderTile('显示区域', app.danmuArea.toDouble(), 10, 100,
+                      (v) => app.danmuArea = v.toInt(), (v) => '${v.toInt()}%'),
+                    _sliderTile('弹幕速度', app.danmuSpeed, 0.5, 2.0,
+                      (v) => app.danmuSpeed = v, (v) => '${v.toStringAsFixed(1)}x'),
+                    _sliderTile('弹幕密度', app.danmuDensity.toDouble(), 10, 100,
+                      (v) => app.danmuDensity = v.toInt(), (v) => '${v.toInt()}%'),
+                    SwitchListTile(
+                      title: const Text('文字描边'),
+                      value: app.danmuOutline,
+                      onChanged: (v) => app.danmuOutline = v,
+                      activeColor: FnTheme.danmuGreen,
+                    ),
+                    SwitchListTile(
+                      title: const Text('滚动弹幕'),
+                      value: app.danmuScroll,
+                      onChanged: (v) => app.danmuScroll = v,
+                      activeColor: FnTheme.danmuGreen,
+                    ),
+                    SwitchListTile(
+                      title: const Text('顶部弹幕'),
+                      value: app.danmuTop,
+                      onChanged: (v) => app.danmuTop = v,
+                      activeColor: FnTheme.danmuGreen,
+                    ),
+                    SwitchListTile(
+                      title: const Text('底部弹幕'),
+                      value: app.danmuBottom,
+                      onChanged: (v) => app.danmuBottom = v,
+                      activeColor: FnTheme.danmuGreen,
+                    ),
+                  ],
+                ),
               ),
-              _sliderTile('弹幕不透明度', app.danmuOpacity, 0.1, 1.0,
-                (v) => app.danmuOpacity = v, (v) => '${(v * 100).toInt()}%'),
-              _sliderTile('弹幕字号', app.danmuFontSize, 14, 36,
-                (v) => app.danmuFontSize = v, (v) => '${v.toInt()}'),
-              _sliderTile('显示区域', app.danmuArea.toDouble(), 10, 100,
-                (v) => app.danmuArea = v.toInt(), (v) => '${v.toInt()}%'),
-              _sliderTile('弹幕速度', app.danmuSpeed, 0.5, 2.0,
-                (v) => app.danmuSpeed = v, (v) => '${v.toStringAsFixed(1)}x'),
-              _sliderTile('弹幕密度', app.danmuDensity.toDouble(), 10, 100,
-                (v) => app.danmuDensity = v.toInt(), (v) => '${v.toInt()}%'),
-              SwitchListTile(
-                title: const Text('文字描边'),
-                value: app.danmuOutline,
-                onChanged: (v) => app.danmuOutline = v,
-                activeColor: FnTheme.danmuGreen,
+              const SizedBox(height: 16),
+
+              // 播放设置
+              _sectionTitle('播放设置'),
+              Card(
+                child: Column(
+                  children: [
+                    ListTile(
+                      title: const Text('解码模式'),
+                      subtitle: Text(app.decoderMode == 'hardware' ? '硬解' : '软解'),
+                      trailing: const Icon(Icons.chevron_right_rounded),
+                      onTap: () => _showDecoderPicker(context, app),
+                    ),
+                    ListTile(
+                      title: const Text('快进步长'),
+                      subtitle: Text('${app.seekStep} 秒'),
+                      trailing: const Icon(Icons.chevron_right_rounded),
+                      onTap: () => _showSeekStepPicker(context, app),
+                    ),
+                  ],
+                ),
               ),
-              SwitchListTile(
-                title: const Text('滚动弹幕'),
-                value: app.danmuScroll,
-                onChanged: (v) => app.danmuScroll = v,
-                activeColor: FnTheme.danmuGreen,
+              const SizedBox(height: 16),
+
+              // 弹幕服务器
+              _sectionTitle('弹幕服务器'),
+              Card(
+                child: ListTile(
+                  title: const Text('弹幕 API 地址'),
+                  subtitle: Text(app.danmuUrl),
+                  trailing: const Icon(Icons.edit_rounded),
+                  onTap: () => _editDanmuUrl(context, app),
+                ),
               ),
-              SwitchListTile(
-                title: const Text('顶部弹幕'),
-                value: app.danmuTop,
-                onChanged: (v) => app.danmuTop = v,
-                activeColor: FnTheme.danmuGreen,
+              const SizedBox(height: 16),
+
+              // 关于
+              _sectionTitle('关于'),
+              Card(
+                child: Column(
+                  children: [
+                    const ListTile(
+                      title: Text('版本'),
+                      subtitle: Text('飞牛TV v1.0.0 (Flutter)'),
+                    ),
+                    ListTile(
+                      title: const Text('退出登录', style: TextStyle(color: Colors.redAccent)),
+                      trailing: const Icon(Icons.logout_rounded, color: Colors.redAccent),
+                      onTap: () {
+                        app.logout();
+                        Navigator.of(context).popUntil((route) => route.isFirst);
+                      },
+                    ),
+                  ],
+                ),
               ),
-              SwitchListTile(
-                title: const Text('底部弹幕'),
-                value: app.danmuBottom,
-                onChanged: (v) => app.danmuBottom = v,
-                activeColor: FnTheme.danmuGreen,
-              ),
+              const SizedBox(height: 24),
             ],
           ),
         ),
-        const SizedBox(height: 16),
-
-        // 播放设置
-        _sectionTitle('播放设置'),
-        Card(
-          child: Column(
-            children: [
-              ListTile(
-                title: const Text('解码模式'),
-                subtitle: Text(app.decoderMode == 'hardware' ? '硬解' : '软解'),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => _showDecoderPicker(context, app),
-              ),
-              ListTile(
-                title: const Text('快进步长'),
-                subtitle: Text('${app.seekStep} 秒'),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => _showSeekStepPicker(context, app),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 16),
-
-        // 弹幕服务器
-        _sectionTitle('弹幕服务器'),
-        Card(
-          child: ListTile(
-            title: const Text('弹幕 API 地址'),
-            subtitle: Text(app.danmuUrl),
-            trailing: const Icon(Icons.edit),
-            onTap: () => _editDanmuUrl(context, app),
-          ),
-        ),
-        const SizedBox(height: 16),
-
-        // 关于
-        _sectionTitle('关于'),
-        Card(
-          child: Column(
-            children: [
-              const ListTile(
-                title: Text('版本'),
-                subtitle: Text('FnOS TV v1.0.0 (Flutter)'),
-              ),
-              ListTile(
-                title: const Text('退出登录', style: TextStyle(color: Colors.redAccent)),
-                onTap: () {
-                  app.logout();
-                  Navigator.of(context).popUntil((route) => route.isFirst);
-                },
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 40),
       ],
     );
   }

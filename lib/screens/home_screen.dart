@@ -9,7 +9,6 @@ import '../utils/theme.dart';
 import '../widgets/media_card.dart';
 import '../widgets/continue_watching_card.dart';
 import 'player_screen.dart';
-import 'settings_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -19,7 +18,6 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  int _currentTab = 0;
   List<MediaDbItem> _libraries = [];
   Map<String, List<PlayListItem>> _previews = {};
   bool _loading = true;
@@ -41,7 +39,6 @@ class _HomeScreenState extends State<HomeScreen> {
       final resp = await _app.api.getMediaDbList();
       if (resp['code'] == 0 && resp['data'] != null) {
         _libraries = (resp['data'] as List).map((e) => MediaDbItem.fromJson(e)).toList();
-        // Load previews for each library
         for (final lib in _libraries) {
           _loadPreview(lib.guid);
         }
@@ -96,7 +93,6 @@ class _HomeScreenState extends State<HomeScreen> {
       _fetchItems(item.guid, item.title ?? '');
       return;
     }
-    // Get play info
     try {
       final resp = await _app.api.getPlayInfo(item.guid);
       if (resp['code'] == 0 && resp['data'] != null) {
@@ -157,206 +153,137 @@ class _HomeScreenState extends State<HomeScreen> {
     ));
   }
 
+  int _calcColumns(BuildContext context) {
+    final w = MediaQuery.of(context).size.width;
+    if (w > 1200) return 7;
+    if (w > 900) return 5;
+    if (w > 600) return 4;
+    return 3;
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: Column(
-        children: [
-          // Top tab bar
-          _buildTopBar(),
-          // Content
-          Expanded(
-            child: _currentTab == 2
-                ? const SettingsScreen()
-                : _buildContent(),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildTopBar() {
-    return Container(
-      height: 52,
-      color: const Color(0xFF1A1A1A),
-      child: Row(
-        children: [
-          const SizedBox(width: 16),
-          Icon(Icons.play_circle_fill, color: Theme.of(context).colorScheme.primary, size: 24),
-          const SizedBox(width: 8),
-          const Text('FnOS TV', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-          const Spacer(),
-          _tabBtn('首页', 0, Icons.home_outlined),
-          _tabBtn('媒体库', 1, Icons.video_library_outlined),
-          _tabBtn('设置', 2, Icons.settings_outlined),
-          const SizedBox(width: 16),
-        ],
-      ),
-    );
-  }
-
-  Widget _tabBtn(String label, int idx, IconData icon) {
-    final selected = _currentTab == idx;
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 4),
-      child: TextButton.icon(
-        onPressed: () {
-          setState(() {
-            _currentTab = idx;
-            if (idx == 0 || idx == 1) {
-              _browseGuid = null;
-              _browseItems = null;
-            }
-          });
-          if (idx == 1 && _libraries.isEmpty) _loadOverview();
-        },
-        icon: Icon(icon, size: 18, color: selected ? FnTheme.danmuGreen : Colors.grey),
-        label: Text(label, style: TextStyle(
-          color: selected ? FnTheme.danmuGreen : Colors.grey,
-          fontWeight: selected ? FontWeight.bold : FontWeight.normal,
-        )),
-      ),
-    );
-  }
-
-  Widget _buildContent() {
-    if (_loading) {
-      return const Center(child: CircularProgressIndicator());
-    }
-
-    // If browsing a specific library
     if (_browseGuid != null && _browseItems != null) {
       return _buildBrowseView();
     }
-
-    if (_currentTab == 0) {
-      return _buildOverview();
-    } else {
-      return _buildLibraryList();
-    }
+    return _buildOverview();
   }
 
   Widget _buildOverview() {
     final history = _app.watchHistory.where((r) => !r.isNearlyFinished).toList();
-    return RefreshIndicator(
-      onRefresh: _loadOverview,
-      child: CustomScrollView(
-        slivers: [
-          // Continue watching
-          if (history.isNotEmpty) ...[
-            const SliverToBoxAdapter(
-              child: Padding(
-                padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
-                child: Row(
-                  children: [
-                    Icon(Icons.play_circle_outline, color: FnTheme.danmuGreen, size: 20),
-                    SizedBox(width: 6),
-                    Text('继续观看', style: TextStyle(
-                      color: FnTheme.danmuGreen, fontWeight: FontWeight.bold, fontSize: 15)),
-                  ],
-                ),
-              ),
-            ),
-            SliverToBoxAdapter(
-              child: SizedBox(
-                height: 210,
-                child: ListView.builder(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  itemCount: history.length,
-                  itemBuilder: (_, i) => ContinueWatchingCard(
-                    record: history[i],
-                    imageUrl: _app.api.getImageUrl(history[i].poster),
-                    onTap: () => _onWatchRecordTap(history[i]),
-                  ),
-                ),
-              ),
-            ),
-          ],
-          // Library previews
-          for (final lib in _libraries) ...[
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 20, 16, 8),
-                child: Row(
-                  children: [
-                    Expanded(child: Text(lib.title, style: const TextStyle(
-                      fontWeight: FontWeight.bold, fontSize: 17, color: FnTheme.textPrimary))),
-                    TextButton(
-                      onPressed: () => _fetchItems(lib.guid, lib.title),
-                      child: const Text('查看全部 ›', style: TextStyle(color: FnTheme.textSecondary)),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            if (_previews[lib.guid] != null && _previews[lib.guid]!.isNotEmpty)
-              SliverToBoxAdapter(
-                child: SizedBox(
-                  height: 210,
-                  child: ListView.builder(
-                    scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    itemCount: _previews[lib.guid]!.length,
-                    itemBuilder: (_, i) => MediaCard(
-                      item: _previews[lib.guid]![i],
-                      imageUrl: _app.api.getImageUrl(_previews[lib.guid]![i].poster),
-                      onTap: () => _onItemTap(_previews[lib.guid]![i]),
+    return _loading
+        ? const Center(child: CircularProgressIndicator(color: FnTheme.danmuGreen))
+        : RefreshIndicator(
+            onRefresh: _loadOverview,
+            child: CustomScrollView(
+              slivers: [
+                // App header
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                    child: Row(
+                      children: [
+                        Icon(Icons.play_circle_fill_rounded,
+                          color: FnTheme.danmuGreen, size: 24),
+                        const SizedBox(width: 8),
+                        Text('飞牛TV', style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        )),
+                      ],
                     ),
                   ),
                 ),
-              )
-            else
-              const SliverToBoxAdapter(
-                child: Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 16, vertical: 20),
-                  child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
-                ),
-              ),
-          ],
-          if (_libraries.isEmpty && !_loading)
-            const SliverToBoxAdapter(
-              child: Center(
-                child: Padding(
-                  padding: EdgeInsets.all(40),
-                  child: Text('暂无影视内容', style: TextStyle(color: Colors.grey)),
-                ),
-              ),
+                // Continue watching
+                if (history.isNotEmpty) ...[
+                  const SliverToBoxAdapter(
+                    child: Padding(
+                      padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
+                      child: Row(
+                        children: [
+                          Icon(Icons.play_circle_outline, color: FnTheme.danmuGreen, size: 20),
+                          SizedBox(width: 6),
+                          Text('继续观看', style: TextStyle(
+                            color: FnTheme.danmuGreen, fontWeight: FontWeight.bold, fontSize: 15)),
+                        ],
+                      ),
+                    ),
+                  ),
+                  SliverToBoxAdapter(
+                    child: SizedBox(
+                      height: 200,
+                      child: ListView.builder(
+                        scrollDirection: Axis.horizontal,
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        itemCount: history.length,
+                        itemBuilder: (_, i) => ContinueWatchingCard(
+                          record: history[i],
+                          imageUrl: _app.api.getImageUrl(history[i].poster),
+                          onTap: () => _onWatchRecordTap(history[i]),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+                // Library previews
+                for (final lib in _libraries) ...[
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 20, 16, 8),
+                      child: Row(
+                        children: [
+                          Expanded(child: Text(lib.title, style: const TextStyle(
+                            fontWeight: FontWeight.bold, fontSize: 17, color: FnTheme.textPrimary))),
+                          TextButton(
+                            onPressed: () => _fetchItems(lib.guid, lib.title),
+                            child: const Text('查看全部 ›', style: TextStyle(color: FnTheme.textSecondary)),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  if (_previews[lib.guid] != null && _previews[lib.guid]!.isNotEmpty)
+                    SliverToBoxAdapter(
+                      child: SizedBox(
+                        height: 200,
+                        child: ListView.builder(
+                          scrollDirection: Axis.horizontal,
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          itemCount: _previews[lib.guid]!.length,
+                          itemBuilder: (_, i) => MediaCard(
+                            item: _previews[lib.guid]![i],
+                            imageUrl: _app.api.getImageUrl(_previews[lib.guid]![i].poster),
+                            onTap: () => _onItemTap(_previews[lib.guid]![i]),
+                          ),
+                        ),
+                      ),
+                    )
+                  else
+                    const SliverToBoxAdapter(
+                      child: Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+                        child: Center(child: CircularProgressIndicator(strokeWidth: 2, color: FnTheme.danmuGreen)),
+                      ),
+                    ),
+                ],
+                if (_libraries.isEmpty && !_loading)
+                  const SliverToBoxAdapter(
+                    child: Center(
+                      child: Padding(
+                        padding: EdgeInsets.all(40),
+                        child: Column(
+                          children: [
+                            Icon(Icons.movie_outlined, size: 48, color: FnTheme.textMuted),
+                            SizedBox(height: 12),
+                            Text('暂无影视内容', style: TextStyle(color: FnTheme.textSecondary)),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                const SliverToBoxAdapter(child: SizedBox(height: 24)),
+              ],
             ),
-          const SliverToBoxAdapter(child: SizedBox(height: 20)),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildLibraryList() {
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: _libraries.length,
-      itemBuilder: (_, i) {
-        final lib = _libraries[i];
-        return Card(
-          margin: const EdgeInsets.only(bottom: 12),
-          child: ListTile(
-            leading: Container(
-              width: 48, height: 48,
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.primary.withOpacity(0.15),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Icon(
-                lib.category == 'TV' ? Icons.tv : Icons.movie_outlined,
-                color: Theme.of(context).colorScheme.primary,
-              ),
-            ),
-            title: Text(lib.title, style: const TextStyle(fontWeight: FontWeight.w600)),
-            subtitle: Text(lib.category ?? '', style: const TextStyle(color: FnTheme.textSecondary)),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => _fetchItems(lib.guid, lib.title),
-          ),
-        );
-      },
-    );
+          );
   }
 
   Widget _buildBrowseView() {
@@ -364,24 +291,28 @@ class _HomeScreenState extends State<HomeScreen> {
       children: [
         // Back bar
         Container(
-          height: 48,
+          height: 52,
           padding: const EdgeInsets.symmetric(horizontal: 8),
           child: Row(
             children: [
               IconButton(
-                icon: const Icon(Icons.arrow_back),
+                icon: const Icon(Icons.arrow_back_rounded),
                 onPressed: () => setState(() { _browseGuid = null; _browseItems = null; }),
               ),
               Text(_browseTitle ?? '', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
               const Spacer(),
               if (_browseItems != null)
-                Text('${_browseItems!.length} 项', style: const TextStyle(color: FnTheme.textSecondary)),
+                Padding(
+                  padding: const EdgeInsets.only(right: 16),
+                  child: Text('${_browseItems!.length} 项',
+                    style: const TextStyle(color: FnTheme.textSecondary, fontSize: 13)),
+                ),
             ],
           ),
         ),
         Expanded(
           child: _browseItems == null
-              ? const Center(child: CircularProgressIndicator())
+              ? const Center(child: CircularProgressIndicator(color: FnTheme.danmuGreen))
               : _browseItems!.isEmpty
                   ? const Center(child: Text('暂无内容', style: TextStyle(color: Colors.grey)))
                   : GridView.builder(
@@ -403,13 +334,5 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ],
     );
-  }
-
-  int _calcColumns(BuildContext context) {
-    final w = MediaQuery.of(context).size.width;
-    if (w > 1200) return 7;
-    if (w > 900) return 5;
-    if (w > 600) return 4;
-    return 3;
   }
 }
