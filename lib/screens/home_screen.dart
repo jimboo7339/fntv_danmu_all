@@ -3,12 +3,13 @@ import 'package:provider/provider.dart';
 import '../providers/app_state.dart';
 import '../models/media_item.dart';
 import '../models/play_list_item.dart';
-import '../models/play_info.dart';
+
 import '../models/watch_record.dart';
 import '../utils/theme.dart';
 import '../widgets/media_card.dart';
 import '../widgets/continue_watching_card.dart';
 import 'player_screen.dart';
+import 'detail_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -88,52 +89,15 @@ class _HomeScreenState extends State<HomeScreen> {
     if (mounted) setState(() => _loading = false);
   }
 
-  void _onItemTap(PlayListItem item) async {
-    if (item.isFolder) {
+  void _onItemTap(PlayListItem item) {
+    if (item.type == 'Directory') {
+      // Directory: navigate into folder
       _fetchItems(item.guid, item.title ?? '');
       return;
     }
-    try {
-      final resp = await _app.api.getPlayInfo(item.guid);
-      if (resp['code'] == 0 && resp['data'] != null) {
-        final info = PlayInfoResponse.fromJson(resp['data']);
-        _launchPlayer(item, info);
-      }
-    } catch (e) {
-      debugPrint('getPlayInfo error: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('获取播放信息失败: $e')),
-        );
-      }
-    }
-  }
-
-  void _launchPlayer(PlayListItem item, PlayInfoResponse info) {
-    final app = _app;
-    app.addWatchRecord(WatchRecord(
-      guid: item.guid,
-      title: item.title ?? '',
-      tvTitle: item.tvTitle,
-      episodeNumber: item.episodeNumber,
-      poster: item.poster,
-      libraryName: item.ancestorName,
-      parentGuid: info.parentGuid ?? item.parentGuid,
-      ts: item.ts,
-      duration: item.duration,
-    ));
+    // TV / Movie / Episode / Video → go to detail screen
     Navigator.push(context, MaterialPageRoute(
-      builder: (_) => PlayerScreen(
-        itemGuid: item.guid,
-        title: item.title ?? '',
-        tvTitle: item.tvTitle ?? '',
-        episodeNumber: item.episodeNumber,
-        poster: item.poster ?? '',
-        category: item.categoryLabel,
-        seekTs: item.ts,
-        duration: item.duration,
-        parentGuid: info.parentGuid ?? item.parentGuid,
-      ),
+      builder: (_) => DetailScreen(item: item),
     ));
   }
 
