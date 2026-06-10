@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 env:
-  FLUTTER_VERSION: '3.27.0'
+  FLUTTER_VERSION: '3.24.5'
 
 jobs:
   build-android:
@@ -21,14 +21,12 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
 
-      - name: Generate platform files
-        run: flutter create --org com.fntv --project-name fnos_tv_all .
+      - name: Generate Android platform files
+        run: |
+          rm -rf android
+          flutter create --org com.fntv --project-name fnos_tv_all --platforms android .
 
       - run: flutter pub get
-
-      - name: Regenerate platform files after deps resolved
-        run: flutter create --org com.fntv --project-name fnos_tv_all --overwrite .
-
       - run: flutter build apk --release
 
       - name: Find and rename APK
