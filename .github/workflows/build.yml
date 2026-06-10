@@ -48,8 +48,14 @@ jobs:
       - name: Write signed build.gradle
         run: python3 .github/scripts/patch_signing.py
 
-      - run: flutter pub get
-      - run: flutter build apk --release
+      - name: Build APK with auto version
+        run: |
+          flutter pub get
+          VERSION="${GITHUB_REF#refs/tags/}"
+          # Use run number as versionCode for unique builds
+          flutter build apk --release \
+            --build-name="${VERSION}" \
+            --build-number="${{ github.run_number }}"
 
       - name: Rename APK
         if: success()
