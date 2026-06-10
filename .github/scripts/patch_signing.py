@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Write complete android/app/build.gradle with signing config and proper SDK/Kotlin versions."""
+"""Write complete android/app/build.gradle with signing config using committed keystore."""
 import os
 
 BUILD_GRADLE = r'''def localProperties = new Properties()
@@ -58,10 +58,11 @@ android {
 
     signingConfigs {
         release {
-            storeFile file("fntv-release.jks")
+            storeFile file("fntv-release.p12")
             storePassword "fntv2024"
             keyAlias "fntv"
             keyPassword "fntv2024"
+            storeType "PKCS12"
         }
     }
 
@@ -76,26 +77,10 @@ flutter {
     source '../..'
 }
 
-dependencies {
-    implementation "org.jetbrains.kotlin:kotlin-stdlib:1.9.22"
-}
+dependencies {}
 '''
 
 def main():
-    import subprocess
-
-    # Generate keystore
-    subprocess.run([
-        'keytool', '-genkeypair', '-v',
-        '-keystore', 'android/app/fntv-release.jks',
-        '-keyalg', 'RSA', '-keysize', '2048', '-validity', '36500',
-        '-alias', 'fntv',
-        '-storepass', 'fntv2024',
-        '-keypass', 'fntv2024',
-        '-dname', 'CN=FNTV, OU=Dev, O=FNTV, L=Jinan, ST=SD, C=CN',
-    ], check=True)
-    print('Keystore created.')
-
     path = 'android/app/build.gradle'
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, 'w') as f:

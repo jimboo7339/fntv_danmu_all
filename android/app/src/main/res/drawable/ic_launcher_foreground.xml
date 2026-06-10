@@ -4,106 +4,16 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-
-    <!-- Background circle -->
-    <path
-        android:fillColor="#1A1A2E"
-        android:pathData="M54,54m-50,0a50,50 0,1 1,100 0a50,50 0,1 1,-100 0"/>
-
-    <!-- Dark inner circle -->
-    <path
-        android:fillColor="#16213E"
-        android:pathData="M54,54m-42,0a42,42 0,1 1,84 0a42,42 0,1 1,-84 0"/>
-
-    <!-- Film strip top -->
-    <path
-        android:fillColor="#0F3460"
-        android:pathData="M20,24h68v8h-68z"/>
-    <path
-        android:fillColor="#1A1A2E"
-        android:pathData="M24,26h4v4h-4z"/>
-    <path
-        android:fillColor="#1A1A2E"
-        android:pathData="M32,26h4v4h-4z"/>
-    <path
-        android:fillColor="#1A1A2E"
-        android:pathData="M40,26h4v4h-4z"/>
-    <path
-        android:fillColor="#1A1A2E"
-        android:pathData="M48,26h4v4h-4z"/>
-    <path
-        android:fillColor="#1A1A2E"
-        android:pathData="M56,26h4v4h-4z"/>
-    <path
-        android:fillColor="#1A1A2E"
-        android:pathData="M64,26h4v4h-4z"/>
-    <path
-        android:fillColor="#1A1A2E"
-        android:pathData="M72,26h4v4h-4z"/>
-    <path
-        android:fillColor="#1A1A2E"
-        android:pathData="M80,26h4v4h-4z"/>
-
-    <!-- Film strip bottom -->
-    <path
-        android:fillColor="#0F3460"
-        android:pathData="M20,76h68v8h-68z"/>
-    <path
-        android:fillColor="#1A1A2E"
-        android:pathData="M24,78h4v4h-4z"/>
-    <path
-        android:fillColor="#1A1A2E"
-        android:pathData="M32,78h4v4h-4z"/>
-    <path
-        android:fillColor="#1A1A2E"
-        android:pathData="M40,78h4v4h-4z"/>
-    <path
-        android:fillColor="#1A1A2E"
-        android:pathData="M48,78h4v4h-4z"/>
-    <path
-        android:fillColor="#1A1A2E"
-        android:pathData="M56,78h4v4h-4z"/>
-    <path
-        android:fillColor="#1A1A2E"
-        android:pathData="M64,78h4v4h-4z"/>
-    <path
-        android:fillColor="#1A1A2E"
-        android:pathData="M72,78h4v4h-4z"/>
-    <path
-        android:fillColor="#1A1A2E"
-        android:pathData="M80,78h4v4h-4z"/>
-
-    <!-- Screen area -->
-    <path
-        android:fillColor="#0F3460"
-        android:pathData="M24,36h60v36h-60z"/>
-
-    <!-- Play button triangle -->
-    <path
-        android:fillColor="#E94560"
-        android:pathData="M46,44l0,20l18,-10z"/>
-
-    <!-- Glow effect around play button -->
-    <path
-        android:fillColor="#E94560"
-        android:fillAlpha="0.3"
-        android:pathData="M44,42l0,24l22,-12z"/>
-
-    <!-- Danmaku lines (bullet comments) -->
-    <path
-        android:fillColor="#81C784"
-        android:fillAlpha="0.6"
-        android:pathData="M28,42h20v2h-20z"/>
-    <path
-        android:fillColor="#64B5F6"
-        android:fillAlpha="0.5"
-        android:pathData="M52,48h28v2h-28z"/>
-    <path
-        android:fillColor="#FFD54F"
-        android:fillAlpha="0.4"
-        android:pathData="M30,56h24v2h-24z"/>
-    <path
-        android:fillColor="#81C784"
-        android:fillAlpha="0.5"
-        android:pathData="M56,62h22v2h-22z"/>
+    <!-- Film strip left -->
+    <path android:fillColor="#1A1A2E" android:pathData="M20,20 L32,20 L32,88 L20,88 Z"/>
+    <path android:fillColor="#333355" android:pathData="M22,24 L30,24 L30,30 L22,30 Z M22,36 L30,36 L30,42 L22,42 Z M22,48 L30,48 L30,54 L22,54 Z M22,60 L30,60 L30,66 L22,66 Z M22,72 L30,72 L30,78 L22,78 Z"/>
+    <!-- Film strip right -->
+    <path android:fillColor="#1A1A2E" android:pathData="M76,20 L88,20 L88,88 L76,88 Z"/>
+    <path android:fillColor="#333355" android:pathData="M78,24 L86,24 L86,30 L78,30 Z M78,36 L86,36 L86,42 L78,42 Z M78,48 L86,48 L86,54 L78,54 Z M78,60 L86,60 L86,66 L78,66 Z M78,72 L86,72 L86,78 L78,78 Z"/>
+    <!-- Play button -->
+    <path android:fillColor="#81C784" android:pathData="M42,36 L42,72 L70,54 Z"/>
+    <!-- Danmu lines -->
+    <path android:fillColor="#FF6B6B" android:pathData="M36,28 L72,28 L72,32 L36,32 Z"/>
+    <path android:fillColor="#4ECDC4" android:pathData="M36,76 L65,76 L65,80 L36,80 Z"/>
+    <path android:fillColor="#FFE66D" android:pathData="M40,82 L68,82 L68,86 L40,86 Z"/>
 </vector>

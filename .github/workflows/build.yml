@@ -21,23 +21,29 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
 
-      - name: Save custom Android files
+      - name: Save committed custom files
         run: |
-          mkdir -p /tmp/fntv_custom
-          cp android/app/src/main/res/drawable/ic_launcher_foreground.xml /tmp/fntv_custom/ 2>/dev/null || true
-          cp -r android/app/src/main/res/mipmap-anydpi-v26/ /tmp/fntv_custom/mipmap-anydpi-v26/ 2>/dev/null || true
+          mkdir -p /tmp/fntv_backup
+          cp -r android/app/src/main/res/ /tmp/fntv_backup/res/ 2>/dev/null || true
+          cp android/app/fntv-release.p12 /tmp/fntv_backup/ 2>/dev/null || true
+          ls -la /tmp/fntv_backup/
 
-      - name: Generate Android platform files
+      - name: Generate Android platform
         run: |
           rm -rf android
           flutter create --org com.fntv --project-name fnos_tv_all --platforms android .
 
-      - name: Apply custom Android config
+      - name: Restore custom files
         run: |
           python3 .github/scripts/apply_android_config.py
           python3 .github/scripts/patch_project_gradle.py
-          cp /tmp/fntv_custom/ic_launcher_foreground.xml android/app/src/main/res/drawable/ 2>/dev/null || true
-          cp /tmp/fntv_custom/mipmap-anydpi-v26/* android/app/src/main/res/mipmap-anydpi-v26/ 2>/dev/null || true
+
+          # Restore committed resources (icon, colors)
+          cp -r /tmp/fntv_backup/res/* android/app/src/main/res/ 2>/dev/null || true
+
+          # Restore keystore
+          cp /tmp/fntv_backup/fntv-release.p12 android/app/ 2>/dev/null || true
+          ls -la android/app/fntv-release.p12
 
       - name: Write signed build.gradle
         run: python3 .github/scripts/patch_signing.py
@@ -45,13 +51,14 @@ jobs:
       - run: flutter pub get
       - run: flutter build apk --release
 
-      - name: Find and rename APK
+      - name: Rename APK
         if: success()
         run: |
           VERSION="${GITHUB_REF#refs/tags/}"
           APK=$(find . -name "*.apk" -type f | head -1)
-          if [ -z "$APK" ]; then echo "ERROR: No APK found!" && exit 1; fi
+          [ -z "$APK" ] && echo "ERROR: No APK!" && exit 1
           cp "$APK" "FNTV_All_${VERSION}_android.apk"
+          ls -lh FNTV_All_*.apk
 
       - uses: actions/upload-artifact@v4
         if: success()
@@ -71,10 +78,24 @@ jobs:
         with:
           path: artifacts
 
-      - name: Create Release
+      - name: Create Release with Chinese Notes
         uses: softprops/action-gh-release@v2
         with:
           files: artifacts/android-apk/*.apk
-          generate_release_notes: true
+          body: |
+            ## 飞牛TV v${{ github.ref_name }} 更新
+
+            ### 本次更新
+            - 🎬 新增 MPV (libmpv) 播放内核，解码能力大幅提升
+            - ⚙️ 设置页可切换播放内核 (MPV / ExoPlayer)
+            - 📝 弹幕设置独立为二级子菜单
+            - 👤 多账号管理，支持不同服务器账号切换
+            - 🔧 修复退出登录自动重登问题
+            - 🎨 底部导航栏 + SafeArea 全面优化
+            - 🔏 固定签名，支持覆盖安装
+
+            ### 下载说明
+            下载 APK 文件直接安装即可。首次安装需要卸载旧版本（签名变更）。
+            后续版本可直接覆盖安装。
           draft: false
           prerelease: false
