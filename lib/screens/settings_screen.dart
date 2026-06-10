@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/app_state.dart';
 import '../utils/theme.dart';
+import 'danmu_settings_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -79,52 +80,27 @@ class SettingsScreen extends StatelessWidget {
                 ),
               const SizedBox(height: 20),
 
-              // 弹幕设置
-              _sectionTitle('弹幕设置'),
+              // 弹幕设置 — 二级菜单入口
+              _sectionTitle('弹幕'),
               Card(
-                child: Column(
-                  children: [
-                    SwitchListTile(
-                      title: const Text('开启弹幕'),
-                      value: app.danmuOn,
-                      onChanged: (v) => app.danmuOn = v,
-                      activeColor: FnTheme.danmuGreen,
+                child: ListTile(
+                  leading: Container(
+                    width: 36, height: 36,
+                    decoration: BoxDecoration(
+                      color: FnTheme.danmuGreen.withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(10),
                     ),
-                    _sliderTile('弹幕不透明度', app.danmuOpacity, 0.1, 1.0,
-                      (v) => app.danmuOpacity = v, (v) => '${(v * 100).toInt()}%'),
-                    _sliderTile('弹幕字号', app.danmuFontSize, 14, 36,
-                      (v) => app.danmuFontSize = v, (v) => '${v.toInt()}'),
-                    _sliderTile('显示区域', app.danmuArea.toDouble(), 10, 100,
-                      (v) => app.danmuArea = v.toInt(), (v) => '${v.toInt()}%'),
-                    _sliderTile('弹幕速度', app.danmuSpeed, 0.5, 2.0,
-                      (v) => app.danmuSpeed = v, (v) => '${v.toStringAsFixed(1)}x'),
-                    _sliderTile('弹幕密度', app.danmuDensity.toDouble(), 10, 100,
-                      (v) => app.danmuDensity = v.toInt(), (v) => '${v.toInt()}%'),
-                    SwitchListTile(
-                      title: const Text('文字描边'),
-                      value: app.danmuOutline,
-                      onChanged: (v) => app.danmuOutline = v,
-                      activeColor: FnTheme.danmuGreen,
-                    ),
-                    SwitchListTile(
-                      title: const Text('滚动弹幕'),
-                      value: app.danmuScroll,
-                      onChanged: (v) => app.danmuScroll = v,
-                      activeColor: FnTheme.danmuGreen,
-                    ),
-                    SwitchListTile(
-                      title: const Text('顶部弹幕'),
-                      value: app.danmuTop,
-                      onChanged: (v) => app.danmuTop = v,
-                      activeColor: FnTheme.danmuGreen,
-                    ),
-                    SwitchListTile(
-                      title: const Text('底部弹幕'),
-                      value: app.danmuBottom,
-                      onChanged: (v) => app.danmuBottom = v,
-                      activeColor: FnTheme.danmuGreen,
-                    ),
-                  ],
+                    child: const Icon(Icons.subtitles_rounded, size: 20, color: FnTheme.danmuGreen),
+                  ),
+                  title: const Text('弹幕设置'),
+                  subtitle: Text(
+                    app.danmuOn ? '已开启 · ${app.danmuFontSize.toInt()}px · ${(app.danmuOpacity * 100).toInt()}%' : '已关闭',
+                    style: const TextStyle(fontSize: 12, color: FnTheme.textSecondary),
+                  ),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: () => Navigator.push(context,
+                    MaterialPageRoute(builder: (_) => const DanmuSettingsScreen()),
+                  ),
                 ),
               ),
               const SizedBox(height: 16),
@@ -134,6 +110,24 @@ class SettingsScreen extends StatelessWidget {
               Card(
                 child: Column(
                   children: [
+                    // Player engine selector (Android only shows both, others show mpv info)
+                    ListTile(
+                      leading: Container(
+                        width: 36, height: 36,
+                        decoration: BoxDecoration(
+                          color: FnTheme.danmuGreen.withOpacity(0.12),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Icon(Icons.play_circle_rounded, size: 20, color: FnTheme.danmuGreen),
+                      ),
+                      title: const Text('播放内核'),
+                      subtitle: Text(
+                        app.playerEngine == 'mpv' ? 'MPV (libmpv) — 解码能力强' : 'ExoPlayer — Android 原生',
+                        style: const TextStyle(fontSize: 12, color: FnTheme.textSecondary),
+                      ),
+                      trailing: const Icon(Icons.chevron_right_rounded),
+                      onTap: () => _showEnginePicker(context, app),
+                    ),
                     ListTile(
                       title: const Text('解码模式'),
                       subtitle: Text(app.decoderMode == 'hardware' ? '硬解' : '软解'),
@@ -257,24 +251,24 @@ class SettingsScreen extends StatelessWidget {
     );
   }
 
-  Widget _sliderTile(String label, double value, double min, double max,
-      ValueChanged<double> onChanged, String Function(double) format) {
-    return ListTile(
-      title: Text(label),
-      subtitle: Row(
-        children: [
-          Expanded(
-            child: Slider(
-              value: value.clamp(min, max),
-              min: min, max: max,
-              activeColor: FnTheme.danmuGreen,
-              onChanged: onChanged,
-            ),
-          ),
-          SizedBox(width: 48, child: Text(format(value), textAlign: TextAlign.right)),
-        ],
-      ),
-    );
+  void _showEnginePicker(BuildContext ctx, AppState app) {
+    showDialog(context: ctx, builder: (_) => SimpleDialog(
+      title: const Text('播放内核'),
+      children: [
+        RadioListTile(
+          value: 'mpv', groupValue: app.playerEngine,
+          title: const Text('MPV (libmpv)'),
+          subtitle: const Text('解码能力强，支持更多格式'),
+          onChanged: (v) { app.playerEngine = v!; Navigator.pop(ctx); },
+        ),
+        RadioListTile(
+          value: 'exo', groupValue: app.playerEngine,
+          title: const Text('ExoPlayer'),
+          subtitle: const Text('Android 原生，兼容性好'),
+          onChanged: (v) { app.playerEngine = v!; Navigator.pop(ctx); },
+        ),
+      ],
+    ));
   }
 
   void _showDecoderPicker(BuildContext ctx, AppState app) {

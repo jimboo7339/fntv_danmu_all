@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:media_kit/media_kit.dart';
 import 'providers/app_state.dart';
 import 'screens/login_screen.dart';
 import 'screens/home_screen.dart';
@@ -10,6 +11,7 @@ import 'utils/theme.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  MediaKit.ensureInitialized();
   SystemChrome.setPreferredOrientations([
     DeviceOrientation.landscapeLeft,
     DeviceOrientation.landscapeRight,

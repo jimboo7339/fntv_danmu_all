@@ -2,7 +2,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import 'package:video_player/video_player.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import '../providers/app_state.dart';
 import '../models/play_info.dart';
@@ -14,6 +13,7 @@ import '../utils/format.dart';
 import '../utils/theme.dart';
 import '../widgets/danmu_overlay.dart';
 import '../widgets/player_controls.dart';
+import '../services/video_wrapper.dart';
 
 class PlayerScreen extends StatefulWidget {
   final String itemGuid;
@@ -44,7 +44,8 @@ class PlayerScreen extends StatefulWidget {
 }
 
 class _PlayerScreenState extends State<PlayerScreen> {
-  VideoPlayerController? _videoCtrl;
+  VideoWrapper? _videoCtrl;
+  bool _useMpv = true;
   bool _isPlaying = false;
   bool _showControls = true;
   bool _isLocked = false;
@@ -98,7 +99,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _tvTitle = widget.tvTitle;
     _episodeNumber = widget.episodeNumber;
     _parentGuid = widget.parentGuid;
-    _danmuOn = context.read<AppState>().danmuOn;
+    final app = context.read<AppState>();
+    _danmuOn = app.danmuOn;
+    _useMpv = app.playerEngine == 'mpv';
     WakelockPlus.enable();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     SystemChrome.setPreferredOrientations([
@@ -134,13 +137,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
           _seasonNumber = info.item!.seasonNumber > 0 ? info.item!.seasonNumber : 1;
           _episodeNumber = info.item!.episodeNumber;
         }
-        // Load danmu
         _loadDanmu();
-        // Fetch stream info
         await _fetchStreamInfo();
-        // Start playback
         _startPlayback();
-        // Load episodes
         if (_parentGuid != null && _parentGuid!.isNotEmpty) {
           _loadEpisodes();
         }
@@ -153,8 +152,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Future<void> _fetchStreamInfo() async {
     if (_mediaGuid == null) return;
     try {
-      final account = _app.api.baseUrl; // we need the username
-      // Use a simple hash for ip field
       final body = <String, dynamic>{
         'header': {
           'User-Agent': ['Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36']
@@ -202,32 +199,32 @@ class _PlayerScreenState extends State<PlayerScreen> {
     } else {
       url = _app.api.getMediaUrl(_mediaGuid!);
     }
-    debugPrint('Playing: $url');
+    debugPrint('Playing (${'mpv' if _useMpv else 'exo'}): $url');
     _initVideo(url);
   }
 
   void _initVideo(String url) {
     _videoCtrl?.dispose();
-    _videoCtrl = VideoPlayerController.networkUrl(Uri.parse(url))
-      ..initialize().then((_) {
-        if (!mounted) return;
-        setState(() => _isInitialized = true);
-        _videoCtrl!.setPlaybackSpeed(_speed);
-        if (widget.seekTs > 0) {
-          _videoCtrl!.seekTo(Duration(seconds: widget.seekTs));
-        }
-        _videoCtrl!.play();
-        _isPlaying = true;
-        _startProgressTimer();
-        _resetHideTimer();
-      })
-      ..addListener(_videoListener);
+    _videoCtrl = VideoWrapper(useMpv: _useMpv, url: url);
+    _videoCtrl!.addListener(_videoListener);
+    _videoCtrl!.initialize().then((_) {
+      if (!mounted) return;
+      setState(() => _isInitialized = true);
+      _videoCtrl!.setSpeed(_speed);
+      if (widget.seekTs > 0) {
+        _videoCtrl!.seekTo(Duration(seconds: widget.seekTs));
+      }
+      _videoCtrl!.play();
+      _isPlaying = true;
+      _startProgressTimer();
+      _resetHideTimer();
+    });
   }
 
   void _videoListener() {
     if (_videoCtrl == null || !mounted) return;
-    final isBuffering = _videoCtrl!.value.isBuffering;
-    final isPlaying = _videoCtrl!.value.isPlaying;
+    final isBuffering = _videoCtrl!.isBuffering;
+    final isPlaying = _videoCtrl!.isPlaying;
     if (isBuffering != _isBuffering || isPlaying != _isPlaying) {
       setState(() {
         _isBuffering = isBuffering;
@@ -235,8 +232,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
       });
     }
     // Check if ended
-    if (_videoCtrl!.value.position >= _videoCtrl!.value.duration &&
-        _videoCtrl!.value.duration.inSeconds > 0) {
+    if (_videoCtrl!.position >= _videoCtrl!.duration &&
+        _videoCtrl!.duration.inSeconds > 0) {
       _onPlaybackComplete();
     }
   }
@@ -256,8 +253,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   void _saveProgress() {
     if (_videoCtrl == null || !mounted) return;
-    final pos = _videoCtrl!.value.position.inSeconds;
-    final dur = _videoCtrl!.value.duration.inSeconds;
+    final pos = _videoCtrl!.position.inSeconds;
+    final dur = _videoCtrl!.duration.inSeconds;
     if (dur > 0) {
       _app.addWatchRecord(WatchRecord(
         guid: widget.itemGuid,
@@ -276,7 +273,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Future<void> _loadDanmu() async {
     final matchName = _tvTitle.isNotEmpty ? _tvTitle : _itemTitle;
     if (matchName.isEmpty) return;
-    // Try loading danmu from the danmu API
     try {
       final danmuUrl = _app.danmuUrl;
       String query = matchName;
@@ -284,8 +280,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
         query = '$matchName S${_seasonNumber.toString().padLeft(2, '0')}E${_episodeNumber.toString().padLeft(2, '0')}';
       }
       debugPrint('Loading danmu for: $query from $danmuUrl');
-      // The danmu API endpoint would be called here
-      // For now we set empty - the user needs to configure their danmu server
     } catch (e) {
       debugPrint('loadDanmu error: $e');
     }
@@ -324,7 +318,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
     });
     _videoCtrl?.dispose();
     _videoCtrl = null;
-    // Reload with new item
     _loadPlayInfoForItem(ep.guid);
   }
 
@@ -354,14 +347,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   void _seek(Duration offset) {
     if (_videoCtrl == null) return;
-    final newPos = _videoCtrl!.value.position + offset;
+    final newPos = _videoCtrl!.position + offset;
     _videoCtrl!.seekTo(newPos);
   }
 
   void _cycleSpeed() {
     _speedIdx = (_speedIdx + 1) % _speeds.length;
     _speed = _speeds[_speedIdx];
-    _videoCtrl?.setPlaybackSpeed(_speed);
+    _videoCtrl?.setSpeed(_speed);
     setState(() {});
   }
 
@@ -420,8 +413,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
             Center(
               child: _isInitialized && _videoCtrl != null
                   ? AspectRatio(
-                      aspectRatio: _videoCtrl!.value.aspectRatio,
-                      child: VideoPlayer(_videoCtrl!),
+                      aspectRatio: _videoCtrl!.aspectRatio,
+                      child: _videoCtrl!.buildVideo(),
                     )
                   : const Center(child: CircularProgressIndicator(color: FnTheme.danmuGreen)),
             ),
@@ -434,7 +427,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
             if (_danmuOn && _isPlaying)
               DanmuOverlay(
                 comments: _danmuItems,
-                currentTime: _videoCtrl?.value.position.inMilliseconds.toDouble() ?? 0,
+                currentTime: _videoCtrl?.position.inMilliseconds.toDouble() ?? 0,
                 opacity: _app.danmuOpacity,
                 fontSize: _app.danmuFontSize,
                 areaPercent: _app.danmuArea,
@@ -448,8 +441,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 isPlaying: _isPlaying,
                 isLocked: _isLocked,
                 speed: _speed,
-                position: _videoCtrl?.value.position ?? Duration.zero,
-                duration: _videoCtrl?.value.duration ?? Duration.zero,
+                position: _videoCtrl?.position ?? Duration.zero,
+                duration: _videoCtrl?.duration ?? Duration.zero,
                 episodeList: _episodeList,
                 currentEpIndex: _currentEpIndex,
                 danmuOn: _danmuOn,
@@ -498,11 +491,27 @@ class _PlayerScreenState extends State<PlayerScreen> {
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: Icon(
-                      _isLocked ? Icons.lock : Icons.lock_open,
-                      color: _isLocked ? Colors.orange : Colors.white70,
-                      size: 22,
+                      _isLocked ? Icons.lock_rounded : Icons.lock_open_rounded,
+                      color: Colors.white70,
+                      size: 20,
                     ),
                   ),
+                ),
+              ),
+            ),
+
+            // Engine indicator
+            Positioned(
+              left: 16, top: 12,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: Colors.black54,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  _useMpv ? 'MPV' : 'Exo',
+                  style: const TextStyle(color: Colors.white70, fontSize: 10, fontWeight: FontWeight.w600),
                 ),
               ),
             ),

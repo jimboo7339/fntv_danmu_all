@@ -253,4 +253,10 @@ class AppState extends ChangeNotifier {
   }
 
   set danmuUrl(String v) { _prefs.setString('danmu_url', v); notifyListeners(); }
+
+  // ====== Player Engine ======
+
+  /// 'exo' or 'mpv'. Default: 'mpv' on all platforms.
+  String get playerEngine => _prefs.getString('player_engine') ?? 'mpv';
+  set playerEngine(String v) { _prefs.setString('player_engine', v); notifyListeners(); }
 }
