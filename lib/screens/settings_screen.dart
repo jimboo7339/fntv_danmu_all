@@ -28,49 +28,55 @@ class SettingsScreen extends StatelessWidget {
           child: ListView(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             children: [
-              // User info card
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 52, height: 52,
-                        decoration: BoxDecoration(
-                          color: FnTheme.danmuGreen.withOpacity(0.12),
-                          borderRadius: BorderRadius.circular(14),
+              // Current server info
+              if (app.currentAccount != null)
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 52, height: 52,
+                          decoration: BoxDecoration(
+                            color: FnTheme.danmuGreen.withOpacity(0.12),
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: const Icon(Icons.dns_rounded, size: 26, color: FnTheme.danmuGreen),
                         ),
-                        child: const Icon(Icons.person_rounded, size: 28, color: FnTheme.danmuGreen),
-                      ),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(app.api.baseUrl,
-                              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-                              overflow: TextOverflow.ellipsis),
-                            const SizedBox(height: 3),
-                            Row(
-                              children: [
-                                Container(
-                                  width: 8, height: 8,
-                                  decoration: BoxDecoration(
-                                    color: Colors.green[400],
-                                    shape: BoxShape.circle,
-                                  ),
-                                ),
-                                const SizedBox(width: 6),
-                                Text('已连接', style: TextStyle(color: Colors.green[400], fontSize: 12)),
-                              ],
-                            ),
-                          ],
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(app.currentAccount!.user,
+                                style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
+                              const SizedBox(height: 3),
+                              Text(app.currentAccount!.host.replaceAll(RegExp(r'^https?://'), ''),
+                                style: const TextStyle(color: FnTheme.textSecondary, fontSize: 12),
+                                overflow: TextOverflow.ellipsis),
+                            ],
+                          ),
                         ),
-                      ),
-                    ],
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: Colors.green.withOpacity(0.12),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Container(width: 7, height: 7,
+                                decoration: const BoxDecoration(color: Colors.green, shape: BoxShape.circle)),
+                              const SizedBox(width: 5),
+                              Text('已连接', style: TextStyle(color: Colors.green[400], fontSize: 12)),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-              ),
               const SizedBox(height: 20),
 
               // 弹幕设置
@@ -153,6 +159,64 @@ class SettingsScreen extends StatelessWidget {
                   subtitle: Text(app.danmuUrl),
                   trailing: const Icon(Icons.edit_rounded),
                   onTap: () => _editDanmuUrl(context, app),
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // 账号管理
+              _sectionTitle('账号管理'),
+              Card(
+                child: Column(
+                  children: [
+                    ...app.accounts.map((acc) => ListTile(
+                      leading: Container(
+                        width: 36, height: 36,
+                        decoration: BoxDecoration(
+                          color: acc.id == app.currentAccount?.id
+                              ? FnTheme.danmuGreen.withOpacity(0.15)
+                              : Colors.grey.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Icon(Icons.person_rounded, size: 20,
+                          color: acc.id == app.currentAccount?.id
+                              ? FnTheme.danmuGreen : FnTheme.textMuted),
+                      ),
+                      title: Text(acc.user,
+                        style: TextStyle(
+                          fontWeight: acc.id == app.currentAccount?.id
+                              ? FontWeight.bold : FontWeight.normal,
+                        )),
+                      subtitle: Text(acc.host.replaceAll(RegExp(r'^https?://'), ''),
+                        style: const TextStyle(fontSize: 12, color: FnTheme.textSecondary),
+                        overflow: TextOverflow.ellipsis),
+                      trailing: acc.id == app.currentAccount?.id
+                          ? const Icon(Icons.check_circle_rounded, color: FnTheme.danmuGreen, size: 20)
+                          : null,
+                      onTap: acc.id == app.currentAccount?.id ? null : () async {
+                        final ok = await app.switchAccount(acc.id);
+                        if (ok && context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('已切换到 ${acc.label}')),
+                          );
+                        }
+                      },
+                    )),
+                    ListTile(
+                      leading: Container(
+                        width: 36, height: 36,
+                        decoration: BoxDecoration(
+                          color: Colors.grey.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Icon(Icons.add_rounded, size: 20, color: FnTheme.textMuted),
+                      ),
+                      title: const Text('切换 / 添加账号'),
+                      onTap: () {
+                        app.logout();
+                        Navigator.of(context).popUntil((route) => route.isFirst);
+                      },
+                    ),
+                  ],
                 ),
               ),
               const SizedBox(height: 16),

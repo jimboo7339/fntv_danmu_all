@@ -4,30 +4,118 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/watch_record.dart';
 import '../services/api_client.dart';
 
+/// Represents a saved account (server + user).
+class SavedAccount {
+  final String id;       // host|user as unique key
+  final String host;
+  final String user;
+  final String pass;
+  final String token;
+  final String label;    // display name: "user@host"
+
+  SavedAccount({
+    required this.id,
+    required this.host,
+    required this.user,
+    required this.pass,
+    required this.token,
+    String? label,
+  }) : label = label ?? '$user@${_shortHost(host)}';
+
+  static String _shortHost(String host) {
+    var h = host.replaceAll(RegExp(r'^https?://'), '');
+    h = h.replaceAll(RegExp(r':\d+$'), '');
+    return h;
+  }
+
+  Map<String, dynamic> toJson() => {
+    'id': id, 'host': host, 'user': user,
+    'pass': pass, 'token': token, 'label': label,
+  };
+
+  factory SavedAccount.fromJson(Map<String, dynamic> j) => SavedAccount(
+    id: j['id'] ?? '', host: j['host'] ?? '', user: j['user'] ?? '',
+    pass: j['pass'] ?? '', token: j['token'] ?? '', label: j['label'],
+  );
+}
+
 class AppState extends ChangeNotifier {
   final ApiClient api = ApiClient();
   late SharedPreferences _prefs;
   bool _isLoggedIn = false;
   bool _loading = false;
   List<WatchRecord> _watchHistory = [];
+  List<SavedAccount> _accounts = [];
+  SavedAccount? _currentAccount;
 
   bool get isLoggedIn => _isLoggedIn;
   bool get loading => _loading;
   List<WatchRecord> get watchHistory => _watchHistory;
-  String get serverHost => _prefs.getString('host') ?? '';
+  List<SavedAccount> get accounts => _accounts;
+  SavedAccount? get currentAccount => _currentAccount;
+  String get serverHost => _currentAccount?.host ?? '';
 
   Future<void> init() async {
     _prefs = await SharedPreferences.getInstance();
-    final host = _prefs.getString('host') ?? '';
-    final token = _prefs.getString('token') ?? '';
-    final remember = _prefs.getBool('remember') ?? false;
-    if (remember && host.isNotEmpty && token.isNotEmpty) {
-      api.updateBaseUrl(host);
-      api.setToken(token);
-      _isLoggedIn = true;
+    _loadAccounts();
+    // Try auto-login with last active account
+    final activeId = _prefs.getString('active_account_id') ?? '';
+    if (activeId.isNotEmpty) {
+      final acc = _accounts.where((a) => a.id == activeId).toList();
+      if (acc.isNotEmpty && acc.first.token.isNotEmpty) {
+        _currentAccount = acc.first;
+        api.updateBaseUrl(acc.first.host);
+        api.setToken(acc.first.token);
+        _isLoggedIn = true;
+      }
     }
     _loadWatchHistory();
   }
+
+  // ====== Accounts ======
+
+  void _loadAccounts() {
+    final json = _prefs.getString('accounts');
+    if (json != null) {
+      try {
+        final list = jsonDecode(json) as List;
+        _accounts = list.map((e) => SavedAccount.fromJson(e)).toList();
+      } catch (_) {
+        _accounts = [];
+      }
+    }
+  }
+
+  void _saveAccounts() {
+    _prefs.setString('accounts', jsonEncode(_accounts.map((a) => a.toJson()).toList()));
+  }
+
+  /// Switch to a saved account without re-login.
+  Future<bool> switchAccount(String accountId) async {
+    final acc = _accounts.where((a) => a.id == accountId).toList();
+    if (acc.isEmpty) return false;
+    final account = acc.first;
+    if (account.token.isEmpty) return false;
+    _currentAccount = account;
+    api.updateBaseUrl(account.host);
+    api.setToken(account.token);
+    await _prefs.setString('active_account_id', account.id);
+    // Clear watch history on account switch
+    _watchHistory.clear();
+    await _prefs.remove('watch_history');
+    _isLoggedIn = true;
+    notifyListeners();
+    return true;
+  }
+
+  /// Remove a saved account.
+  void removeAccount(String accountId) {
+    _accounts.removeWhere((a) => a.id == accountId);
+    _saveAccounts();
+    notifyListeners();
+  }
+
+  // ====== Login / Logout ======
 
   Future<bool> login(String host, String user, String pass, bool remember) async {
     _loading = true;
@@ -41,22 +129,32 @@ class AppState extends ChangeNotifier {
       if (resp['code'] == 0) {
         final token = resp['data']['token'] as String;
         api.setToken(token);
-        await _prefs.setString('host', host);
-        await _prefs.setString('user', user);
-        await _prefs.setString('token', token);
+
+        // Build account id
+        final accId = '$host|$user';
+        final account = SavedAccount(
+          id: accId, host: host, user: user,
+          pass: remember ? pass : '', token: token,
+        );
+
+        // Update or add account
+        _accounts.removeWhere((a) => a.id == accId);
+        _accounts.insert(0, account);
+        _currentAccount = account;
+        _saveAccounts();
+
+        // Set as active
+        await _prefs.setString('active_account_id', accId);
         await _prefs.setBool('remember', remember);
-        if (remember) {
-          await _prefs.setString('pass', pass);
-        } else {
-          await _prefs.remove('pass');
-        }
-        // Clear history on server change
+
+        // Clear watch history on account switch
         final lastHost = _prefs.getString('last_host') ?? '';
         if (lastHost != host && lastHost.isNotEmpty) {
           await _prefs.remove('watch_history');
           _watchHistory.clear();
         }
         await _prefs.setString('last_host', host);
+
         _isLoggedIn = true;
         _loading = false;
         notifyListeners();
@@ -72,8 +170,11 @@ class AppState extends ChangeNotifier {
 
   Future<void> logout() async {
     _isLoggedIn = false;
-    await _prefs.remove('token');
+    _currentAccount = null;
     api.setToken('');
+    // Clear active account so auto-login doesn't kick in
+    await _prefs.remove('active_account_id');
+    // DON'T remove saved accounts — user can switch between them
     notifyListeners();
   }
 
@@ -147,7 +248,7 @@ class AppState extends ChangeNotifier {
   String get danmuUrl {
     final saved = _prefs.getString('danmu_url') ?? '';
     if (saved.isNotEmpty) return saved;
-    final host = serverHost.replaceAll(RegExp(r'^https?://'), '').replaceAll(RegExp(r'/.*\$'), '').replaceAll(RegExp(r':\d+\$'), '');
+    final host = serverHost.replaceAll(RegExp(r'^https?://'), '').replaceAll(RegExp(r'/.*$'), '').replaceAll(RegExp(r':\d+$'), '');
     return 'http://$host:9321';
   }
 

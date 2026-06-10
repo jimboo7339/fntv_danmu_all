@@ -107,7 +107,46 @@ jobs:
           cp /tmp/fntv_custom/mipmap-anydpi-v26/* android/app/src/main/res/mipmap-anydpi-v26/ 2>/dev/null || true
 
           echo "=== Custom config applied ==="
-          cat android/app/src/main/AndroidManifest.xml | head -5
+
+      - name: Create release keystore
+        run: |
+          keytool -genkeypair -v \
+            -keystore android/app/fntv-release.jks \
+            -keyalg RSA -keysize 2048 -validity 36500 \
+            -alias fntv \
+            -storepass fntv2024 \
+            -keypass fntv2024 \
+            -dname "CN=飞牛TV, OU=Dev, O=FNTV, L=Jinan, ST=SD, C=CN"
+
+      - name: Configure signing in build.gradle
+        run: |
+          cat > android/app/signing.gradle << 'SIGNING'
+          def keystoreProperties = new Properties()
+          def keystorePropertiesFile = rootProject.file("app/fntv-release.jks")
+          if (keystorePropertiesFile.exists()) {
+              keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+          }
+
+          android {
+              signingConfigs {
+                  release {
+                      storeFile file("fntv-release.jks")
+                      storePassword "fntv2024"
+                      keyAlias "fntv"
+                      keyPassword "fntv2024"
+                  }
+              }
+              buildTypes {
+                  release {
+                      signingConfig signingConfigs.release
+                  }
+              }
+          }
+          SIGNING
+
+          # Append signing.gradle to app/build.gradle
+          echo "" >> android/app/build.gradle
+          echo "apply from: 'signing.gradle'" >> android/app/build.gradle
 
       - run: flutter pub get
       - run: flutter build apk --release
