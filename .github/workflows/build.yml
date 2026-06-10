@@ -87,6 +87,7 @@ jobs:
       - name: Create Release with Chinese Notes
         uses: softprops/action-gh-release@v2
         with:
+          token: ${{ secrets.GITHUB_TOKEN }}
           files: artifacts/android-apk/*.apk
           body: |
             ## 飞牛TV v${{ github.ref_name }} 更新
