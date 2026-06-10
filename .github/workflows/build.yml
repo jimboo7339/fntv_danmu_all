@@ -108,8 +108,9 @@ jobs:
 
           echo "=== Custom config applied ==="
 
-      - name: Create release keystore
+      - name: Create release keystore & configure signing
         run: |
+          # Generate keystore
           keytool -genkeypair -v \
             -keystore android/app/fntv-release.jks \
             -keyalg RSA -keysize 2048 -validity 36500 \
@@ -118,35 +119,45 @@ jobs:
             -keypass fntv2024 \
             -dname "CN=飞牛TV, OU=Dev, O=FNTV, L=Jinan, ST=SD, C=CN"
 
-      - name: Configure signing in build.gradle
-        run: |
-          cat > android/app/signing.gradle << 'SIGNING'
-          def keystoreProperties = new Properties()
-          def keystorePropertiesFile = rootProject.file("app/fntv-release.jks")
-          if (keystorePropertiesFile.exists()) {
-              keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
-          }
+          # Patch build.gradle to add signing config
+          # Find the android { block and add signingConfigs + release signing
+          python3 << 'PYEOF'
+          import re
 
-          android {
-              signingConfigs {
-                  release {
-                      storeFile file("fntv-release.jks")
-                      storePassword "fntv2024"
-                      keyAlias "fntv"
-                      keyPassword "fntv2024"
-                  }
-              }
-              buildTypes {
-                  release {
-                      signingConfig signingConfigs.release
-                  }
-              }
-          }
-          SIGNING
+          path = "android/app/build.gradle"
+          with open(path, "r") as f:
+              content = f.read()
 
-          # Append signing.gradle to app/build.gradle
-          echo "" >> android/app/build.gradle
-          echo "apply from: 'signing.gradle'" >> android/app/build.gradle
+          # Add signingConfigs before buildTypes
+          signing_config = """
+      signingConfigs {
+          release {
+              storeFile file("fntv-release.jks")
+              storePassword "fntv2024"
+              keyAlias "fntv"
+              keyPassword "fntv2024"
+          }
+      }
+"""
+          # Insert signingConfigs before buildTypes
+          content = content.replace(
+              "    buildTypes {",
+              signing_config + "    buildTypes {",
+              1
+          )
+
+          # Add signingConfig to release buildType
+          content = content.replace(
+              'release {',
+              'release {\n                signingConfig signingConfigs.release',
+              1
+          )
+
+          with open(path, "w") as f:
+              f.write(content)
+
+          print("=== build.gradle patched with signing config ===")
+          PYEOF
 
       - run: flutter pub get
       - run: flutter build apk --release
