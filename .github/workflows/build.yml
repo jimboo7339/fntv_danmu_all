@@ -35,19 +35,12 @@ jobs:
       - name: Apply custom Android config
         run: |
           python3 .github/scripts/apply_android_config.py
+          python3 .github/scripts/patch_project_gradle.py
           cp /tmp/fntv_custom/ic_launcher_foreground.xml android/app/src/main/res/drawable/ 2>/dev/null || true
           cp /tmp/fntv_custom/mipmap-anydpi-v26/* android/app/src/main/res/mipmap-anydpi-v26/ 2>/dev/null || true
 
-      - name: Create keystore & configure signing
-        run: |
-          keytool -genkeypair -v \
-            -keystore android/app/fntv-release.jks \
-            -keyalg RSA -keysize 2048 -validity 36500 \
-            -alias fntv \
-            -storepass fntv2024 \
-            -keypass fntv2024 \
-            -dname "CN=FNTV, OU=Dev, O=FNTV, L=Jinan, ST=SD, C=CN"
-          python3 .github/scripts/patch_signing.py
+      - name: Write signed build.gradle
+        run: python3 .github/scripts/patch_signing.py
 
       - run: flutter pub get
       - run: flutter build apk --release

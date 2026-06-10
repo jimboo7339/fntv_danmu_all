@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Write complete android/app/build.gradle with signing config."""
+"""Write complete android/app/build.gradle with signing config and proper SDK/Kotlin versions."""
 import os
 
 BUILD_GRADLE = r'''def localProperties = new Properties()
@@ -31,16 +31,16 @@ apply from: "$flutterRoot/packages/flutter_tools/gradle/flutter.gradle"
 
 android {
     namespace "com.fntv.fnos_tv_all"
-    compileSdk flutter.compileSdkVersion
+    compileSdk 36
     ndkVersion flutter.ndkVersion
 
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_1_8
-        targetCompatibility JavaVersion.VERSION_1_8
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
     }
 
     kotlinOptions {
-        jvmTarget = '1.8'
+        jvmTarget = '17'
     }
 
     sourceSets {
@@ -49,10 +49,11 @@ android {
 
     defaultConfig {
         applicationId "com.fntv.fnos_tv_all"
-        minSdkVersion 21
-        targetSdkVersion flutter.targetSdkVersion
+        minSdk 21
+        targetSdk 35
         versionCode flutterVersionCode.toInteger()
         versionName flutterVersionName
+        multiDexEnabled true
     }
 
     signingConfigs {
@@ -67,6 +68,7 @@ android {
     buildTypes {
         release {
             signingConfig signingConfigs.release
+            minifyEnabled false
         }
     }
 }
@@ -75,16 +77,31 @@ flutter {
     source '../..'
 }
 
-dependencies {}
+dependencies {
+    implementation "org.jetbrains.kotlin:kotlin-stdlib:1.9.22"
+}
 '''
 
 def main():
+    import subprocess
+
+    # Generate keystore
+    subprocess.run([
+        'keytool', '-genkeypair', '-v',
+        '-keystore', 'android/app/fntv-release.jks',
+        '-keyalg', 'RSA', '-keysize', '2048', '-validity', '36500',
+        '-alias', 'fntv',
+        '-storepass', 'fntv2024',
+        '-keypass', 'fntv2024',
+        '-dname', 'CN=FNTV, OU=Dev, O=FNTV, L=Jinan, ST=SD, C=CN',
+    ], check=True)
+    print('Keystore created.')
+
     path = 'android/app/build.gradle'
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, 'w') as f:
         f.write(BUILD_GRADLE)
-    print(f'  Written: {path}')
-    print('Done.')
+    print(f'Written: {path}')
 
 if __name__ == '__main__':
     main()
