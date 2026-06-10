@@ -193,7 +193,7 @@ class SettingsScreen extends StatelessWidget {
       title: const Text('快进步长'),
       children: [5, 10, 15, 30].map((s) => RadioListTile(
         value: s, groupValue: app.seekStep,
-        title: Text('\$s 秒'),
+        title: Text('$s 秒'),
         onChanged: (v) { app.seekStep = v!; Navigator.pop(ctx); },
       )).toList(),
     ));

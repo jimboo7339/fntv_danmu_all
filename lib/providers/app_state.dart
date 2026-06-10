@@ -34,7 +34,7 @@ class AppState extends ChangeNotifier {
     notifyListeners();
     try {
       if (!host.startsWith('http://') && !host.startsWith('https://')) {
-        host = 'http://\$host';
+        host = 'http://$host';
       }
       api.updateBaseUrl(host);
       final resp = await api.login(user, pass);
@@ -63,7 +63,7 @@ class AppState extends ChangeNotifier {
         return true;
       }
     } catch (e) {
-      debugPrint('Login error: \$e');
+      debugPrint('Login error: $e');
     }
     _loading = false;
     notifyListeners();
@@ -148,7 +148,7 @@ class AppState extends ChangeNotifier {
     final saved = _prefs.getString('danmu_url') ?? '';
     if (saved.isNotEmpty) return saved;
     final host = serverHost.replaceAll(RegExp(r'^https?://'), '').replaceAll(RegExp(r'/.*\$'), '').replaceAll(RegExp(r':\d+\$'), '');
-    return 'http://\$host:9321';
+    return 'http://$host:9321';
   }
 
   set danmuUrl(String v) { _prefs.setString('danmu_url', v); notifyListeners(); }
