@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../models/play_list_item.dart';
 import '../utils/format.dart';
 import '../utils/theme.dart';
