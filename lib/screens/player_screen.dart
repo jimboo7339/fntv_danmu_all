@@ -199,7 +199,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     } else {
       url = _app.api.getMediaUrl(_mediaGuid!);
     }
-    debugPrint('Playing (${'mpv' if _useMpv else 'exo'}): $url');
+    debugPrint('Playing (${_useMpv ? 'mpv' : 'exo'}): $url');
     _initVideo(url);
   }
 
