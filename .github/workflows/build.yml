@@ -5,10 +5,6 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
-    inputs:
-      version:
-        description: 'Version tag (e.g. v1.0.0)'
-        required: true
 
 env:
   FLUTTER_VERSION: '3.24.5'
@@ -24,6 +20,9 @@ jobs:
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
+
+      - name: Generate platform files
+        run: flutter create --org com.fntv --project-name fnos_tv_all .
 
       - run: flutter pub get
       - run: flutter build apk --release
