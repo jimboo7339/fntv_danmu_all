@@ -71,7 +71,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Future<void> _browseItems(String guid, String title) async {
+  Future<void> _fetchItems(String guid, String title) async {
     setState(() { _loading = true; _browseGuid = guid; _browseTitle = title; });
     try {
       final resp = await _app.api.getItemList({
@@ -93,7 +93,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _onItemTap(PlayListItem item) async {
     if (item.isFolder) {
-      _browseItems(item.guid, item.title ?? '');
+      _fetchItems(item.guid, item.title ?? '');
       return;
     }
     // Get play info
@@ -283,7 +283,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     Expanded(child: Text(lib.title, style: const TextStyle(
                       fontWeight: FontWeight.bold, fontSize: 17, color: FnTheme.textPrimary))),
                     TextButton(
-                      onPressed: () => _browseItems(lib.guid, lib.title),
+                      onPressed: () => _fetchItems(lib.guid, lib.title),
                       child: const Text('查看全部 ›', style: TextStyle(color: FnTheme.textSecondary)),
                     ),
                   ],
@@ -352,7 +352,7 @@ class _HomeScreenState extends State<HomeScreen> {
             title: Text(lib.title, style: const TextStyle(fontWeight: FontWeight.w600)),
             subtitle: Text(lib.category ?? '', style: const TextStyle(color: FnTheme.textSecondary)),
             trailing: const Icon(Icons.chevron_right),
-            onTap: () => _browseItems(lib.guid, lib.title),
+            onTap: () => _fetchItems(lib.guid, lib.title),
           ),
         );
       },

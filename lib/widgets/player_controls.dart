@@ -59,7 +59,7 @@ class PlayerControls extends StatelessWidget {
     }
 
     final posMs = position.inMilliseconds.toDouble();
-    final durMs = duration.inMilliseconds.toDouble().clamp(1, double.infinity);
+    final durMs = duration.inMilliseconds.toDouble().clamp(1.0, double.infinity).toDouble();
 
     return Container(
       decoration: const BoxDecoration(
@@ -124,8 +124,8 @@ class PlayerControls extends StatelessWidget {
                     overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
                   ),
                   child: Slider(
-                    value: posMs.clamp(0, durMs),
-                    min: 0,
+                    value: posMs.clamp(0.0, durMs).toDouble(),
+                    min: 0.0,
                     max: durMs,
                     onChanged: onSeekChanged,
                   ),
