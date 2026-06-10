@@ -3,8 +3,8 @@ import 'dart:math';
 import 'package:crypto/crypto.dart';
 
 class FnAuthUtils {
-  static const _apiKey = 'vD2P9mXkL3Qr5YtUwEa6FbHcJdN1zR0Wg';
-  static const _apiSecret = 'CA8CEF1E-5B91-4F82-9DB7-E8D6A9B1C2D4';
+  static const _apiKey = 'NDzZTVxnRKP8Z0jXg1VAMonaG8akvh';
+  static const _apiSecret = '16CCEB3D-AB42-077D-36A1-F355324E4237';
 
   static String md5Hex(String input) {
     return md5.convert(utf8.encode(input)).toString();
@@ -17,7 +17,8 @@ class FnAuthUtils {
   static String genAuthx(String url, String? jsonBody) {
     final nonce = generateNonce();
     final timestamp = DateTime.now().millisecondsSinceEpoch.toString();
-    final dataMd5 = jsonBody != null ? md5Hex(jsonBody) : '';
+    // 修复：空 body 也要算 MD5 (md5 of empty string)
+    final dataMd5 = jsonBody != null ? md5Hex(jsonBody) : md5Hex('');
     final parts = [_apiKey, url, nonce, timestamp, dataMd5, _apiSecret];
     final signStr = parts.join('_');
     final sign = md5Hex(signStr);

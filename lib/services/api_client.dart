@@ -22,11 +22,10 @@ class ApiClient {
         }
         final authx = FnAuthUtils.genAuthx(urlPath, bodyStr);
         options.headers['Authx'] = authx;
+        options.headers['Content-Type'] = 'application/json';
+        options.headers['Cookie'] = 'mode=relay';
         if (_token != null) {
           options.headers['Authorization'] = _token;
-          options.headers['Cookie'] = 'mode=relay; Trim-MC-token=$_token';
-        } else {
-          options.headers['Cookie'] = 'mode=relay';
         }
         handler.next(options);
       },
