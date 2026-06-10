@@ -10,7 +10,6 @@ MANIFEST = '''<manifest xmlns:android="http://schemas.android.com/apk/res/androi
         android:label="飞牛TV"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
-        android:roundIcon="@mipmap/ic_launcher_round"
         android:usesCleartextTraffic="true"
         android:networkSecurityConfig="@xml/network_security_config"
         android:allowBackup="true">
