@@ -24,15 +24,26 @@ jobs:
       - name: Generate platform files
         run: flutter create --org com.fntv --project-name fnos_tv_all .
 
+      - name: Debug check dart files
+        run: |
+          echo "=== Dart files ==="
+          find lib -name '*.dart' | sort
+          echo "=== pubspec.yaml ==="
+          cat pubspec.yaml
+
       - run: flutter pub get
-      - run: flutter build apk --release
+
+      - name: Build APK verbose
+        run: flutter build apk --release -v 2>&1 | tail -200
 
       - name: Rename APK
+        if: success()
         run: |
           VERSION="${GITHUB_REF#refs/tags/}"
           cp build/app/outputs/flutter-apk/app-release.apk "FNTV_All_${VERSION}_android.apk"
 
       - uses: actions/upload-artifact@v4
+        if: success()
         with:
           name: android-apk
           path: FNTV_All_*.apk
