@@ -1,0 +1,30 @@
+name: fnos_tv_all
+description: FnOS TV - Cross-platform media client with danmaku support
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.2.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  dio: ^5.4.0
+  shared_preferences: ^2.2.2
+  provider: ^6.1.1
+  cached_network_image: ^3.3.1
+  video_player: ^2.8.3
+  chewie: ^1.7.5
+  crypto: ^3.0.3
+  intl: ^0.19.0
+  wakelock_plus: ^1.2.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.1
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/
