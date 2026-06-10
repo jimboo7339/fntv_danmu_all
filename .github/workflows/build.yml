@@ -24,7 +24,7 @@ jobs:
       - name: Save custom Android files
         run: |
           mkdir -p /tmp/fntv_custom
-          cp -r android/app/src/main/res/drawable/ic_launcher_foreground.xml /tmp/fntv_custom/ 2>/dev/null || true
+          cp android/app/src/main/res/drawable/ic_launcher_foreground.xml /tmp/fntv_custom/ 2>/dev/null || true
           cp -r android/app/src/main/res/mipmap-anydpi-v26/ /tmp/fntv_custom/mipmap-anydpi-v26/ 2>/dev/null || true
 
       - name: Generate Android platform files
@@ -34,130 +34,20 @@ jobs:
 
       - name: Apply custom Android config
         run: |
-          # === Manifest ===
-          cat > android/app/src/main/AndroidManifest.xml << 'MANIFEST'
-          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-              <uses-permission android:name="android.permission.INTERNET"/>
-              <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
-              <uses-permission android:name="android.permission.WAKE_LOCK"/>
-              <application
-                  android:label="飞牛TV"
-                  android:name="${applicationName}"
-                  android:icon="@mipmap/ic_launcher"
-                  android:roundIcon="@mipmap/ic_launcher_round"
-                  android:usesCleartextTraffic="true"
-                  android:networkSecurityConfig="@xml/network_security_config"
-                  android:allowBackup="true">
-                  <activity
-                      android:name=".MainActivity"
-                      android:exported="true"
-                      android:launchMode="singleTop"
-                      android:taskAffinity=""
-                      android:theme="@style/LaunchTheme"
-                      android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
-                      android:hardwareAccelerated="true"
-                      android:windowSoftInputMode="adjustResize">
-                      <meta-data
-                        android:name="io.flutter.embedding.android.NormalTheme"
-                        android:resource="@style/NormalTheme"/>
-                      <intent-filter>
-                          <action android:name="android.intent.action.MAIN"/>
-                          <category android:name="android.intent.category.LAUNCHER"/>
-                      </intent-filter>
-                  </activity>
-                  <meta-data
-                      android:name="flutterEmbedding"
-                      android:value="2"/>
-              </application>
-              <queries>
-                  <intent>
-                      <action android:name="android.intent.action.PROCESS_TEXT"/>
-                      <data android:mimeType="text/plain"/>
-                  </intent>
-              </queries>
-          </manifest>
-          MANIFEST
-
-          # === Network security config ===
-          mkdir -p android/app/src/main/res/xml
-          cat > android/app/src/main/res/xml/network_security_config.xml << 'NETCFG'
-          <?xml version="1.0" encoding="utf-8"?>
-          <network-security-config>
-              <base-config cleartextTrafficPermitted="true">
-                  <trust-anchors>
-                      <certificates src="system"/>
-                  </trust-anchors>
-              </base-config>
-          </network-security-config>
-          NETCFG
-
-          # === Colors ===
-          mkdir -p android/app/src/main/res/values
-          cat > android/app/src/main/res/values/colors.xml << 'COLORS'
-          <?xml version="1.0" encoding="utf-8"?>
-          <resources>
-              <color name="ic_launcher_background">#1A1A2E</color>
-          </resources>
-          COLORS
-
-          # === Restore custom icon ===
-          mkdir -p android/app/src/main/res/drawable
-          mkdir -p android/app/src/main/res/mipmap-anydpi-v26
+          python3 .github/scripts/apply_android_config.py
           cp /tmp/fntv_custom/ic_launcher_foreground.xml android/app/src/main/res/drawable/ 2>/dev/null || true
           cp /tmp/fntv_custom/mipmap-anydpi-v26/* android/app/src/main/res/mipmap-anydpi-v26/ 2>/dev/null || true
 
-          echo "=== Custom config applied ==="
-
-      - name: Create release keystore & configure signing
+      - name: Create keystore & configure signing
         run: |
-          # Generate keystore
           keytool -genkeypair -v \
             -keystore android/app/fntv-release.jks \
             -keyalg RSA -keysize 2048 -validity 36500 \
             -alias fntv \
             -storepass fntv2024 \
             -keypass fntv2024 \
-            -dname "CN=飞牛TV, OU=Dev, O=FNTV, L=Jinan, ST=SD, C=CN"
-
-          # Patch build.gradle to add signing config
-          # Find the android { block and add signingConfigs + release signing
-          python3 << 'PYEOF'
-          import re
-
-          path = "android/app/build.gradle"
-          with open(path, "r") as f:
-              content = f.read()
-
-          # Add signingConfigs before buildTypes
-          signing_config = """
-      signingConfigs {
-          release {
-              storeFile file("fntv-release.jks")
-              storePassword "fntv2024"
-              keyAlias "fntv"
-              keyPassword "fntv2024"
-          }
-      }
-"""
-          # Insert signingConfigs before buildTypes
-          content = content.replace(
-              "    buildTypes {",
-              signing_config + "    buildTypes {",
-              1
-          )
-
-          # Add signingConfig to release buildType
-          content = content.replace(
-              'release {',
-              'release {\n                signingConfig signingConfigs.release',
-              1
-          )
-
-          with open(path, "w") as f:
-              f.write(content)
-
-          print("=== build.gradle patched with signing config ===")
-          PYEOF
+            -dname "CN=FNTV, OU=Dev, O=FNTV, L=Jinan, ST=SD, C=CN"
+          python3 .github/scripts/patch_signing.py
 
       - run: flutter pub get
       - run: flutter build apk --release

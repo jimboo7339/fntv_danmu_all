@@ -1,0 +1,78 @@
+#!/usr/bin/env python3
+"""Apply custom Android config: Manifest, network security, colors, icon restore."""
+import os
+
+MANIFEST = '''<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
+    <application
+        android:label="飞牛TV"
+        android:name="${applicationName}"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:usesCleartextTraffic="true"
+        android:networkSecurityConfig="@xml/network_security_config"
+        android:allowBackup="true">
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:taskAffinity=""
+            android:theme="@style/LaunchTheme"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+            android:hardwareAccelerated="true"
+            android:windowSoftInputMode="adjustResize">
+            <meta-data
+              android:name="io.flutter.embedding.android.NormalTheme"
+              android:resource="@style/NormalTheme"/>
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+        <meta-data
+            android:name="flutterEmbedding"
+            android:value="2"/>
+    </application>
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.PROCESS_TEXT"/>
+            <data android:mimeType="text/plain"/>
+        </intent>
+    </queries>
+</manifest>
+'''
+
+NETCFG = '''<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system"/>
+        </trust-anchors>
+    </base-config>
+</network-security-config>
+'''
+
+COLORS = '''<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="ic_launcher_background">#1A1A2E</color>
+</resources>
+'''
+
+def write(path, content):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, 'w') as f:
+        f.write(content)
+    print(f'  Written: {path}')
+
+def main():
+    base = 'android/app/src/main'
+    print('Applying custom Android config...')
+    write(f'{base}/AndroidManifest.xml', MANIFEST)
+    write(f'{base}/res/xml/network_security_config.xml', NETCFG)
+    write(f'{base}/res/values/colors.xml', COLORS)
+    print('Done.')
+
+if __name__ == '__main__':
+    main()
