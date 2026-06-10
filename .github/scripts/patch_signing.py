@@ -8,7 +8,7 @@ def main():
     with open(GRADLE_PATH, 'r') as f:
         content = f.read()
 
-    # Add signingConfigs before buildTypes
+    # Step 1: Add signingConfigs block BEFORE "buildTypes {"
     signing_block = '''    signingConfigs {
         release {
             storeFile file("fntv-release.jks")
@@ -18,22 +18,27 @@ def main():
         }
     }
 '''
-    # Insert before the first "buildTypes {"
     if 'signingConfigs' not in content:
         content = content.replace('    buildTypes {', signing_block + '    buildTypes {', 1)
         print('  Added signingConfigs block')
 
-    # Add signingConfig to release buildType
-    # Match "release {" that's inside buildTypes
+    # Step 2: Add "signingConfig signingConfigs.release" inside buildTypes > release
+    # Match "buildTypes {" then find the first "release {" inside it
     if 'signingConfig signingConfigs.release' not in content:
-        # Find the release buildType and add signingConfig
-        content = re.sub(
-            r'(release\s*\{)',
-            r'\1\n                signingConfig signingConfigs.release',
-            content,
-            count=1
-        )
-        print('  Added signingConfig to release buildType')
+        # Find "buildTypes {" and insert signingConfig after the next "release {"
+        bt_match = re.search(r'buildTypes\s*\{', content)
+        if bt_match:
+            # Find the first "release {" AFTER "buildTypes {"
+            after_bt = content[bt_match.end():]
+            release_match = re.search(r'release\s*\{', after_bt)
+            if release_match:
+                insert_pos = bt_match.end() + release_match.end()
+                content = (
+                    content[:insert_pos] +
+                    '\n                signingConfig signingConfigs.release' +
+                    content[insert_pos:]
+                )
+                print('  Added signingConfig to buildTypes.release')
 
     with open(GRADLE_PATH, 'w') as f:
         f.write(content)
