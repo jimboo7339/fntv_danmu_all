@@ -27,33 +27,43 @@ class _DetailScreenState extends State<DetailScreen> {
   @override
   void initState() {
     super.initState();
-    _loadData();
+    _loadPlayInfo();
   }
 
   AppState get _app => context.read<AppState>();
 
-  Future<void> _loadData() async {
-    // Load play info for all types (gives us rich metadata)
-    await _loadPlayInfo();
-    // If TV type, also load episodes
-    if (widget.item.isFolder) {
-      await _loadEpisodes();
-    }
-  }
+  // ==================== 数据加载 ====================
 
   Future<void> _loadPlayInfo() async {
     try {
       final resp = await _app.api.getPlayInfo(widget.item.guid);
       if (resp['code'] == 0 && resp['data'] != null) {
-        if (mounted) setState(() {
-          _playInfo = PlayInfoResponse.fromJson(resp['data']);
-          _loadingInfo = false;
-        });
+        final info = PlayInfoResponse.fromJson(resp['data']);
+        if (mounted) {
+          setState(() {
+            _playInfo = info;
+            _loadingInfo = false;
+          });
+          // 判断是否需要加载剧集列表
+          // 1. 类型是 TV（直接点的剧集）→ 用 item.guid 加载
+          // 2. 类型是 Episode（从某集点进来）→ 用 parentGuid 加载
+          final type = info.type ?? widget.item.type;
+          if (type == 'TV' || type == 'Episode') {
+            final parentGuid = type == 'Episode' ? info.parentGuid : widget.item.guid;
+            if (parentGuid != null && parentGuid.isNotEmpty) {
+              _loadEpisodes(parentGuid);
+            }
+          }
+        }
       } else {
+        // getPlayInfo 失败，用 item 自身信息兜底
         if (mounted) setState(() {
-          _error = '获取详情失败';
           _loadingInfo = false;
         });
+        // 仍然尝试加载剧集（如果是 TV 类型）
+        if (widget.item.isFolder) {
+          _loadEpisodes(widget.item.guid);
+        }
       }
     } catch (e) {
       debugPrint('loadPlayInfo error: $e');
@@ -64,19 +74,13 @@ class _DetailScreenState extends State<DetailScreen> {
     }
   }
 
-  Future<void> _loadEpisodes() async {
+  Future<void> _loadEpisodes(String parentGuid) async {
     if (mounted) setState(() => _loadingEpisodes = true);
     try {
-      final resp = await _app.api.getItemList({
-        'ancestor_guid': widget.item.guid,
-        'tags': {'type': ['Episode', 'Video']},
-        'exclude_grouped_video': 1,
-        'sort_type': 'ASC',
-        'sort_column': 'episode_number',
-        'page_size': 200,
-      });
-      if (resp['code'] == 0 && resp['data'] != null && resp['data']['list'] != null) {
-        final items = (resp['data']['list'] as List).map((e) => PlayListItem.fromJson(e)).toList();
+      // 用 getEpisodeList 接口，和原版 app 一致
+      final resp = await _app.api.getEpisodeList(parentGuid);
+      if (resp['code'] == 0 && resp['data'] != null) {
+        final items = (resp['data'] as List).map((e) => PlayListItem.fromJson(e)).toList();
         if (mounted) setState(() {
           _episodes = items;
           _loadingEpisodes = false;
@@ -90,6 +94,8 @@ class _DetailScreenState extends State<DetailScreen> {
     }
   }
 
+  // ==================== 播放 ====================
+
   void _playItem(PlayListItem item) async {
     try {
       final resp = await _app.api.getPlayInfo(item.guid);
@@ -100,7 +106,7 @@ class _DetailScreenState extends State<DetailScreen> {
           title: item.title ?? '',
           tvTitle: item.tvTitle ?? widget.item.title,
           episodeNumber: item.episodeNumber,
-          poster: widget.item.poster,
+          poster: _bestPoster,
           libraryName: item.ancestorName,
           parentGuid: info.parentGuid ?? item.parentGuid,
           ts: item.ts,
@@ -113,7 +119,7 @@ class _DetailScreenState extends State<DetailScreen> {
               title: item.title ?? '',
               tvTitle: item.tvTitle ?? widget.item.title ?? '',
               episodeNumber: item.episodeNumber,
-              poster: widget.item.poster ?? '',
+              poster: _bestPoster,
               category: widget.item.categoryLabel,
               seekTs: item.ts,
               duration: item.duration,
@@ -132,12 +138,18 @@ class _DetailScreenState extends State<DetailScreen> {
     }
   }
 
+  // ==================== 图片 URL（优先 backdrops → poster → item.poster） ====================
+
+  String get _bestPoster {
+    return _playInfo?.item?.poster
+        ?? _playInfo?.posterPath
+        ?? widget.item.poster
+        ?? '';
+  }
+
   String get _posterUrl {
-    // Try playInfo item poster first, then fall back to original item poster
-    final poster = _playInfo?.posterPath ?? _playInfo?.item?.poster ?? widget.item.poster;
-    if (poster != null && poster.isNotEmpty) {
-      return _app.api.getImageUrl(poster, width: 600);
-    }
+    final p = _bestPoster;
+    if (p.isNotEmpty) return _app.api.getImageUrl(p, width: 600);
     return '';
   }
 
@@ -148,6 +160,22 @@ class _DetailScreenState extends State<DetailScreen> {
     }
     return '';
   }
+
+  // ==================== 判断类型 ====================
+
+  bool get _isTvShow {
+    final type = _playInfo?.type ?? widget.item.type;
+    return type == 'TV';
+  }
+
+  bool get _isEpisode {
+    final type = _playInfo?.type ?? widget.item.type;
+    return type == 'Episode';
+  }
+
+  bool get _showEpisodes => _isTvShow || _isEpisode || _episodes.isNotEmpty;
+
+  // ==================== UI ====================
 
   @override
   Widget build(BuildContext context) {
@@ -173,7 +201,7 @@ class _DetailScreenState extends State<DetailScreen> {
           TextButton(
             onPressed: () {
               setState(() { _loadingInfo = true; _error = null; });
-              _loadData();
+              _loadPlayInfo();
             },
             child: const Text('重试', style: TextStyle(color: FnTheme.danmuGreen)),
           ),
@@ -184,7 +212,6 @@ class _DetailScreenState extends State<DetailScreen> {
 
   Widget _buildContent() {
     final item = _playInfo?.item;
-    final isTv = widget.item.isFolder;
 
     return CustomScrollView(
       slivers: [
@@ -192,13 +219,13 @@ class _DetailScreenState extends State<DetailScreen> {
         SliverToBoxAdapter(child: _buildHeroSection(item)),
         // Info section
         SliverToBoxAdapter(child: _buildInfoSection(item)),
-        // Play button (movie) or Episode list (TV)
-        if (!isTv)
-          SliverToBoxAdapter(child: _buildPlayButton())
-        else ...[
+        // Play button + Episode list
+        if (_showEpisodes) ...[
+          SliverToBoxAdapter(child: _buildPlayButton()),
           SliverToBoxAdapter(child: _buildEpisodeHeader()),
           _buildEpisodeList(),
-        ],
+        ] else
+          SliverToBoxAdapter(child: _buildPlayButton()),
         const SliverToBoxAdapter(child: SizedBox(height: 40)),
       ],
     );
@@ -207,6 +234,9 @@ class _DetailScreenState extends State<DetailScreen> {
   Widget _buildHeroSection(ItemInfo? item) {
     final backdropUrl = _backdropUrl;
     final posterUrl = _posterUrl;
+    // 标题：优先用 playInfo 的，没有用 item 的
+    final title = item?.tvTitle ?? item?.title ?? widget.item.title ?? '';
+    final subtitle = item?.title != null && item!.title != item.tvTitle ? item.title : null;
 
     return SizedBox(
       height: 320,
@@ -300,7 +330,7 @@ class _DetailScreenState extends State<DetailScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  item?.title ?? widget.item.title ?? '',
+                  title,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
@@ -309,11 +339,11 @@ class _DetailScreenState extends State<DetailScreen> {
                     color: FnTheme.textPrimary,
                   ),
                 ),
-                if (item?.originalTitle != null && item!.originalTitle!.isNotEmpty)
+                if (subtitle != null && subtitle.isNotEmpty)
                   Padding(
                     padding: const EdgeInsets.only(top: 4),
                     child: Text(
-                      item!.originalTitle!,
+                      subtitle,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(fontSize: 13, color: FnTheme.textMuted),
@@ -328,6 +358,11 @@ class _DetailScreenState extends State<DetailScreen> {
   }
 
   Widget _buildInfoSection(ItemInfo? item) {
+    final voteRaw = item?.voteAverage ?? widget.item.voteAverage;
+    final runtime = (item?.runtime ?? 0) > 0 ? item!.runtime : widget.item.runtime;
+    final airDate = item?.airDate ?? widget.item.airDate;
+    final overview = item?.overview ?? widget.item.overview;
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
       child: Column(
@@ -339,12 +374,12 @@ class _DetailScreenState extends State<DetailScreen> {
             runSpacing: 6,
             children: [
               _tag(widget.item.categoryLabel, FnTheme.danmuGreen),
-              if (item?.voteAverage != null && item!.voteAverage!.isNotEmpty)
-                _tag('⭐ ${item.voteAverage}', Colors.amber),
-              if (item?.runtime != null && item!.runtime > 0)
-                _tag('${item.runtime} 分钟', FnTheme.textSecondary),
-              if (item?.airDate != null && item!.airDate!.isNotEmpty)
-                _tag(item!.airDate!.substring(0, item.airDate!.length > 4 ? 4 : item.airDate!.length), FnTheme.textSecondary),
+              if (voteRaw != null && voteRaw.isNotEmpty && voteRaw != '0' && voteRaw != '0.0')
+                _tag('⭐ $voteRaw', Colors.amber),
+              if (runtime > 0)
+                _tag('$runtime 分钟', FnTheme.textSecondary),
+              if (airDate != null && airDate.isNotEmpty)
+                _tag(airDate.length > 4 ? airDate.substring(0, 4) : airDate, FnTheme.textSecondary),
               if (widget.item.numberOfSeasons > 0)
                 _tag('${widget.item.numberOfSeasons} 季', FnTheme.textSecondary),
               if (widget.item.numberOfEpisodes > 0)
@@ -352,10 +387,10 @@ class _DetailScreenState extends State<DetailScreen> {
             ],
           ),
           // Overview
-          if (item?.overview != null && item!.overview!.isNotEmpty) ...[
+          if (overview != null && overview.isNotEmpty) ...[
             const SizedBox(height: 16),
             Text(
-              item!.overview!,
+              overview,
               maxLines: 6,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(
@@ -390,7 +425,10 @@ class _DetailScreenState extends State<DetailScreen> {
         child: ElevatedButton.icon(
           onPressed: () => _playItem(widget.item),
           icon: const Icon(Icons.play_arrow_rounded, size: 28),
-          label: const Text('播放', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600)),
+          label: Text(
+            _isTvShow ? '播放第一集' : '播放',
+            style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
+          ),
           style: ElevatedButton.styleFrom(
             backgroundColor: FnTheme.danmuGreen,
             foregroundColor: Colors.white,
@@ -403,6 +441,7 @@ class _DetailScreenState extends State<DetailScreen> {
   }
 
   Widget _buildEpisodeHeader() {
+    if (_episodes.isEmpty && !_loadingEpisodes) return const SizedBox.shrink();
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 24, 20, 8),
       child: Row(
@@ -434,12 +473,7 @@ class _DetailScreenState extends State<DetailScreen> {
       );
     }
     if (_episodes.isEmpty) {
-      return const SliverToBoxAdapter(
-        child: Padding(
-          padding: EdgeInsets.all(40),
-          child: Center(child: Text('暂无剧集', style: TextStyle(color: FnTheme.textMuted))),
-        ),
-      );
+      return const SliverToBoxAdapter(child: SizedBox.shrink());
     }
     return SliverList(
       delegate: SliverChildBuilderDelegate(
@@ -450,8 +484,8 @@ class _DetailScreenState extends State<DetailScreen> {
   }
 
   Widget _buildEpisodeTile(PlayListItem ep, int index) {
-    final epPoster = ep.poster ?? widget.item.poster;
-    final posterUrl = epPoster != null && epPoster.isNotEmpty
+    final epPoster = ep.poster ?? _bestPoster;
+    final posterUrl = epPoster.isNotEmpty
         ? _app.api.getImageUrl(epPoster, width: 200)
         : '';
     final hasProgress = ep.ts > 0 && ep.duration > 0;
