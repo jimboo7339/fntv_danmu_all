@@ -9,6 +9,7 @@ import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.view.TextureRegistry
 import tv.danmaku.ijk.media.player.IjkMediaPlayer
+import tv.danmaku.ijk.media.player.IMediaPlayer
 
 private const val TAG = "FntvIjk"
 
@@ -71,8 +72,7 @@ class FntvIjkplayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     private fun create(result: MethodChannel.Result) {
         try {
             val b = binding ?: return result.error("NO_BINDING", "Plugin not attached", null)
-            
-            // Create texture
+
             Log.i(TAG, "Step 1: Creating texture...")
             textureEntry = b.textureRegistry.createSurfaceTexture()
             val st = textureEntry!!.surfaceTexture()
@@ -80,44 +80,26 @@ class FntvIjkplayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             val texId = textureEntry!!.id()
             Log.i(TAG, "Step 1 done: textureId=$texId")
 
-            // Create player — on background thread to avoid ANR
-            Log.i(TAG, "Step 2: Creating IjkMediaPlayer on background thread...")
-            Thread {
-                try {
-                    Log.i(TAG, "Step 2a: Instantiating IjkMediaPlayer...")
-                    val p = IjkMediaPlayer(b.applicationContext)
-                    Log.i(TAG, "Step 2b: IjkMediaPlayer created, applying options...")
-                    p.apply {
-                        setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec", 1)
-                        setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "opensles", 0)
-                        setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "protocol_whitelist", "concat,file,http,https,tcp,tls,crypto")
-                        setOption(IjkMediaPlayer.OPT_CATEGORY_CODEC, "skip_loop_filter", 48)
-                        setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "start-on-prepared", 0)
-                        setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "overlay-format", IjkMediaPlayer.SDL_FCC_RV32)
-                        Log.i(TAG, "Step 2c: Options set, attaching surface...")
-                        setSurface(this@FntvIjkplayerPlugin.surface)
-                        Log.i(TAG, "Step 2d: Surface attached")
-                    }
-                    player = p
-                    Log.i(TAG, "Step 2 done: Player ready")
-                    handler.post {
-                        result.success(mapOf("textureId" to texId))
-                    }
-                } catch (e: UnsatisfiedLinkError) {
-                    Log.e(TAG, "Step 2 FAIL: Native lib error", e)
-                    handler.post {
-                        result.error("NATIVE_LIB_ERROR", "Native libs: ${e.message}", null)
-                    }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Step 2 FAIL: Create error", e)
-                    handler.post {
-                        result.error("CREATE_ERROR", e.message, null)
-                    }
-                }
-            }.start()
+            Log.i(TAG, "Step 2: Creating IjkMediaPlayer...")
+            // Try no-arg constructor first (uses default native lib loader)
+            player = IjkMediaPlayer()
+            player!!.apply {
+                setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec", 1)
+                setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "opensles", 0)
+                setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "protocol_whitelist", "concat,file,http,https,tcp,tls,crypto")
+                setOption(IjkMediaPlayer.OPT_CATEGORY_CODEC, "skip_loop_filter", 48)
+                setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "start-on-prepared", 0)
+                setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "overlay-format", IjkMediaPlayer.SDL_FCC_RV32)
+                setSurface(this@FntvIjkplayerPlugin.surface)
+            }
+            Log.i(TAG, "Step 2 done: Player ready, textureId=$texId")
+            result.success(mapOf("textureId" to texId))
+        } catch (e: UnsatisfiedLinkError) {
+            Log.e(TAG, "Native lib load failed!", e)
+            result.error("NATIVE_LIB_ERROR", "Native libs: ${e.message}", null)
         } catch (e: Exception) {
-            Log.e(TAG, "Step 1 FAIL: Texture error", e)
-            result.error("TEXTURE_ERROR", e.message, null)
+            Log.e(TAG, "Create error", e)
+            result.error("CREATE_ERROR", e.message, null)
         }
     }
 
@@ -126,7 +108,6 @@ class FntvIjkplayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             val p = player ?: return result.error("NO_PLAYER", "Player not created", null)
             Log.i(TAG, "setDataSource: url=${url.take(80)}... seekMs=$seekMs")
 
-            // Set HTTP headers
             val hdr = StringBuilder()
             for ((k, v) in headers) hdr.append("$k: $v\r\n")
             if (hdr.isNotEmpty()) {
@@ -154,10 +135,7 @@ class FntvIjkplayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                 handler.post { channel.invokeMethod("onCompleted", null) }
             }
             p.setOnInfoListener { _, what, extra ->
-                if (what == IMEDIA_INFO_VIDEO_RENDERING_START) {
-                    Log.i(TAG, "Video rendering started!")
-                }
-                Log.d(TAG, "Info: what=$what extra=$extra")
+                if (what == 3) Log.i(TAG, ">>> Video rendering STARTED! <<<")
                 false
             }
         } catch (e: Exception) {
@@ -199,9 +177,5 @@ class FntvIjkplayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         textureEntry?.release()
         textureEntry = null
         Log.i(TAG, "Released")
-    }
-
-    companion object {
-        private const val IMEDIA_INFO_VIDEO_RENDERING_START = 3
     }
 }
