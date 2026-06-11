@@ -9,6 +9,7 @@ import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.view.TextureRegistry
 import tv.danmaku.ijk.media.player.IjkMediaPlayer
+import tv.danmaku.ijk.media.player.IMediaPlayer
 
 private const val TAG = "FntvIjk"
 
@@ -79,7 +80,13 @@ class FntvIjkplayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             Log.i(TAG, "Texture created, id=${textureEntry!!.id()}")
 
             Log.i(TAG, "Creating IjkMediaPlayer...")
-            player = IjkMediaPlayer(b.applicationContext)
+            // Use default IjkLibLoader (System.loadLibrary)
+            val libLoader = object : IjkMediaPlayer.IjkLibLoader {
+                override fun loadLibrary(name: String) {
+                    System.loadLibrary(name)
+                }
+            }
+            player = IjkMediaPlayer(libLoader)
             player!!.apply {
                 setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec", 1)
                 setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "opensles", 0)
@@ -112,30 +119,30 @@ class FntvIjkplayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                 p.setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "headers", hdr.toString())
             }
 
-            p.dataSource = url
+            p.setDataSource(url)
             Log.i(TAG, "prepareAsync...")
             p.prepareAsync()
 
-            p.setOnPreparedListener {
+            p.setOnPreparedListener(IMediaPlayer.OnPreparedListener { mp ->
                 Log.i(TAG, "Prepared! seekMs=$seekMs")
-                if (seekMs > 0) p.seekTo(seekMs.toLong())
-                p.start()
+                if (seekMs > 0) mp.seekTo(seekMs.toLong())
+                mp.start()
                 startPolling()
                 try { result.success(null) } catch (_: Exception) {}
-            }
-            p.setOnErrorListener { _, what, extra ->
+            })
+            p.setOnErrorListener(IMediaPlayer.OnErrorListener { _, what, extra ->
                 Log.e(TAG, "Player error: what=$what extra=$extra")
                 try { result.error("IJK_ERROR", "what=$what extra=$extra", null) } catch (_: Exception) {}
                 true
-            }
-            p.setOnCompletionListener {
+            })
+            p.setOnCompletionListener(IMediaPlayer.OnCompletionListener {
                 Log.i(TAG, "Playback completed")
                 handler.post { channel.invokeMethod("onCompleted", null) }
-            }
-            p.setOnInfoListener { _, what, extra ->
+            })
+            p.setOnInfoListener(IMediaPlayer.OnInfoListener { _, what, extra ->
                 Log.d(TAG, "Info: what=$what extra=$extra")
                 false
-            }
+            })
         } catch (e: Exception) {
             Log.e(TAG, "setDataSource error", e)
             result.error("SET_DATA_ERROR", e.message, null)
