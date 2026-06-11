@@ -264,6 +264,9 @@ class AppState extends ChangeNotifier {
   bool get danmuMergeDuplicates => _prefs.getBool('danmu_merge_dup') ?? false;
   set danmuMergeDuplicates(bool v) { _prefs.setBool('danmu_merge_dup', v); notifyListeners(); }
 
+  double get danmuTopMargin => _prefs.getDouble('danmu_top_margin') ?? 0.0;
+  set danmuTopMargin(double v) { _prefs.setDouble('danmu_top_margin', v); notifyListeners(); }
+
   // ====== 字幕样式 (MPV) ======
 
   double get subtitleSize => _prefs.getDouble('subtitle_size') ?? 22.0;
@@ -291,13 +294,33 @@ class AppState extends ChangeNotifier {
 
   set danmuUrl(String v) { _prefs.setString('danmu_url', v); notifyListeners(); }
 
-  /// 缓存弹幕源（animeId）按剧名，下次自动选择
-  int getCachedDanmuAnimeId(String showName) {
-    return _prefs.getInt('danmu_src_$showName') ?? 0;
+  /// 缓存弹幕源（完整信息）按剧名，下次自动选择
+  /// Each value: {animeId, animeName, episodeId, episodeNumber, commentCount}
+  Map<String, Map<String, dynamic>> get danmuSourceCache {
+    final raw = _prefs.getString('danmu_source_cache');
+    if (raw != null) {
+      try {
+        final decoded = jsonDecode(raw) as Map<String, dynamic>;
+        return decoded.map((k, v) => MapEntry(k, Map<String, dynamic>.from(v as Map)));
+      } catch (_) {}
+    }
+    return {};
   }
 
-  void setCachedDanmuAnimeId(String showName, int animeId) {
-    _prefs.setInt('danmu_src_$showName', animeId);
+  set danmuSourceCache(Map<String, Map<String, dynamic>> v) {
+    _prefs.setString('danmu_source_cache', jsonEncode(v));
+    notifyListeners();
+  }
+
+  Map<String, dynamic>? getDanmuSource(String showName) {
+    final cache = danmuSourceCache;
+    return cache[showName];
+  }
+
+  void setDanmuSource(String showName, Map<String, dynamic> data) {
+    final cache = danmuSourceCache;
+    cache[showName] = data;
+    danmuSourceCache = cache;
   }
 
   // ====== Player Engine ======

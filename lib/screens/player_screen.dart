@@ -94,6 +94,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   // Danmu
   List<DanmuComment> _danmuItems = [];
   bool _danmuOn = true;
+  Map<String, dynamic>? _danmuSource; // 当前弹幕源信息
 
   // Speed
   double _speed = 1.0;
@@ -177,6 +178,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
           _itemTitle = info.item!.title ?? _itemTitle;
           _seasonNumber = info.item!.seasonNumber > 0 ? info.item!.seasonNumber : 1;
           _episodeNumber = info.item!.episodeNumber;
+        }
+        // 尝试从缓存加载弹幕源信息
+        final matchName = _tvTitle.isNotEmpty ? _tvTitle : _itemTitle;
+        if (matchName.isNotEmpty) {
+          final cached = _app.getDanmuSource(matchName);
+          if (cached != null) _danmuSource = cached;
         }
         _loadDanmu();
         await _fetchStreamInfo();
@@ -367,100 +374,118 @@ class _PlayerScreenState extends State<PlayerScreen> {
         debugPrint('Danmu: no URL configured');
         return;
       }
-      // 搜索关键词：剧名 + S01E03 格式
-      String searchKw = matchName;
-      int targetEp = _episodeNumber;
-      debugPrint('Danmu: searching "$searchKw" ep=$targetEp from $danmuUrl');
 
-      // 1. 搜索动画
-      final searchResp = await _app.api.dio.get(
-        '$danmuUrl/api/v2/search/anime',
-        queryParameters: {'keyword': searchKw},
-      );
-      if (searchResp.statusCode != 200 || searchResp.data == null) {
-        debugPrint('Danmu: search failed');
-        return;
+      // 尝试从缓存读取弹幕源
+      final cached = _app.getDanmuSource(matchName);
+      int targetEpisodeId = 0;
+      String cachedAnimeName = '';
+      int cachedAnimeId = 0;
+      if (cached != null && cached['episodeNumber'] == _episodeNumber && cached['episodeId'] != null) {
+        targetEpisodeId = cached['episodeId'] as int;
+        cachedAnimeName = cached['animeName']?.toString() ?? matchName;
+        cachedAnimeId = cached['animeId'] as int? ?? 0;
+        debugPrint('Danmu: using cached source for "$matchName" ep=$_episodeNumber, episodeId=$targetEpisodeId');
       }
 
-      // 解析搜索结果 — LogVar API 返回 {animes: [...]}
-      List<dynamic> results = [];
-      final raw = searchResp.data;
-      if (raw is List) {
-        results = raw;
-      } else if (raw is Map && raw['animes'] is List) {
-        results = raw['animes'] as List;
-      } else if (raw is Map && raw['data'] is List) {
-        results = raw['data'] as List;
-      } else if (raw is Map && raw['bangumi'] is List) {
-        results = raw['bangumi'] as List;
-      }
-      if (results.isEmpty) {
-        debugPrint('Danmu: no search results for "$searchKw"');
-        return;
-      }
-      debugPrint('Danmu: found ${results.length} anime(s)');
+      int episodeId = targetEpisodeId;
+      String animeName = cachedAnimeName;
+      int animeId = cachedAnimeId;
+      int commentCount = 0;
 
-      // 取第一个结果的 ID — LogVar API 用 animeId
-      final first = results[0];
-      final animeId = first['animeId'] ?? first['id'] ?? first['bangumiId'] ?? 0;
-      if (animeId == 0) {
-        debugPrint('Danmu: no valid anime ID');
-        return;
-      }
-      debugPrint('Danmu: found anime id=$animeId');
-
-      // 2. 获取动画详情（含剧集列表）
-      final bangumiResp = await _app.api.dio.get('$danmuUrl/api/v2/bangumi/$animeId');
-      if (bangumiResp.statusCode != 200 || bangumiResp.data == null) {
-        debugPrint('Danmu: bangumi fetch failed');
-        return;
-      }
-
-      // 解析剧集列表
-      List<dynamic> episodes = [];
-      final bData = bangumiResp.data;
-      if (bData is Map) {
-        if (bData['bangumi'] is Map && bData['bangumi']['episodes'] is List) {
-          episodes = bData['bangumi']['episodes'] as List;
-        } else if (bData['episodes'] is List) {
-          episodes = bData['episodes'] as List;
-        } else if (bData['data'] is Map && bData['data']['episodes'] is List) {
-          episodes = bData['data']['episodes'] as List;
-        }
-      }
-      if (episodes.isEmpty) {
-        debugPrint('Danmu: no episodes found');
-        return;
-      }
-
-      // 3. 匹配目标集数 — LogVar API 用 episodeNumber (string)
-      int episodeId = 0;
-      if (targetEp > 0) {
-        for (final ep in episodes) {
-          final rawNum = ep['episodeNumber'] ?? ep['episodeIndex'] ?? ep['ep'];
-          int epIdx = 0;
-          if (rawNum is int) {
-            epIdx = rawNum;
-          } else if (rawNum is String) {
-            epIdx = int.tryParse(rawNum) ?? 0;
-          }
-          if (epIdx == targetEp) {
-            episodeId = ep['episodeId'] ?? ep['id'] ?? 0;
-            break;
-          }
-        }
-      }
-      // 没匹配到就用第一集
-      if (episodeId == 0 && episodes.isNotEmpty) {
-        episodeId = episodes[0]['episodeId'] ?? episodes[0]['id'] ?? 0;
-      }
       if (episodeId == 0) {
-        debugPrint('Danmu: no matching episode');
-        return;
-      }
-      debugPrint('Danmu: matched episodeId=$episodeId');
+        // 没有缓存，走完整搜索流程
+        String searchKw = matchName;
+        int targetEp = _episodeNumber;
+        debugPrint('Danmu: searching "$searchKw" ep=$targetEp from $danmuUrl');
 
-      // 4. 获取弹幕评论 — LogVar API 用 /api/v2/comment/{id}?withRelated=true
+        // 1. 搜索动画
+        final searchResp = await _app.api.dio.get(
+          '$danmuUrl/api/v2/search/anime',
+          queryParameters: {'keyword': searchKw},
+        );
+        if (searchResp.statusCode != 200 || searchResp.data == null) {
+          debugPrint('Danmu: search failed');
+          return;
+        }
+
+        List<dynamic> results = [];
+        final raw = searchResp.data;
+        if (raw is List) {
+          results = raw;
+        } else if (raw is Map && raw['animes'] is List) {
+          results = raw['animes'] as List;
+        } else if (raw is Map && raw['data'] is List) {
+          results = raw['data'] as List;
+        } else if (raw is Map && raw['bangumi'] is List) {
+          results = raw['bangumi'] as List;
+        }
+        if (results.isEmpty) {
+          debugPrint('Danmu: no search results for "$searchKw"');
+          return;
+        }
+        debugPrint('Danmu: found ${results.length} anime(s)');
+
+        final first = results[0];
+        animeId = first['animeId'] ?? first['id'] ?? first['bangumiId'] ?? 0;
+        animeName = first['animeName'] ?? first['name'] ?? matchName;
+        if (animeId == 0) {
+          debugPrint('Danmu: no valid anime ID');
+          return;
+        }
+        debugPrint('Danmu: found anime id=$animeId name=$animeName');
+
+        // 2. 获取动画详情（含剧集列表）
+        final bangumiResp = await _app.api.dio.get('$danmuUrl/api/v2/bangumi/$animeId');
+        if (bangumiResp.statusCode != 200 || bangumiResp.data == null) {
+          debugPrint('Danmu: bangumi fetch failed');
+          return;
+        }
+
+        List<dynamic> episodes = [];
+        final bData = bangumiResp.data;
+        if (bData is Map) {
+          if (bData['bangumi'] is Map && bData['bangumi']['episodes'] is List) {
+            episodes = bData['bangumi']['episodes'] as List;
+          } else if (bData['episodes'] is List) {
+            episodes = bData['episodes'] as List;
+          } else if (bData['data'] is Map && bData['data']['episodes'] is List) {
+            episodes = bData['data']['episodes'] as List;
+          }
+        }
+        if (episodes.isEmpty) {
+          debugPrint('Danmu: no episodes found');
+          return;
+        }
+
+        // 3. 匹配目标集数
+        if (targetEp > 0) {
+          for (final ep in episodes) {
+            final rawNum = ep['episodeNumber'] ?? ep['episodeIndex'] ?? ep['ep'];
+            int epIdx = 0;
+            if (rawNum is int) {
+              epIdx = rawNum;
+            } else if (rawNum is String) {
+              epIdx = int.tryParse(rawNum) ?? 0;
+            }
+            if (epIdx == targetEp) {
+              episodeId = ep['episodeId'] ?? ep['id'] ?? 0;
+              commentCount = ep['commentCount'] ?? 0;
+              break;
+            }
+          }
+        }
+        if (episodeId == 0 && episodes.isNotEmpty) {
+          episodeId = episodes[0]['episodeId'] ?? episodes[0]['id'] ?? 0;
+          commentCount = episodes[0]['commentCount'] ?? 0;
+        }
+        if (episodeId == 0) {
+          debugPrint('Danmu: no matching episode');
+          return;
+        }
+        debugPrint('Danmu: matched episodeId=$episodeId');
+      }
+
+      // 4. 获取弹幕评论
       final commentResp = await _app.api.dio.get(
         '$danmuUrl/api/v2/comment/$episodeId',
         queryParameters: {'withRelated': 'true'},
@@ -529,6 +554,17 @@ class _PlayerScreenState extends State<PlayerScreen> {
       }
 
       debugPrint('Danmu: loaded ${danmuList.length} comments');
+      if (commentCount == 0) commentCount = danmuList.length;
+      // 缓存弹幕源信息
+      final sourceData = {
+        'animeId': animeId,
+        'animeName': animeName,
+        'episodeId': episodeId,
+        'episodeNumber': _episodeNumber,
+        'commentCount': commentCount,
+      };
+      _app.setDanmuSource(matchName, sourceData);
+      if (mounted) setState(() => _danmuSource = sourceData);
       // 必须按时间排序，渲染器假设已排序（遇到未来时间会break）
       danmuList.sort((a, b) => a.time.compareTo(b.time));
       // 合并重复弹幕
@@ -562,6 +598,92 @@ class _PlayerScreenState extends State<PlayerScreen> {
       }
     } catch (e) {
       debugPrint('loadDanmu error: $e');
+    }
+  }
+
+  /// 从指定的弹幕源加载弹幕（手动选择后调用）
+  Future<void> _loadDanmuFromSource(Map<String, dynamic> source) async {
+    try {
+      final danmuUrl = _app.danmuUrl;
+      if (danmuUrl.isEmpty) return;
+      final episodeId = source['episodeId'] as int? ?? 0;
+      if (episodeId == 0) return;
+      
+      debugPrint('Danmu: loading from source episodeId=$episodeId');
+      final commentResp = await _app.api.dio.get(
+        '$danmuUrl/api/v2/comment/$episodeId',
+        queryParameters: {'withRelated': 'true'},
+      );
+      if (commentResp.statusCode != 200 || commentResp.data == null) return;
+
+      List<dynamic> comments = [];
+      final cData = commentResp.data;
+      if (cData is List) {
+        comments = cData;
+      } else if (cData is Map && cData['comments'] is List) {
+        comments = cData['comments'] as List;
+      } else if (cData is Map && cData['data'] is List) {
+        comments = cData['data'] as List;
+      }
+
+      var danmuList = <DanmuComment>[];
+      for (final c in comments) {
+        if (c is! Map) continue;
+        final text = c['m']?.toString() ?? c['text']?.toString() ?? c['content']?.toString() ?? '';
+        if (text.isEmpty) continue;
+
+        double time = 0;
+        int type = 1;
+        int color = 0xFFFFFFFF;
+
+        final p = c['p'];
+        if (p is String && p.contains(',')) {
+          final parts = p.split(',');
+          if (parts.isNotEmpty) time = double.tryParse(parts[0]) ?? 0;
+          if (parts.length > 1) type = int.tryParse(parts[1]) ?? 1;
+          if (parts.length > 2) color = int.tryParse(parts[2]) ?? 0xFFFFFFFF;
+        } else if (p is num) {
+          time = p.toDouble();
+        } else {
+          time = (c['time'] ?? c['time_point'] ?? 0).toDouble();
+          type = c['type'] ?? 1;
+        }
+
+        if (color <= 0xFFFFFF) color |= 0xFF000000;
+        danmuList.add(DanmuComment(text: text, time: time, color: color, type: type));
+      }
+
+      danmuList.sort((a, b) => a.time.compareTo(b.time));
+      if (_app.danmuMergeDuplicates && danmuList.length > 1) {
+        final merged = <DanmuComment>[];
+        final Map<String, int> recentTexts = {};
+        for (final c in danmuList) {
+          final key = c.text;
+          final existing = recentTexts[key];
+          if (existing != null && (c.time - merged[existing].time).abs() < 2.0) {
+            final count = (merged[existing].text.contains(' x ')
+                ? int.tryParse(merged[existing].text.split(' x ').last) ?? 1
+                : 1) + 1;
+            merged[existing] = DanmuComment(
+              text: '$key x $count',
+              time: merged[existing].time,
+              color: merged[existing].color,
+              type: merged[existing].type,
+            );
+          } else {
+            recentTexts[key] = merged.length;
+            merged.add(c);
+          }
+        }
+        danmuList = merged;
+      }
+
+      debugPrint('Danmu: loaded ${danmuList.length} from manual source');
+      if (mounted && danmuList.isNotEmpty) {
+        setState(() => _danmuItems = danmuList);
+      }
+    } catch (e) {
+      debugPrint('loadDanmuFromSource error: $e');
     }
   }
 
@@ -818,6 +940,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 areaPercent: _app.danmuArea,
                 showOutline: _app.danmuOutline,
                 speed: _app.danmuSpeed,
+                danmuDensity: _app.danmuDensity / 100.0,
+                topMargin: _app.danmuTopMargin,
               ),
 
             // Controls
@@ -886,6 +1010,20 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 },
                 onSeekChanged: (val) {
                   _videoCtrl?.seekTo(Duration(milliseconds: val.toInt()));
+                },
+                showName: _tvTitle.isNotEmpty ? _tvTitle : _itemTitle,
+                currentDanmuSource: _danmuSource,
+                onDanmuSourceSelected: (data) {
+                  // 用户手动选择了弹幕源，保存并重新加载
+                  final matchName = _tvTitle.isNotEmpty ? _tvTitle : _itemTitle;
+                  if (matchName.isNotEmpty) {
+                    _app.setDanmuSource(matchName, data);
+                    setState(() {
+                      _danmuSource = data;
+                      _danmuItems.clear();
+                    });
+                    _loadDanmuFromSource(data);
+                  }
                 },
               ),
 

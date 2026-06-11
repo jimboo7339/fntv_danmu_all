@@ -5,6 +5,7 @@ import '../utils/format.dart';
 import '../utils/theme.dart';
 import '../models/stream_response.dart';
 import '../providers/app_state.dart';
+import '../services/api_client.dart';
 
 class PlayerControls extends StatelessWidget {
   final String title;
@@ -34,6 +35,9 @@ class PlayerControls extends StatelessWidget {
   final void Function(int) onAudioSelected;
   final void Function(int) onSubtitleSelected;
   final void Function(double) onSeekChanged;
+  final String showName;
+  final Map<String, dynamic>? currentDanmuSource;
+  final void Function(Map<String, dynamic>) onDanmuSourceSelected;
 
   const PlayerControls({
     super.key,
@@ -64,6 +68,9 @@ class PlayerControls extends StatelessWidget {
     required this.onAudioSelected,
     required this.onSubtitleSelected,
     required this.onSeekChanged,
+    this.showName = '',
+    this.currentDanmuSource,
+    required this.onDanmuSourceSelected,
   });
 
   @override
@@ -100,8 +107,8 @@ class PlayerControls extends StatelessWidget {
                       overflow: TextOverflow.ellipsis),
                   ),
                   GestureDetector(
-                    onTap: () => _showDanmuPanel(context),
-                    onLongPress: onDanmu, // 长按快速开关
+                    onTap: onDanmu,
+                    onLongPress: () => _showDanmuPanel(context), // 长按打开设置
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                       decoration: BoxDecoration(
@@ -365,7 +372,14 @@ class PlayerControls extends StatelessWidget {
           child: SlideTransition(
             position: Tween<Offset>(begin: const Offset(1, 0), end: Offset.zero)
                 .animate(CurvedAnimation(parent: anim, curve: Curves.easeOut)),
-            child: const _DanmuPanel(),
+            child: _DanmuPanel(
+              showName: showName,
+              currentDanmuSource: currentDanmuSource,
+              onSourceSelected: (data) {
+                Navigator.pop(ctx);
+                onDanmuSourceSelected(data);
+              },
+            ),
           ),
         );
       },
@@ -733,7 +747,15 @@ class _SubtitlePanelState extends State<_SubtitlePanel> {
 // ── 弹幕设置右侧面板 ──────────────────────────────────────
 
 class _DanmuPanel extends StatelessWidget {
-  const _DanmuPanel();
+  final String showName;
+  final Map<String, dynamic>? currentDanmuSource;
+  final void Function(Map<String, dynamic>) onSourceSelected;
+
+  const _DanmuPanel({
+    required this.showName,
+    this.currentDanmuSource,
+    required this.onSourceSelected,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -773,6 +795,9 @@ class _DanmuPanel extends StatelessWidget {
                     onChanged: (v) => app.danmuOn = v,
                   ),
                   const Divider(color: Colors.white12, height: 16),
+                  // ── 弹幕来源信息 ──
+                  _buildSourceCard(context, app),
+                  const Divider(color: Colors.white12, height: 16),
                   // 字号
                   _slider('字号', app.danmuFontSize, 14, 36, (v) => app.danmuFontSize = v, '${app.danmuFontSize.toInt()}'),
                   // 速度
@@ -781,6 +806,8 @@ class _DanmuPanel extends StatelessWidget {
                   _slider('透明度', app.danmuOpacity, 0.1, 1.0, (v) => app.danmuOpacity = v, '${(app.danmuOpacity * 100).toInt()}%'),
                   // 区域
                   _slider('区域', app.danmuArea.toDouble(), 10, 100, (v) => app.danmuArea = v.toInt(), '${app.danmuArea}%'),
+                  // 顶部边距
+                  _slider('顶部边距', app.danmuTopMargin, 0, 200, (v) => app.danmuTopMargin = v, '${app.danmuTopMargin.toInt()}px'),
                   // 密度
                   _slider('密度', app.danmuDensity.toDouble(), 10, 100, (v) => app.danmuDensity = v.toInt(), '${app.danmuDensity}%'),
                   const Divider(color: Colors.white12, height: 16),
@@ -808,26 +835,85 @@ class _DanmuPanel extends StatelessWidget {
                     activeColor: FnTheme.danmuGreen,
                     onChanged: (v) => app.danmuMergeDuplicates = v,
                   ),
-                  const Divider(color: Colors.white12, height: 16),
-                  // 弹幕服务器
-                  ListTile(
-                    dense: true,
-                    title: const Text('弹幕服务器', style: TextStyle(color: Colors.white, fontSize: 14)),
-                    subtitle: Text(
-                      app.danmuUrl.isEmpty ? '未设置' : app.danmuUrl,
-                      style: TextStyle(color: app.danmuUrl.isEmpty ? Colors.orange : Colors.white54, fontSize: 11),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    trailing: const Icon(Icons.chevron_right, color: Colors.white38, size: 20),
-                    onTap: () => _showUrlEditor(context, app),
-                  ),
                 ],
               ),
             ),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildSourceCard(BuildContext context, AppState app) {
+    final hasSource = currentDanmuSource != null;
+    final animeName = currentDanmuSource?['animeName']?.toString() ?? '';
+    final commentCount = currentDanmuSource?['commentCount'] ?? 0;
+    final epNum = currentDanmuSource?['episodeNumber'] ?? 0;
+    return GestureDetector(
+      onTap: () => _showDanmuSearch(context, app),
+      child: Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: hasSource ? FnTheme.danmuGreen.withOpacity(0.08) : Colors.white.withOpacity(0.05),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: hasSource ? FnTheme.danmuGreen.withOpacity(0.3) : Colors.white12),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              hasSource ? Icons.check_circle : Icons.search,
+              color: hasSource ? FnTheme.danmuGreen : Colors.white38,
+              size: 18,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: hasSource
+                ? Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(animeName, style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
+                        maxLines: 1, overflow: TextOverflow.ellipsis),
+                      const SizedBox(height: 2),
+                      Text('第${epNum}集 · $commentCount 条弹幕',
+                        style: TextStyle(color: FnTheme.danmuGreen.withOpacity(0.8), fontSize: 11)),
+                    ],
+                  )
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(showName.isNotEmpty ? '未匹配到弹幕' : '未知剧集',
+                        style: const TextStyle(color: Colors.white70, fontSize: 13)),
+                      const SizedBox(height: 2),
+                      const Text('点击手动搜索弹幕源', style: TextStyle(color: Colors.white38, fontSize: 11)),
+                    ],
+                  ),
+            ),
+            const Icon(Icons.chevron_right, color: Colors.white38, size: 18),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showDanmuSearch(BuildContext context, AppState app) {
+    showGeneralDialog(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: 'danmu-search',
+      barrierColor: Colors.black54,
+      transitionDuration: const Duration(milliseconds: 200),
+      pageBuilder: (_, __, ___) => const SizedBox.shrink(),
+      transitionBuilder: (ctx, anim, _, __) {
+        return FadeTransition(
+          opacity: anim,
+          child: _DanmuSearchDialog(
+            showName: showName,
+            danmuUrl: app.danmuUrl,
+            api: app.api,
+            onSelect: (data) => onSourceSelected(data),
+          ),
+        );
+      },
     );
   }
 
@@ -863,32 +949,326 @@ class _DanmuPanel extends StatelessWidget {
       ),
     );
   }
+}
 
-  void _showUrlEditor(BuildContext context, AppState app) {
-    final ctrl = TextEditingController(text: app.danmuUrl);
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF2A2A2A),
-        title: const Text('弹幕服务器地址', style: TextStyle(color: Colors.white, fontSize: 16)),
-        content: TextField(
-          controller: ctrl,
-          style: const TextStyle(color: Colors.white),
-          decoration: const InputDecoration(
-            hintText: 'http://192.168.1.100:9321',
-            hintStyle: TextStyle(color: Colors.white38),
-            enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.white24)),
+// ── 弹幕搜索对话框 ──────────────────────────────────────────
+
+class _DanmuSearchDialog extends StatefulWidget {
+  final String showName;
+  final String danmuUrl;
+  final ApiClient api;
+  final void Function(Map<String, dynamic>) onSelect;
+
+  const _DanmuSearchDialog({
+    required this.showName,
+    required this.danmuUrl,
+    required this.api,
+    required this.onSelect,
+  });
+
+  @override
+  State<_DanmuSearchDialog> createState() => _DanmuSearchDialogState();
+}
+
+class _DanmuSearchDialogState extends State<_DanmuSearchDialog> {
+  final _searchCtrl = TextEditingController();
+  bool _searching = false;
+  String _error = '';
+  List<Map<String, dynamic>> _animeResults = [];
+  
+  // 当前选中的动画
+  Map<String, dynamic>? _selectedAnime;
+  List<Map<String, dynamic>> _episodeResults = [];
+  bool _loadingEpisodes = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.showName.isNotEmpty) {
+      _searchCtrl.text = widget.showName;
+      _doSearch();
+    }
+  }
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _doSearch() async {
+    final kw = _searchCtrl.text.trim();
+    if (kw.isEmpty || widget.danmuUrl.isEmpty) return;
+    setState(() { _searching = true; _error = ''; _animeResults = []; _selectedAnime = null; _episodeResults = []; });
+    try {
+      final resp = await widget.api.dio.get(
+        '${widget.danmuUrl}/api/v2/search/anime',
+        queryParameters: {'keyword': kw},
+      );
+      if (resp.statusCode != 200 || resp.data == null) {
+        setState(() { _error = '搜索失败'; _searching = false; });
+        return;
+      }
+      final raw = resp.data;
+      List<dynamic> results = [];
+      if (raw is List) results = raw;
+      else if (raw is Map && raw['animes'] is List) results = raw['animes'] as List;
+      else if (raw is Map && raw['data'] is List) results = raw['data'] as List;
+      setState(() {
+        _animeResults = results.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+        _searching = false;
+        if (_animeResults.isEmpty) _error = '未找到结果';
+      });
+    } catch (e) {
+      setState(() { _error = '搜索出错: \$e'; _searching = false; });
+    }
+  }
+
+  Future<void> _loadEpisodes(Map<String, dynamic> anime) async {
+    final animeId = anime['animeId'] ?? anime['id'] ?? anime['bangumiId'] ?? 0;
+    if (animeId == 0) return;
+    setState(() { _selectedAnime = anime; _loadingEpisodes = true; _episodeResults = []; });
+    try {
+      final resp = await widget.api.dio.get('${widget.danmuUrl}/api/v2/bangumi/\$animeId');
+      if (resp.statusCode != 200 || resp.data == null) {
+        setState(() { _loadingEpisodes = false; });
+        return;
+      }
+      final bData = resp.data;
+      List<dynamic> episodes = [];
+      if (bData is Map) {
+        if (bData['bangumi'] is Map && bData['bangumi']['episodes'] is List)
+          episodes = bData['bangumi']['episodes'] as List;
+        else if (bData['episodes'] is List)
+          episodes = bData['episodes'] as List;
+      }
+      setState(() {
+        _episodeResults = episodes.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+        _loadingEpisodes = false;
+      });
+    } catch (e) {
+      setState(() { _loadingEpisodes = false; });
+    }
+  }
+
+  void _selectEpisode(Map<String, dynamic> ep) {
+    final animeName = _selectedAnime?['animeName'] ?? _selectedAnime?['name'] ?? _searchCtrl.text;
+    final episodeId = ep['episodeId'] ?? ep['id'] ?? 0;
+    final episodeNumber = ep['episodeNumber'] ?? ep['episodeIndex'] ?? 0;
+    final commentCount = ep['commentCount'] ?? 0;
+    final animeId = _selectedAnime?['animeId'] ?? _selectedAnime?['id'] ?? 0;
+    widget.onSelect({
+      'animeId': animeId,
+      'animeName': animeName,
+      'episodeId': episodeId,
+      'episodeNumber': episodeNumber is String ? int.tryParse(episodeNumber) ?? 0 : episodeNumber,
+      'commentCount': commentCount,
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final screenW = MediaQuery.of(context).size.width;
+    final dialogW = screenW * 0.5;
+    return Center(
+      child: Material(
+        color: const Color(0xFF1E1E1E),
+        borderRadius: BorderRadius.circular(12),
+        child: SizedBox(
+          width: dialogW.clamp(320.0, 500.0),
+          height: MediaQuery.of(context).size.height * 0.7,
+          child: Column(
+            children: [
+              // 标题栏
+              Container(
+                padding: const EdgeInsets.fromLTRB(16, 16, 8, 12),
+                decoration: const BoxDecoration(
+                  border: Border(bottom: BorderSide(color: Colors.white12)),
+                ),
+                child: Row(
+                  children: [
+                    if (_selectedAnime != null)
+                      GestureDetector(
+                        onTap: () => setState(() { _selectedAnime = null; _episodeResults = []; }),
+                        child: const Icon(Icons.arrow_back, color: Colors.white70, size: 20),
+                      ),
+                    if (_selectedAnime != null) const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        _selectedAnime != null
+                          ? '${_selectedAnime!['animeName'] ?? _selectedAnime!['name'] ?? ''}'
+                          : '搜索弹幕源',
+                        style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close, color: Colors.white54, size: 20),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                  ],
+                ),
+              ),
+              // 搜索框（只在动画列表模式显示）
+              if (_selectedAnime == null)
+                Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _searchCtrl,
+                          style: const TextStyle(color: Colors.white, fontSize: 14),
+                          decoration: InputDecoration(
+                            hintText: '输入剧名搜索...',
+                            hintStyle: const TextStyle(color: Colors.white38),
+                            filled: true,
+                            fillColor: Colors.white.withOpacity(0.08),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                              borderSide: BorderSide.none,
+                            ),
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                            isDense: true,
+                          ),
+                          onSubmitted: (_) => _doSearch(),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      GestureDetector(
+                        onTap: _doSearch,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: FnTheme.danmuGreen,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: _searching
+                            ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                            : const Text('搜索', style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600)),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              // 内容区
+              Expanded(
+                child: _buildContent(),
+              ),
+            ],
           ),
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
-          TextButton(
-            onPressed: () { app.danmuUrl = ctrl.text.trim(); Navigator.pop(ctx); },
-            child: const Text('保存', style: TextStyle(color: FnTheme.danmuGreen)),
-          ),
-        ],
       ),
     );
+  }
+
+  Widget _buildContent() {
+    if (_selectedAnime == null) {
+      // 动画搜索结果列表
+      if (_error.isNotEmpty) return Center(child: Text(_error, style: const TextStyle(color: Colors.white54)));
+      if (_animeResults.isEmpty && !_searching) {
+        return const Center(child: Text('输入关键词搜索弹幕源', style: TextStyle(color: Colors.white38)));
+      }
+      return ListView.builder(
+        itemCount: _animeResults.length,
+        itemBuilder: (_, i) {
+          final anime = _animeResults[i];
+          final name = anime['animeName'] ?? anime['name'] ?? '未知';
+          final epCount = anime['episodeCount'] ?? anime['epsCount'] ?? '?';
+          final imageUrl = anime['imageUrl'] ?? anime['image'] ?? '';
+          return GestureDetector(
+            onTap: () => _loadEpisodes(anime),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: Colors.transparent,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 40, height: 40,
+                    decoration: BoxDecoration(
+                      color: Colors.white12,
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: imageUrl.isNotEmpty
+                      ? ClipRRect(
+                          borderRadius: BorderRadius.circular(6),
+                          child: Image.network(imageUrl, fit: BoxFit.cover, errorBuilder: (_, __, ___) =>
+                            const Icon(Icons.movie, color: Colors.white38, size: 20)),
+                        )
+                      : const Icon(Icons.movie, color: Colors.white38, size: 20),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(name, style: const TextStyle(color: Colors.white, fontSize: 14),
+                          maxLines: 1, overflow: TextOverflow.ellipsis),
+                        const SizedBox(height: 2),
+                        Text('$epCount 集', style: const TextStyle(color: Colors.white54, fontSize: 12)),
+                      ],
+                    ),
+                  ),
+                  const Icon(Icons.chevron_right, color: Colors.white38, size: 18),
+                ],
+              ),
+            ),
+          );
+        },
+      );
+    } else {
+      // 剧集列表
+      if (_loadingEpisodes) return const Center(child: CircularProgressIndicator(color: FnTheme.danmuGreen));
+      if (_episodeResults.isEmpty) return const Center(child: Text('没有找到剧集', style: TextStyle(color: Colors.white54)));
+      return ListView.builder(
+        itemCount: _episodeResults.length,
+        itemBuilder: (_, i) {
+          final ep = _episodeResults[i];
+          final epNum = ep['episodeNumber'] ?? ep['episodeIndex'] ?? (i + 1);
+          final epTitle = ep['episodeTitle'] ?? ep['title'] ?? '第\$epNum集';
+          final commentCount = ep['commentCount'] ?? 0;
+          return GestureDetector(
+            onTap: () => _selectEpisode(ep),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: Colors.transparent,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 32, height: 32,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: FnTheme.danmuGreen.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text('$epNum', style: TextStyle(color: FnTheme.danmuGreen, fontSize: 14, fontWeight: FontWeight.bold)),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(epTitle, style: const TextStyle(color: Colors.white, fontSize: 13),
+                          maxLines: 1, overflow: TextOverflow.ellipsis),
+                        Text('$commentCount 条弹幕', style: const TextStyle(color: Colors.white54, fontSize: 11)),
+                      ],
+                    ),
+                  ),
+                  const Icon(Icons.download, color: Colors.white38, size: 18),
+                ],
+              ),
+            ),
+          );
+        },
+      );
+    }
   }
 }
 

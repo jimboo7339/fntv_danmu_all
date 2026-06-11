@@ -11,7 +11,8 @@ class DanmuOverlay extends StatefulWidget {
   final int areaPercent;
   final bool showOutline;
   final double speed; // 弹幕速度倍率
-
+  final double danmuDensity; // 弹幕密度 0.0~1.0
+  final double topMargin; // 顶部偏移像素
   const DanmuOverlay({
     super.key,
     required this.comments,
@@ -21,6 +22,8 @@ class DanmuOverlay extends StatefulWidget {
     this.areaPercent = 35,
     this.showOutline = true,
     this.speed = 1.0,
+    this.danmuDensity = 1.0,
+    this.topMargin = 0,
   });
 
   @override
@@ -80,6 +83,8 @@ class _DanmuOverlayState extends State<DanmuOverlay>
             areaPercent: widget.areaPercent,
             showOutline: widget.showOutline,
             speed: widget.speed,
+            danmuDensity: widget.danmuDensity,
+            topMargin: widget.topMargin,
             activeScroll: _activeScroll,
             activeStatic: _activeStatic,
             lastRealTime: _lastRealTime,
@@ -111,6 +116,8 @@ class _DanmuPainter extends CustomPainter {
   final int areaPercent;
   final bool showOutline;
   final double speed;
+  final double danmuDensity;
+  final double topMargin;
   final List<_DanmuItem> activeScroll;
   final List<_DanmuItem> activeStatic;
   final double lastRealTime;
@@ -130,6 +137,8 @@ class _DanmuPainter extends CustomPainter {
     this.areaPercent = 35,
     this.showOutline = true,
     this.speed = 1.0,
+    this.danmuDensity = 1.0,
+    this.topMargin = 0,
   });
 
   @override
@@ -144,23 +153,24 @@ class _DanmuPainter extends CustomPainter {
     final lnH = fontSize * 1.5;
     final maxRow = max(1, (areaH / lnH).floor());
     final curSec = currentTime / 1000.0;
+    final densityWindow = 0.5 * danmuDensity.clamp(0.1, 1.0);
 
     // 清除过期弹幕
     activeScroll.removeWhere((a) => a.x + a.tw < -100);
     activeStatic.removeWhere((a) => a.ttl <= 0);
 
     // 发射新弹幕 — 二分查找起始位置
-    int startIdx = _lowerBound(curSec - 0.5);
+    int startIdx = _lowerBound(curSec - densityWindow);
     for (int i = startIdx; i < comments.length; i++) {
       final c = comments[i];
       final diff = curSec - c.time;
       if (diff < -0.1) break;
-      if (diff > 0.5) continue;
+      if (diff > densityWindow) continue;
       if (diff < 0) continue;
 
       // 去重检查（只检查最近的活跃弹幕）
-      final already = activeScroll.any((a) => a.text == c.text && (a.time - c.time).abs() < 0.5) ||
-                      activeStatic.any((a) => a.text == c.text && (a.time - c.time).abs() < 0.5);
+      final already = activeScroll.any((a) => a.text == c.text && (a.time - c.time).abs() < densityWindow) ||
+                      activeStatic.any((a) => a.text == c.text && (a.time - c.time).abs() < densityWindow);
       if (already) continue;
 
       if (c.type == 4 || c.type == 5) {
@@ -168,7 +178,7 @@ class _DanmuPainter extends CustomPainter {
         item.tw = _measureText(c.text);
         item.x = (size.width - item.tw) / 2;
         if (c.type == 5) {
-          item.y = lnH + activeStatic.where((a) => a.type == 5).length * lnH;
+          item.y = topMargin + lnH + activeStatic.where((a) => a.type == 5).length * lnH;
         } else {
           item.y = size.height - lnH * 0.2 - activeStatic.where((a) => a.type == 4).length * lnH;
         }
@@ -181,10 +191,10 @@ class _DanmuPainter extends CustomPainter {
 
         // 找空闲行（反重叠）
         for (int r = 0; r < maxRow; r++) {
-          final rowY = lnH + r * lnH;
+          final rowY = topMargin + lnH + r * lnH;
           bool blocked = false;
           for (final a in activeScroll) {
-            if ((a.y - rowY).abs() < lnH * 0.6 && a.x + a.tw + 20 > size.width * 0.6) {
+            if ((a.y - rowY).abs() < lnH * 0.6 && a.x + a.tw > size.width * 0.15) {
               blocked = true;
               break;
             }
