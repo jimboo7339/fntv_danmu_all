@@ -354,8 +354,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
     });
   }
 
-  void _saveProgress() {
-    if (_videoCtrl == null || !mounted) return;
+  void _saveProgress({bool force = false}) {
+    if (_videoCtrl == null) return;
+    if (!force && !mounted) return;
     final pos = _videoCtrl!.position.inSeconds;
     final dur = _videoCtrl!.duration.inSeconds;
     if (dur > 0) {
@@ -809,9 +810,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _hideTimer?.cancel();
     _gestureOverlayTimer?.cancel();
     _progressTimer?.cancel();
-    _saveProgress(); // 退出时立即上报最终进度
+    _saveProgress(force: true); // 退出时强制上报最终进度
     _danmuTimer?.cancel();
-    _saveProgress();
     _videoCtrl?.removeListener(_videoListener);
     _videoCtrl?.dispose();
     WakelockPlus.disable();

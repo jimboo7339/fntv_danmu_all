@@ -163,6 +163,9 @@ class _DetailScreenState extends State<DetailScreen> {
           duration: item.duration,
         ));
         if (mounted) {
+          // 优先使用 play/info 返回的 ts（服务端记录的进度），其次用 episode list 的 ts
+          final seekTs = info.ts > 0 ? info.ts : item.ts;
+          debugPrint('Play item: seekTs=$seekTs (info.ts=${info.ts}, item.ts=${item.ts})');
           Navigator.push(context, MaterialPageRoute(
             builder: (_) => PlayerScreen(
               itemGuid: item.guid,
@@ -171,7 +174,7 @@ class _DetailScreenState extends State<DetailScreen> {
               episodeNumber: item.episodeNumber,
               poster: _bestPoster,
               category: widget.item.categoryLabel,
-              seekTs: item.ts,
+              seekTs: seekTs,
               duration: item.duration,
               parentGuid: info.parentGuid ?? item.parentGuid,
             ),

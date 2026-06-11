@@ -191,7 +191,7 @@ class _DanmuPainter extends CustomPainter {
       } else {
         final item = _DanmuItem(text: c.text, time: c.time, color: c.color, type: c.type);
         item.tw = _measureText(c.text);
-        item.speed = (size.width / 7.0 + c.text.length * 2.0) * speed;
+        item.speed = (size.width / 6.0) * speed; // 统一速度，不随文字长度变化
         item.x = size.width;
 
         // 找空闲行 — 基于时间间隔，同速弹幕自然不重叠
