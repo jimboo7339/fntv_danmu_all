@@ -1,13 +1,35 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 import '../providers/app_state.dart';
 import '../utils/theme.dart';
 import '../utils/log_buffer.dart';
 import 'danmu_settings_screen.dart';
 
-class SettingsScreen extends StatelessWidget {
+// ────────────────────────────────────────────────────────────
+//  主设置页 — 二级菜单入口
+// ────────────────────────────────────────────────────────────
+class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
+
+  @override
+  State<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends State<SettingsScreen> {
+  String _version = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadVersion();
+  }
+
+  Future<void> _loadVersion() async {
+    final info = await PackageInfo.fromPlatform();
+    if (mounted) setState(() => _version = info.version);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -26,226 +48,71 @@ class SettingsScreen extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 4),
-        // Scrollable content
         Expanded(
           child: ListView(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             children: [
-              // Current server info
+              // ── 账号信息卡片 ──
               if (app.currentAccount != null)
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 52, height: 52,
-                          decoration: BoxDecoration(
-                            color: FnTheme.danmuGreen.withOpacity(0.12),
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                          child: const Icon(Icons.dns_rounded, size: 26, color: FnTheme.danmuGreen),
-                        ),
-                        const SizedBox(width: 14),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(app.currentAccount!.user,
-                                style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
-                              const SizedBox(height: 3),
-                              Text(app.currentAccount!.host.replaceAll(RegExp(r'^https?://'), ''),
-                                style: const TextStyle(color: FnTheme.textSecondary, fontSize: 12),
-                                overflow: TextOverflow.ellipsis),
-                            ],
-                          ),
-                        ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: Colors.green.withOpacity(0.12),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Container(width: 7, height: 7,
-                                decoration: const BoxDecoration(color: Colors.green, shape: BoxShape.circle)),
-                              const SizedBox(width: 5),
-                              Text('已连接', style: TextStyle(color: Colors.green[400], fontSize: 12)),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
+                _AccountCard(account: app.currentAccount!),
               const SizedBox(height: 20),
 
-              // 弹幕设置 — 二级菜单入口
-              _sectionTitle('弹幕'),
-              Card(
-                child: ListTile(
-                  leading: Container(
-                    width: 36, height: 36,
-                    decoration: BoxDecoration(
-                      color: FnTheme.danmuGreen.withOpacity(0.12),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: const Icon(Icons.subtitles_rounded, size: 20, color: FnTheme.danmuGreen),
-                  ),
-                  title: const Text('弹幕设置'),
-                  subtitle: Text(
-                    app.danmuOn ? '已开启 · ${app.danmuFontSize.toInt()}px · ${(app.danmuOpacity * 100).toInt()}%' : '已关闭',
-                    style: const TextStyle(fontSize: 12, color: FnTheme.textSecondary),
-                  ),
-                  trailing: const Icon(Icons.chevron_right_rounded),
-                  onTap: () => Navigator.push(context,
-                    MaterialPageRoute(builder: (_) => const DanmuSettingsScreen()),
-                  ),
+              // ── 播放器设置 ──
+              _MenuTile(
+                icon: Icons.play_circle_rounded,
+                color: FnTheme.danmuGreen,
+                title: '播放器设置',
+                subtitle: '${app.playerEngine == "mpv" ? "MPV" : "ExoPlayer"} · ${app.decoderMode == "hardware" ? "硬解" : "软解"}',
+                onTap: () => Navigator.push(context,
+                  MaterialPageRoute(builder: (_) => const _PlayerSettingsPage()),
                 ),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 10),
 
-              // 播放设置
-              _sectionTitle('播放设置'),
-              Card(
-                child: Column(
-                  children: [
-                    // Player engine selector (Android only shows both, others show mpv info)
-                    ListTile(
-                      leading: Container(
-                        width: 36, height: 36,
-                        decoration: BoxDecoration(
-                          color: FnTheme.danmuGreen.withOpacity(0.12),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: const Icon(Icons.play_circle_rounded, size: 20, color: FnTheme.danmuGreen),
-                      ),
-                      title: const Text('播放内核'),
-                      subtitle: Text(
-                        app.playerEngine == 'mpv' ? 'MPV (libmpv) — 解码能力强' : 'ExoPlayer — Android 原生',
-                        style: const TextStyle(fontSize: 12, color: FnTheme.textSecondary),
-                      ),
-                      trailing: const Icon(Icons.chevron_right_rounded),
-                      onTap: () => _showEnginePicker(context, app),
-                    ),
-                    ListTile(
-                      title: const Text('解码模式'),
-                      subtitle: Text(app.decoderMode == 'hardware' ? '硬解' : '软解'),
-                      trailing: const Icon(Icons.chevron_right_rounded),
-                      onTap: () => _showDecoderPicker(context, app),
-                    ),
-                    ListTile(
-                      title: const Text('快进步长'),
-                      subtitle: Text('${app.seekStep} 秒'),
-                      trailing: const Icon(Icons.chevron_right_rounded),
-                      onTap: () => _showSeekStepPicker(context, app),
-                    ),
-                  ],
+              // ── 弹幕设置 ──
+              _MenuTile(
+                icon: Icons.subtitles_rounded,
+                color: FnTheme.danmuGreen,
+                title: '弹幕设置',
+                subtitle: app.danmuOn ? '已开启 · ${app.danmuFontSize.toInt()}px' : '已关闭',
+                onTap: () => Navigator.push(context,
+                  MaterialPageRoute(builder: (_) => const DanmuSettingsScreen()),
                 ),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 10),
 
-              // 账号管理
-              _sectionTitle('账号管理'),
-              Card(
-                child: Column(
-                  children: [
-                    ...app.accounts.map((acc) => ListTile(
-                      leading: Container(
-                        width: 36, height: 36,
-                        decoration: BoxDecoration(
-                          color: acc.id == app.currentAccount?.id
-                              ? FnTheme.danmuGreen.withOpacity(0.15)
-                              : Colors.grey.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Icon(Icons.person_rounded, size: 20,
-                          color: acc.id == app.currentAccount?.id
-                              ? FnTheme.danmuGreen : FnTheme.textMuted),
-                      ),
-                      title: Text(acc.user,
-                        style: TextStyle(
-                          fontWeight: acc.id == app.currentAccount?.id
-                              ? FontWeight.bold : FontWeight.normal,
-                        )),
-                      subtitle: Text(acc.host.replaceAll(RegExp(r'^https?://'), ''),
-                        style: const TextStyle(fontSize: 12, color: FnTheme.textSecondary),
-                        overflow: TextOverflow.ellipsis),
-                      trailing: acc.id == app.currentAccount?.id
-                          ? const Icon(Icons.check_circle_rounded, color: FnTheme.danmuGreen, size: 20)
-                          : null,
-                      onTap: acc.id == app.currentAccount?.id ? null : () async {
-                        final ok = await app.switchAccount(acc.id);
-                        if (ok && context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text('已切换到 ${acc.label}')),
-                          );
-                        }
-                      },
-                    )),
-                    ListTile(
-                      leading: Container(
-                        width: 36, height: 36,
-                        decoration: BoxDecoration(
-                          color: Colors.grey.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: const Icon(Icons.add_rounded, size: 20, color: FnTheme.textMuted),
-                      ),
-                      title: const Text('切换 / 添加账号'),
-                      onTap: () {
-                        app.logout();
-                        Navigator.of(context).popUntil((route) => route.isFirst);
-                      },
-                    ),
-                  ],
+              // ── 账号管理 ──
+              _MenuTile(
+                icon: Icons.people_rounded,
+                color: FnTheme.danmuGreen,
+                title: '账号管理',
+                subtitle: '${app.accounts.length} 个账号',
+                onTap: () => Navigator.push(context,
+                  MaterialPageRoute(builder: (_) => const _AccountManagePage()),
                 ),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 10),
 
-              // 关于
-              _sectionTitle('关于'),
-              Card(
-                child: Column(
-                  children: [
-                    const ListTile(
-                      title: Text('版本'),
-                      subtitle: Text('飞牛TV v1.0.0 (Flutter)'),
-                    ),
-                    ListTile(
-                      title: const Text('退出登录', style: TextStyle(color: Colors.redAccent)),
-                      trailing: const Icon(Icons.logout_rounded, color: Colors.redAccent),
-                      onTap: () {
-                        app.logout();
-                        Navigator.of(context).popUntil((route) => route.isFirst);
-                      },
-                    ),
-                  ],
+              // ── 关于 ──
+              _MenuTile(
+                icon: Icons.info_outline_rounded,
+                color: FnTheme.textMuted,
+                title: '关于',
+                subtitle: _version.isNotEmpty ? '飞牛TV v$_version' : '飞牛TV',
+                onTap: () => Navigator.push(context,
+                  MaterialPageRoute(builder: (_) => _AboutPage(version: _version)),
                 ),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 10),
 
-              // 调试日志
-              _sectionTitle('调试'),
-              Card(
-                child: ListTile(
-                  leading: Container(
-                    width: 36, height: 36,
-                    decoration: BoxDecoration(
-                      color: Colors.orange.withOpacity(0.12),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: const Icon(Icons.bug_report_rounded, size: 20, color: Colors.orange),
-                  ),
-                  title: const Text('查看日志'),
-                  subtitle: Text(
-                    '${LogBuffer.instance.entries.length} 条记录',
-                    style: const TextStyle(fontSize: 12, color: FnTheme.textSecondary),
-                  ),
-                  trailing: const Icon(Icons.chevron_right_rounded),
-                  onTap: () => _showLogViewer(context),
+              // ── 调试日志 ──
+              _MenuTile(
+                icon: Icons.bug_report_rounded,
+                color: Colors.orange,
+                title: '调试日志',
+                subtitle: '${LogBuffer.instance.entries.length} 条记录',
+                onTap: () => Navigator.push(context,
+                  MaterialPageRoute(builder: (_) => const LogViewerScreen()),
                 ),
               ),
               const SizedBox(height: 24),
@@ -255,12 +122,172 @@ class SettingsScreen extends StatelessWidget {
       ],
     );
   }
+}
 
-  Widget _sectionTitle(String title) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8, left: 4),
-      child: Text(title, style: const TextStyle(
-        color: FnTheme.textMuted, fontSize: 13, fontWeight: FontWeight.w600)),
+// ────────────────────────────────────────────────────────────
+//  通用菜单入口 Tile
+// ────────────────────────────────────────────────────────────
+class _MenuTile extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  const _MenuTile({
+    required this.icon,
+    required this.color,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: ListTile(
+        leading: Container(
+          width: 36, height: 36,
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.12),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Icon(icon, size: 20, color: color),
+        ),
+        title: Text(title),
+        subtitle: Text(subtitle,
+          style: const TextStyle(fontSize: 12, color: FnTheme.textSecondary)),
+        trailing: const Icon(Icons.chevron_right_rounded),
+        onTap: onTap,
+      ),
+    );
+  }
+}
+
+// ────────────────────────────────────────────────────────────
+//  账号信息卡片（主设置页内嵌）
+// ────────────────────────────────────────────────────────────
+class _AccountCard extends StatelessWidget {
+  final dynamic account;
+  const _AccountCard({required this.account});
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            Container(
+              width: 52, height: 52,
+              decoration: BoxDecoration(
+                color: FnTheme.danmuGreen.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: const Icon(Icons.dns_rounded, size: 26, color: FnTheme.danmuGreen),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(account.user,
+                    style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
+                  const SizedBox(height: 3),
+                  Text(account.host.replaceAll(RegExp(r'^https?://'), ''),
+                    style: const TextStyle(color: FnTheme.textSecondary, fontSize: 12),
+                    overflow: TextOverflow.ellipsis),
+                ],
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.green.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(width: 7, height: 7,
+                    decoration: const BoxDecoration(color: Colors.green, shape: BoxShape.circle)),
+                  const SizedBox(width: 5),
+                  Text('已连接', style: TextStyle(color: Colors.green[400], fontSize: 12)),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ────────────────────────────────────────────────────────────
+//  播放器设置 二级页面
+// ────────────────────────────────────────────────────────────
+class _PlayerSettingsPage extends StatelessWidget {
+  const _PlayerSettingsPage();
+
+  @override
+  Widget build(BuildContext context) {
+    final app = context.watch<AppState>();
+    return Scaffold(
+      backgroundColor: const Color(0xFF121212),
+      appBar: AppBar(
+        title: const Text('播放器设置'),
+        backgroundColor: const Color(0xFF1A1A1A),
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          // 播放内核
+          Card(
+            child: ListTile(
+              title: const Text('播放内核'),
+              subtitle: Text(
+                app.playerEngine == 'mpv' ? 'MPV (libmpv) — 解码能力强' : 'ExoPlayer — Android 原生',
+                style: const TextStyle(fontSize: 12, color: FnTheme.textSecondary),
+              ),
+              trailing: const Icon(Icons.chevron_right_rounded),
+              onTap: () => _showEnginePicker(context, app),
+            ),
+          ),
+          const SizedBox(height: 10),
+
+          // 解码模式
+          Card(
+            child: ListTile(
+              title: const Text('解码模式'),
+              subtitle: Text(app.decoderMode == 'hardware' ? '硬解' : '软解'),
+              trailing: const Icon(Icons.chevron_right_rounded),
+              onTap: () => _showDecoderPicker(context, app),
+            ),
+          ),
+          const SizedBox(height: 10),
+
+          // 快进步长
+          Card(
+            child: Column(
+              children: [
+                ListTile(
+                  title: const Text('快进步长'),
+                  subtitle: Text('${app.seekStep} 秒'),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: () => _showSeekStepPicker(context, app),
+                ),
+                ListTile(
+                  title: const Text('长按倍速'),
+                  subtitle: Text('${app.danmuLongPressSpeed}x'),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: () => _showLongPressSpeedPicker(context, app),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+        ],
+      ),
     );
   }
 
@@ -307,13 +334,177 @@ class SettingsScreen extends StatelessWidget {
     ));
   }
 
-  void _showLogViewer(BuildContext context) {
-    Navigator.push(context, MaterialPageRoute(
-      builder: (_) => const LogViewerScreen(),
+  void _showLongPressSpeedPicker(BuildContext ctx, AppState app) {
+    showDialog(context: ctx, builder: (_) => SimpleDialog(
+      title: const Text('长按倍速'),
+      children: [1.5, 2.0, 2.5, 3.0].map((s) => RadioListTile(
+        value: s, groupValue: app.danmuLongPressSpeed,
+        title: Text('${s}x'),
+        onChanged: (v) { app.danmuLongPressSpeed = v!; Navigator.pop(ctx); },
+      )).toList(),
     ));
   }
 }
 
+// ────────────────────────────────────────────────────────────
+//  账号管理 二级页面
+// ────────────────────────────────────────────────────────────
+class _AccountManagePage extends StatelessWidget {
+  const _AccountManagePage();
+
+  @override
+  Widget build(BuildContext context) {
+    final app = context.watch<AppState>();
+    return Scaffold(
+      backgroundColor: const Color(0xFF121212),
+      appBar: AppBar(
+        title: const Text('账号管理'),
+        backgroundColor: const Color(0xFF1A1A1A),
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          Card(
+            child: Column(
+              children: [
+                ...app.accounts.map((acc) => ListTile(
+                  leading: Container(
+                    width: 36, height: 36,
+                    decoration: BoxDecoration(
+                      color: acc.id == app.currentAccount?.id
+                          ? FnTheme.danmuGreen.withOpacity(0.15)
+                          : Colors.grey.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Icon(Icons.person_rounded, size: 20,
+                      color: acc.id == app.currentAccount?.id
+                          ? FnTheme.danmuGreen : FnTheme.textMuted),
+                  ),
+                  title: Text(acc.user,
+                    style: TextStyle(
+                      fontWeight: acc.id == app.currentAccount?.id
+                          ? FontWeight.bold : FontWeight.normal,
+                    )),
+                  subtitle: Text(acc.host.replaceAll(RegExp(r'^https?://'), ''),
+                    style: const TextStyle(fontSize: 12, color: FnTheme.textSecondary),
+                    overflow: TextOverflow.ellipsis),
+                  trailing: acc.id == app.currentAccount?.id
+                      ? const Icon(Icons.check_circle_rounded, color: FnTheme.danmuGreen, size: 20)
+                      : null,
+                  onTap: acc.id == app.currentAccount?.id ? null : () async {
+                    final ok = await app.switchAccount(acc.id);
+                    if (ok && context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('已切换到 ${acc.label}')),
+                      );
+                    }
+                  },
+                )),
+                ListTile(
+                  leading: Container(
+                    width: 36, height: 36,
+                    decoration: BoxDecoration(
+                      color: Colors.grey.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(Icons.add_rounded, size: 20, color: FnTheme.textMuted),
+                  ),
+                  title: const Text('切换 / 添加账号'),
+                  onTap: () {
+                    app.logout();
+                    Navigator.of(context).popUntil((route) => route.isFirst);
+                  },
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
+
+          // 退出登录
+          Card(
+            child: ListTile(
+              title: const Text('退出登录', style: TextStyle(color: Colors.redAccent)),
+              trailing: const Icon(Icons.logout_rounded, color: Colors.redAccent),
+              onTap: () {
+                app.logout();
+                Navigator.of(context).popUntil((route) => route.isFirst);
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ────────────────────────────────────────────────────────────
+//  关于 二级页面
+// ────────────────────────────────────────────────────────────
+class _AboutPage extends StatelessWidget {
+  final String version;
+  const _AboutPage({required this.version});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF121212),
+      appBar: AppBar(
+        title: const Text('关于'),
+        backgroundColor: const Color(0xFF1A1A1A),
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          // App icon & name
+          const SizedBox(height: 32),
+          Center(
+            child: Container(
+              width: 72, height: 72,
+              decoration: BoxDecoration(
+                color: FnTheme.danmuGreen.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(18),
+              ),
+              child: const Icon(Icons.tv_rounded, size: 36, color: FnTheme.danmuGreen),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Center(
+            child: Text('飞牛TV',
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
+          ),
+          Center(
+            child: Text(
+              version.isNotEmpty ? 'v$version' : 'v--',
+              style: const TextStyle(color: FnTheme.textSecondary, fontSize: 14),
+            ),
+          ),
+          const SizedBox(height: 32),
+
+          Card(
+            child: Column(
+              children: [
+                ListTile(
+                  title: const Text('版本号'),
+                  trailing: Text(version.isNotEmpty ? version : '--',
+                    style: const TextStyle(color: FnTheme.textSecondary)),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  title: const Text('Framework'),
+                  trailing: const Text('Flutter', style: TextStyle(color: FnTheme.textSecondary)),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ────────────────────────────────────────────────────────────
+//  日志查看器
+// ────────────────────────────────────────────────────────────
 class LogViewerScreen extends StatefulWidget {
   const LogViewerScreen({super.key});
 
@@ -366,7 +557,6 @@ class _LogViewerScreenState extends State<LogViewerScreen> {
       ),
       body: Column(
         children: [
-          // Filter bar
           Padding(
             padding: const EdgeInsets.all(8),
             child: TextField(
@@ -386,7 +576,6 @@ class _LogViewerScreenState extends State<LogViewerScreen> {
               onChanged: (v) => setState(() => _filter = v),
             ),
           ),
-          // Log count
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
             child: Row(
@@ -398,7 +587,6 @@ class _LogViewerScreenState extends State<LogViewerScreen> {
               ],
             ),
           ),
-          // Log list
           Expanded(
             child: entries.isEmpty
                 ? const Center(child: Text('暂无日志', style: TextStyle(color: FnTheme.textMuted)))

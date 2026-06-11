@@ -305,4 +305,9 @@ class AppState extends ChangeNotifier {
   /// 'exo' or 'mpv'. Default: 'mpv' on all platforms.
   String get playerEngine => _prefs.getString('player_engine') ?? 'mpv';
   set playerEngine(String v) { _prefs.setString('player_engine', v); notifyListeners(); }
+
+  // ====== Long press speed ======
+
+  double get danmuLongPressSpeed => _prefs.getDouble('danmu_lp_speed') ?? 2.0;
+  set danmuLongPressSpeed(double v) { _prefs.setDouble('danmu_lp_speed', v); notifyListeners(); }
 }

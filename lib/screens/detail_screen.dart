@@ -1,6 +1,8 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:palette_generator/palette_generator.dart';
 import '../providers/app_state.dart';
 import '../models/play_list_item.dart';
 import '../models/play_info.dart';
@@ -23,6 +25,7 @@ class _DetailScreenState extends State<DetailScreen> {
   bool _loadingInfo = true;
   bool _loadingEpisodes = false;
   String? _error;
+  Color _dominantColor = const Color(0xFF1A1A2E);
 
   @override
   void initState() {
@@ -44,9 +47,8 @@ class _DetailScreenState extends State<DetailScreen> {
             _playInfo = info;
             _loadingInfo = false;
           });
+          _extractPalette();
           // 判断是否需要加载剧集列表
-          // 1. 类型是 TV（直接点的剧集）→ 用 item.guid 加载
-          // 2. 类型是 Episode（从某集点进来）→ 用 parentGuid 加载
           final type = info.type ?? widget.item.type;
           if (type == 'TV' || type == 'Episode') {
             final parentGuid = type == 'Episode' ? info.parentGuid : widget.item.guid;
@@ -56,11 +58,9 @@ class _DetailScreenState extends State<DetailScreen> {
           }
         }
       } else {
-        // getPlayInfo 失败，用 item 自身信息兜底
         if (mounted) setState(() {
           _loadingInfo = false;
         });
-        // 仍然尝试加载剧集（如果是 TV 类型）
         if (widget.item.isFolder) {
           _loadEpisodes(widget.item.guid);
         }
@@ -77,7 +77,6 @@ class _DetailScreenState extends State<DetailScreen> {
   Future<void> _loadEpisodes(String parentGuid) async {
     if (mounted) setState(() => _loadingEpisodes = true);
     try {
-      // 用 getEpisodeList 接口，和原版 app 一致
       final resp = await _app.api.getEpisodeList(parentGuid);
       if (resp['code'] == 0 && resp['data'] != null) {
         final items = (resp['data'] as List).map((e) => PlayListItem.fromJson(e)).toList();
@@ -91,6 +90,29 @@ class _DetailScreenState extends State<DetailScreen> {
     } catch (e) {
       debugPrint('loadEpisodes error: $e');
       if (mounted) setState(() => _loadingEpisodes = false);
+    }
+  }
+
+  // ==================== 调色板 ====================
+
+  Future<void> _extractPalette() async {
+    final url = _posterUrl;
+    if (url.isEmpty) return;
+    try {
+      final provider = CachedNetworkImageProvider(url, headers: _app.api.imageHeaders);
+      final palette = await PaletteGenerator.fromImageProvider(
+        provider,
+        maximumColorCount: 5,
+      );
+      if (mounted && palette.dominantColor != null) {
+        setState(() {
+          // 取主色调，稍微降低亮度避免太亮
+          final c = palette.dominantColor!.color;
+          _dominantColor = HSLColor.fromColor(c).withLightness(0.18).toColor();
+        });
+      }
+    } catch (e) {
+      debugPrint('extractPalette error: $e');
     }
   }
 
@@ -138,7 +160,7 @@ class _DetailScreenState extends State<DetailScreen> {
     }
   }
 
-  // ==================== 图片 URL（优先 backdrops → poster → item.poster） ====================
+  // ==================== 图片 URL ====================
 
   String get _bestPoster {
     return _playInfo?.item?.poster
@@ -150,22 +172,24 @@ class _DetailScreenState extends State<DetailScreen> {
   String get _posterUrl {
     final p = _bestPoster;
     if (p.isNotEmpty) {
-      final url = _app.api.getImageUrl(p, width: 600);
-      debugPrint('PosterUrl: poster=$p -> $url');
-      return url;
+      return _app.api.getImageUrl(p, width: 600);
     }
-    debugPrint('PosterUrl: no poster found (playInfo.poster=${_playInfo?.item?.poster}, playInfo.posterPath=${_playInfo?.posterPath}, item.poster=${widget.item.poster})');
     return '';
   }
 
   String get _backdropUrl {
     final bd = _playInfo?.item?.backdrops;
     if (bd != null && bd.isNotEmpty) {
-      final url = _app.api.getImageUrl(bd, width: 1200);
-      debugPrint('BackdropUrl: backdrops=$bd -> $url');
-      return url;
+      return _app.api.getImageUrl(bd, width: 1200);
     }
-    debugPrint('BackdropUrl: no backdrops found');
+    return '';
+  }
+
+  String get _logoUrl {
+    final logo = _playInfo?.item?.logo;
+    if (logo != null && logo.isNotEmpty) {
+      return _app.api.getImageUrl(logo, width: 500);
+    }
     return '';
   }
 
@@ -188,7 +212,7 @@ class _DetailScreenState extends State<DetailScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: FnTheme.surfaceDark,
+      backgroundColor: _dominantColor,
       body: _loadingInfo
           ? const Center(child: CircularProgressIndicator(color: FnTheme.danmuGreen))
           : _error != null
@@ -221,66 +245,78 @@ class _DetailScreenState extends State<DetailScreen> {
   Widget _buildContent() {
     final item = _playInfo?.item;
 
-    return CustomScrollView(
-      slivers: [
-        // Hero area with poster + backdrop
-        SliverToBoxAdapter(child: _buildHeroSection(item)),
-        // Info section
-        SliverToBoxAdapter(child: _buildInfoSection(item)),
-        // Play button + Episode list
-        if (_showEpisodes) ...[
-          SliverToBoxAdapter(child: _buildPlayButton()),
-          SliverToBoxAdapter(child: _buildEpisodeHeader()),
-          _buildEpisodeList(),
-        ] else
-          SliverToBoxAdapter(child: _buildPlayButton()),
-        const SliverToBoxAdapter(child: SizedBox(height: 40)),
-      ],
+    return SingleChildScrollView(
+      child: Column(
+        children: [
+          // 顶部海报模糊区域
+          _buildHeroSection(item),
+          // 信息区域（用取色填充背景）
+          Container(
+            color: _dominantColor,
+            child: Column(
+              children: [
+                _buildInfoSection(item),
+                if (_showEpisodes) ...[
+                  _buildPlayButton(),
+                  _buildEpisodeHeader(),
+                  _buildEpisodeList(),
+                ] else
+                  _buildPlayButton(),
+                const SizedBox(height: 40),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 
+  /// 顶部海报模糊区域：海报模糊作为背景 + logo + 标题
   Widget _buildHeroSection(ItemInfo? item) {
     final backdropUrl = _backdropUrl;
     final posterUrl = _posterUrl;
-    // 标题：优先用 playInfo 的，没有用 item 的
     final title = item?.tvTitle ?? item?.title ?? widget.item.title ?? '';
     final subtitle = item?.title != null && item!.title != item.tvTitle ? item.title : null;
+    final logoUrl = _logoUrl;
+    final bgUrl = backdropUrl.isNotEmpty ? backdropUrl : posterUrl;
 
     return SizedBox(
-      height: 320,
+      height: 340,
       child: Stack(
         fit: StackFit.expand,
         children: [
-          // Backdrop or gradient
-          if (backdropUrl.isNotEmpty)
-            CachedNetworkImage(
-              imageUrl: backdropUrl,
-              httpHeaders: _app.api.imageHeaders,
-              fit: BoxFit.cover,
-              errorWidget: (_, __, ___) => Container(color: const Color(0xFF121212)),
+          // 模糊海报背景
+          if (bgUrl.isNotEmpty)
+            ImageFiltered(
+              imageFilter: ImageFilter.blur(sigmaX: 25, sigmaY: 25),
+              child: CachedNetworkImage(
+                imageUrl: bgUrl,
+                httpHeaders: _app.api.imageHeaders,
+                fit: BoxFit.cover,
+                errorWidget: (_, __, ___) => Container(color: _dominantColor),
+              ),
             )
           else
-            Container(
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [Color(0xFF1A1A2E), FnTheme.surfaceDark],
-                ),
-              ),
-            ),
-          // Gradient overlay
+            Container(color: _dominantColor),
+
+          // 深色遮罩（让内容可读）
           Container(
-            decoration: const BoxDecoration(
+            color: Colors.black.withOpacity(0.45),
+          ),
+
+          // 底部渐变（过渡到取色背景）
+          Container(
+            decoration: BoxDecoration(
               gradient: LinearGradient(
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
-                colors: [Colors.transparent, FnTheme.surfaceDark],
-                stops: [0.3, 1.0],
+                colors: [Colors.transparent, _dominantColor],
+                stops: const [0.5, 1.0],
               ),
             ),
           ),
-          // Back button
+
+          // 返回按钮
           Positioned(
             top: MediaQuery.of(context).padding.top + 8,
             left: 8,
@@ -293,20 +329,21 @@ class _DetailScreenState extends State<DetailScreen> {
               ),
             ),
           ),
-          // Poster card
+
+          // 海报卡片（小图）
           Positioned(
             left: 20,
-            bottom: 0,
+            bottom: 16,
             child: Container(
-              width: 130,
-              height: 190,
+              width: 120,
+              height: 170,
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(10),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.5),
+                    color: Colors.black.withOpacity(0.6),
                     blurRadius: 20,
-                    offset: const Offset(0, 5),
+                    offset: const Offset(0, 6),
                   ),
                 ],
               ),
@@ -318,40 +355,47 @@ class _DetailScreenState extends State<DetailScreen> {
                       fit: BoxFit.cover,
                       placeholder: (_, __) => Container(
                         color: const Color(0xFF2A2A2A),
-                        child: const Center(child: Icon(Icons.movie_rounded, color: Colors.grey, size: 40)),
+                        child: const Center(child: Icon(Icons.movie_rounded, color: Colors.grey, size: 36)),
                       ),
                       errorWidget: (_, __, ___) => Container(
                         color: const Color(0xFF2A2A2A),
-                        child: const Center(child: Icon(Icons.broken_image, color: Colors.grey, size: 40)),
+                        child: const Center(child: Icon(Icons.broken_image, color: Colors.grey, size: 36)),
                       ),
                     )
                   : Container(
                       color: const Color(0xFF2A2A2A),
-                      child: const Center(child: Icon(Icons.movie_rounded, color: Colors.grey, size: 40)),
+                      child: const Center(child: Icon(Icons.movie_rounded, color: Colors.grey, size: 36)),
                     ),
             ),
           ),
-          // Title next to poster
+
+          // Logo 图片或标题
           Positioned(
-            left: 165,
-            bottom: 20,
+            left: 155,
+            bottom: 16,
             right: 20,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Text(
-                  title,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.bold,
-                    color: FnTheme.textPrimary,
-                  ),
-                ),
+                // Logo 图片（如果有）
+                if (logoUrl.isNotEmpty)
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 80, maxWidth: 280),
+                    child: CachedNetworkImage(
+                      imageUrl: logoUrl,
+                      httpHeaders: _app.api.imageHeaders,
+                      fit: BoxFit.contain,
+                      alignment: Alignment.centerLeft,
+                      errorWidget: (_, __, ___) => _buildTitleText(title),
+                    ),
+                  )
+                else
+                  _buildTitleText(title),
+                // 副标题
                 if (subtitle != null && subtitle.isNotEmpty)
                   Padding(
-                    padding: const EdgeInsets.only(top: 4),
+                    padding: const EdgeInsets.only(top: 6),
                     child: Text(
                       subtitle,
                       maxLines: 1,
@@ -362,6 +406,22 @@ class _DetailScreenState extends State<DetailScreen> {
               ],
             ),
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTitleText(String title) {
+    return Text(
+      title,
+      maxLines: 2,
+      overflow: TextOverflow.ellipsis,
+      style: const TextStyle(
+        fontSize: 22,
+        fontWeight: FontWeight.bold,
+        color: FnTheme.textPrimary,
+        shadows: [
+          Shadow(blurRadius: 8, color: Colors.black87),
         ],
       ),
     );
@@ -435,7 +495,6 @@ class _DetailScreenState extends State<DetailScreen> {
         child: ElevatedButton.icon(
           onPressed: () {
             if (_isTvShow && _episodes.isNotEmpty) {
-              // TV show: play first unwatched or first episode
               final firstUnwatched = _episodes.firstWhere(
                 (e) => e.watched == 0,
                 orElse: () => _episodes.first,
@@ -446,9 +505,9 @@ class _DetailScreenState extends State<DetailScreen> {
             }
           },
           icon: const Icon(Icons.play_arrow_rounded, size: 28),
-          label: Text(
-            _isTvShow && _episodes.isNotEmpty ? '播放' : '播放',
-            style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
+          label: const Text(
+            '播放',
+            style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
           ),
           style: ElevatedButton.styleFrom(
             backgroundColor: FnTheme.danmuGreen,
@@ -486,21 +545,17 @@ class _DetailScreenState extends State<DetailScreen> {
 
   Widget _buildEpisodeList() {
     if (_loadingEpisodes) {
-      return const SliverToBoxAdapter(
-        child: Padding(
-          padding: EdgeInsets.all(40),
-          child: Center(child: CircularProgressIndicator(strokeWidth: 2, color: FnTheme.danmuGreen)),
-        ),
+      return const Padding(
+        padding: EdgeInsets.all(40),
+        child: Center(child: CircularProgressIndicator(strokeWidth: 2, color: FnTheme.danmuGreen)),
       );
     }
     if (_episodes.isEmpty) {
-      return const SliverToBoxAdapter(child: SizedBox.shrink());
+      return const SizedBox.shrink();
     }
-    return SliverList(
-      delegate: SliverChildBuilderDelegate(
-        (_, i) => _buildEpisodeTile(_episodes[i], i),
-        childCount: _episodes.length,
-      ),
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: List.generate(_episodes.length, (i) => _buildEpisodeTile(_episodes[i], i)),
     );
   }
 
@@ -565,12 +620,11 @@ class _DetailScreenState extends State<DetailScreen> {
               ),
             ),
             const SizedBox(width: 14),
-            // Episode info — 集数 + 标题 + 描述一起显示
+            // Episode info
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // 集数 + 标题
                   Text(
                     '第$epNum集${ep.title != null && ep.title!.isNotEmpty ? '  ${ep.title}' : ''}',
                     maxLines: 2,
@@ -581,7 +635,6 @@ class _DetailScreenState extends State<DetailScreen> {
                       color: FnTheme.textPrimary,
                     ),
                   ),
-                  // 描述
                   if (ep.overview != null && ep.overview!.isNotEmpty) ...[
                     const SizedBox(height: 4),
                     Text(
@@ -591,7 +644,6 @@ class _DetailScreenState extends State<DetailScreen> {
                       style: const TextStyle(fontSize: 12, color: FnTheme.textMuted, height: 1.4),
                     ),
                   ],
-                  // 时长 + 已看标记
                   if (ep.duration > 0 || ep.watched > 0) ...[
                     const SizedBox(height: 4),
                     Row(

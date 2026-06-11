@@ -17,6 +17,8 @@ import '../utils/theme.dart';
 import '../widgets/danmu_overlay.dart';
 import '../widgets/player_controls.dart';
 import '../services/video_wrapper.dart';
+import 'package:screen_brightness/screen_brightness.dart';
+import 'package:flutter_volume_controller/flutter_volume_controller.dart';
 
 class PlayerScreen extends StatefulWidget {
   final String itemGuid;
@@ -95,6 +97,22 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   // Speed
   double _speed = 1.0;
+  double _preLongPressSpeed = 1.0; // speed before long press
+  bool _isLongPressing = false;
+
+  // Gesture overlay state
+  bool _showGestureOverlay = false;
+  String _gestureOverlayIcon = '';
+  String _gestureOverlayText = '';
+  double _gestureOverlayProgress = 0.5; // 0-1
+  Timer? _gestureOverlayTimer;
+
+  // Gesture tracking
+  double _gestureStartDx = 0;
+  double _currentBrightness = 0.5;
+  double _currentVolume = 0.5;
+  Duration _seekStartPosition = Duration.zero;
+  double _seekAccumulator = 0.0;
 
   Timer? _hideTimer;
   Timer? _progressTimer;
@@ -110,6 +128,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _parentGuid = widget.parentGuid;
     _danmuOn = _appState!.danmuOn;
     _useMpv = _appState!.playerEngine == 'mpv';
+    // Initialize brightness and volume from system
+    try {
+      ScreenBrightness().current.then((v) { _currentBrightness = v; }).catchError((_) {});
+    } catch (_) {}
+    try {
+      FlutterVolumeController.getVolume().then((v) { if (v != null) _currentVolume = v; }).catchError((_) {});
+    } catch (_) {}
     WakelockPlus.enable();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     SystemChrome.setPreferredOrientations([
@@ -632,6 +657,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   @override
   void dispose() {
     _hideTimer?.cancel();
+    _gestureOverlayTimer?.cancel();
     _progressTimer?.cancel();
     _danmuTimer?.cancel();
     _saveProgress();
@@ -641,6 +667,31 @@ class _PlayerScreenState extends State<PlayerScreen> {
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     SystemChrome.setPreferredOrientations(DeviceOrientation.values);
     super.dispose();
+  }
+
+  void _showGestureOverlayWith(String icon, String text, double progress) {
+    _gestureOverlayTimer?.cancel();
+    setState(() {
+      _showGestureOverlay = true;
+      _gestureOverlayIcon = icon;
+      _gestureOverlayText = text;
+      _gestureOverlayProgress = progress;
+    });
+  }
+
+  void _hideGestureOverlay() {
+    _gestureOverlayTimer?.cancel();
+    _gestureOverlayTimer = Timer(const Duration(milliseconds: 500), () {
+      if (mounted) setState(() => _showGestureOverlay = false);
+    });
+  }
+
+  String _formatDuration(Duration d) {
+    final h = d.inHours;
+    final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
+    if (h > 0) return '$h:$m:$s';
+    return '$m:$s';
   }
 
   @override
@@ -669,6 +720,70 @@ class _PlayerScreenState extends State<PlayerScreen> {
           } else {
             _togglePlay();
           }
+        },
+        onVerticalDragStart: (details) {
+          if (_isLocked) return;
+          _gestureStartDx = details.globalPosition.dx;
+        },
+        onVerticalDragUpdate: (details) {
+          if (_isLocked) return;
+          final screenW = MediaQuery.of(context).size.width;
+          final isLeftSide = _gestureStartDx < screenW / 2;
+          // Sensitivity: full screen height = 0-100%
+          final delta = -details.delta.dy / 200; // positive = up
+          if (isLeftSide) {
+            _currentBrightness = (_currentBrightness + delta).clamp(0.0, 1.0);
+            _showGestureOverlayWith(
+              '☀', '${(_currentBrightness * 100).toInt()}%', _currentBrightness);
+            try { ScreenBrightness().setScreenBrightness(_currentBrightness); } catch (_) {}
+          } else {
+            _currentVolume = (_currentVolume + delta).clamp(0.0, 1.0);
+            _showGestureOverlayWith(
+              '🔊', '${(_currentVolume * 100).toInt()}%', _currentVolume);
+            try { FlutterVolumeController.setVolume(_currentVolume); } catch (_) {}
+          }
+        },
+        onVerticalDragEnd: (_) => _hideGestureOverlay(),
+        onHorizontalDragStart: (details) {
+          if (_isLocked) return;
+          _seekStartPosition = _videoCtrl?.position ?? Duration.zero;
+          _seekAccumulator = 0.0;
+        },
+        onHorizontalDragUpdate: (details) {
+          if (_isLocked) return;
+          // 1 pixel ≈ 200ms
+          _seekAccumulator += details.delta.dx * 200;
+          final dur = _videoCtrl?.duration ?? Duration.zero;
+          final pos = _seekStartPosition + Duration(milliseconds: _seekAccumulator.toInt());
+          final clampedMs = pos.inMilliseconds.clamp(0, dur.inMilliseconds);
+          final progress = dur.inMilliseconds > 0 ? clampedMs / dur.inMilliseconds : 0.0;
+          final current = Duration(milliseconds: clampedMs);
+          _showGestureOverlayWith(
+            details.delta.dx > 0 ? '⏩' : '⏪',
+            '${_formatDuration(current)} / ${_formatDuration(dur)}',
+            progress);
+        },
+        onHorizontalDragEnd: (details) {
+          if (_isLocked) return;
+          final dur = _videoCtrl?.duration ?? Duration.zero;
+          final pos = _seekStartPosition + Duration(milliseconds: _seekAccumulator.toInt());
+          final clampedMs = pos.inMilliseconds.clamp(0, dur.inMilliseconds);
+          _videoCtrl?.seekTo(Duration(milliseconds: clampedMs));
+          _hideGestureOverlay();
+        },
+        onLongPressStart: (_) {
+          if (_isLocked) return;
+          _isLongPressing = true;
+          _preLongPressSpeed = _speed;
+          final longSpeed = _app.danmuLongPressSpeed;
+          _setSpeed(longSpeed);
+          _showGestureOverlayWith('⚡', '${longSpeed}x 倍速', 1.0);
+        },
+        onLongPressEnd: (_) {
+          if (!_isLongPressing) return;
+          _isLongPressing = false;
+          _setSpeed(_preLongPressSpeed);
+          _hideGestureOverlay();
         },
         child: Stack(
           fit: StackFit.expand,
@@ -816,6 +931,40 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 ),
               ),
             ),
+
+            // Gesture overlay (brightness / volume / seek / speed)
+            if (_showGestureOverlay)
+              Center(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.7),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(_gestureOverlayIcon, style: const TextStyle(fontSize: 28)),
+                      const SizedBox(height: 6),
+                      Text(_gestureOverlayText,
+                        style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600)),
+                      const SizedBox(height: 8),
+                      SizedBox(
+                        width: 140,
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(4),
+                          child: LinearProgressIndicator(
+                            value: _gestureOverlayProgress,
+                            backgroundColor: Colors.white24,
+                            valueColor: const AlwaysStoppedAnimation<Color>(FnTheme.danmuGreen),
+                            minHeight: 4,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
           ],
         ),
       ),
