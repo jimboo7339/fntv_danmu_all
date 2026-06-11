@@ -384,7 +384,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
       if (_engine == 'ijk') {
         // IJK: startIjkPlayback handles setDataSource + play + seek
         final seekMs = seekTs > 0 ? seekTs * 1000 : 0;
-        _videoCtrl!.startIjkPlayback(seekMs: seekMs);
+        _videoCtrl!.startIjkPlayback(seekMs: seekMs).catchError((e) {
+          debugPrint('❌ IJK playback failed: $e');
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('IJK 播放失败: $e'), backgroundColor: Colors.red),
+            );
+          }
+        });
         _isPlaying = true;
       } else {
         _videoCtrl!.play();

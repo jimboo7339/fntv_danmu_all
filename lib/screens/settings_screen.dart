@@ -62,7 +62,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 icon: Icons.play_circle_rounded,
                 color: FnTheme.danmuGreen,
                 title: '播放器设置',
-                subtitle: '\${app.playerEngine == "mpv" ? "MPV" : app.playerEngine == "ijk" ? "IJK" : "ExoPlayer"} · \${app.decoderMode == "hardware" ? "硬解" : "软解"}',
+                subtitle: '${app.playerEngine == 'mpv' ? 'MPV' : app.playerEngine == 'ijk' ? 'IJK' : 'ExoPlayer'} · ${app.decoderMode == 'hardware' ? '硬解' : '软解'}',
                 onTap: () => Navigator.push(context,
                   MaterialPageRoute(builder: (_) => const _PlayerSettingsPage()),
                 ),
@@ -246,7 +246,7 @@ class _PlayerSettingsPage extends StatelessWidget {
             child: ListTile(
               title: const Text('播放内核'),
               subtitle: Text(
-                app.playerEngine == 'mpv' ? 'MPV (libmpv) — 解码能力强' : app.playerEngine == 'ijk' ? 'IJK (GSY) — 兼容性好' : 'ExoPlayer — Android 原生',
+                app.playerEngine == 'mpv' ? 'MPV (libmpv) — 解码能力强' : app.playerEngine == 'ijk' ? 'IJK (ijkplayer) — 字幕/音轨好' : 'ExoPlayer — Android 原生',
                 style: const TextStyle(fontSize: 12, color: FnTheme.textSecondary),
               ),
               trailing: const Icon(Icons.chevron_right_rounded),
