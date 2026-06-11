@@ -320,11 +320,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
         return;
       }
 
-      // 解析搜索结果（可能是数组或 {data: [...]} 结构）
+      // 解析搜索结果 — LogVar API 返回 {animes: [...]}
       List<dynamic> results = [];
       final raw = searchResp.data;
       if (raw is List) {
         results = raw;
+      } else if (raw is Map && raw['animes'] is List) {
+        results = raw['animes'] as List;
       } else if (raw is Map && raw['data'] is List) {
         results = raw['data'] as List;
       } else if (raw is Map && raw['bangumi'] is List) {
@@ -334,9 +336,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
         debugPrint('Danmu: no search results for "$searchKw"');
         return;
       }
+      debugPrint('Danmu: found ${results.length} anime(s)');
 
-      // 取第一个结果的 ID
-      final animeId = results[0]['id'] ?? results[0]['bangumiId'] ?? 0;
+      // 取第一个结果的 ID — LogVar API 用 animeId
+      final first = results[0];
+      final animeId = first['animeId'] ?? first['id'] ?? first['bangumiId'] ?? 0;
       if (animeId == 0) {
         debugPrint('Danmu: no valid anime ID');
         return;
@@ -367,11 +371,17 @@ class _PlayerScreenState extends State<PlayerScreen> {
         return;
       }
 
-      // 3. 匹配目标集数
+      // 3. 匹配目标集数 — LogVar API 用 episodeNumber (string)
       int episodeId = 0;
       if (targetEp > 0) {
         for (final ep in episodes) {
-          final epIdx = ep['episodeIndex'] ?? ep['ep'] ?? 0;
+          final rawNum = ep['episodeNumber'] ?? ep['episodeIndex'] ?? ep['ep'];
+          int epIdx = 0;
+          if (rawNum is int) {
+            epIdx = rawNum;
+          } else if (rawNum is String) {
+            epIdx = int.tryParse(rawNum) ?? 0;
+          }
           if (epIdx == targetEp) {
             episodeId = ep['episodeId'] ?? ep['id'] ?? 0;
             break;
@@ -388,8 +398,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
       }
       debugPrint('Danmu: matched episodeId=$episodeId');
 
-      // 4. 获取弹幕评论（必须加 ?format=json）
-      final commentResp = await _app.api.dio.get('$danmuUrl/api/v2/comment/$episodeId?format=json');
+      // 4. 获取弹幕评论 — LogVar API 用 /api/v2/comment/{id}?withRelated=true
+      final commentResp = await _app.api.dio.get(
+        '$danmuUrl/api/v2/comment/$episodeId',
+        queryParameters: {'withRelated': 'true'},
+      );
       if (commentResp.statusCode != 200 || commentResp.data == null) {
         debugPrint('Danmu: comment fetch failed');
         return;
