@@ -380,15 +380,22 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _videoCtrl!.setSpeed(_speed);
       // 优先使用 widget.seekTs（详情页传入），其次用 _serverSeekTs（play/info 获取）
       final seekTs = widget.seekTs > 0 ? widget.seekTs : _serverSeekTs;
-      _videoCtrl!.play();
-      _isPlaying = true;
-      if (seekTs > 0) {
-        final seekMs = seekTs * 1000;
-        debugPrint('🎯 Will seek to ${seekTs}s (${seekMs}ms) — widget=${widget.seekTs}s, server=${_serverSeekTs}s');
-        // MPV 需要等视频真正加载完再 seek，用重试机制保障
-        _performSeekWithRetry(seekMs, isMpv: _engine == 'mpv');
+
+      if (_engine == 'ijk') {
+        // IJK: startIjkPlayback handles setDataSource + play + seek
+        final seekMs = seekTs > 0 ? seekTs * 1000 : 0;
+        _videoCtrl!.startIjkPlayback(seekMs: seekMs);
+        _isPlaying = true;
       } else {
-        debugPrint('ℹ️ No seek needed: widget.seekTs=${widget.seekTs}s, _serverSeekTs=${_serverSeekTs}s');
+        _videoCtrl!.play();
+        _isPlaying = true;
+        if (seekTs > 0) {
+          final seekMs = seekTs * 1000;
+          debugPrint('🎯 Will seek to ${seekTs}s (${seekMs}ms) — widget=${widget.seekTs}s, server=${_serverSeekTs}s');
+          _performSeekWithRetry(seekMs, isMpv: _engine == 'mpv');
+        } else {
+          debugPrint('ℹ️ No seek needed: widget.seekTs=${widget.seekTs}s, _serverSeekTs=$_serverSeekTs');
+        }
       }
       // 立即上报一次进度（不等5秒定时器）
       Future.delayed(const Duration(seconds: 2), () => _saveProgress());

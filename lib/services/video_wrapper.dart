@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
-import 'package:gsy_video_player/gsy_video_player.dart';
+import 'package:fntv_ijkplayer/fntv_ijkplayer.dart';
 
 /// Unified video controller wrapper supporting ExoPlayer, MPV, and IJK engines.
 class VideoWrapper {
@@ -12,7 +12,6 @@ class VideoWrapper {
   final String url;
   final Map<String, String>? headers;
 
-  /// Convenience getter for backward compatibility
   bool get useMpv => engine == 'mpv';
   bool get useIjk => engine == 'ijk';
   bool get useExo => engine == 'exo';
@@ -24,13 +23,10 @@ class VideoWrapper {
   Player? _mpvPlayer;
   VideoController? _mpvVideoController;
 
-  // GSY IJK controller
-  GsyVideoPlayerController? _ijkController;
+  // IJK player (custom method channel bridge)
+  IjkPlayer? _ijkPlayer;
 
-  // Polling timer for media_kit / IJK state → listener pattern
-  Timer? _pollTimer;
-
-  // Cached state for polling engines
+  // Cached state
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
   double _aspectRatio = 16 / 9;
@@ -38,7 +34,6 @@ class VideoWrapper {
   bool _isBuffering = false;
   bool _isInitialized = false;
 
-  // Listener list
   final List<VoidCallback> _listeners = [];
 
   VideoWrapper({
@@ -46,13 +41,6 @@ class VideoWrapper {
     required this.url,
     this.headers,
   });
-
-  // Backward compat constructor
-  VideoWrapper.legacy({
-    required bool useMpv,
-    required this.url,
-    this.headers,
-  }) : engine = useMpv ? 'mpv' : 'exo';
 
   // ── Public state getters ──────────────────────────────────────────────
 
@@ -184,74 +172,23 @@ class VideoWrapper {
   }
 
   Future<void> _initIjk() async {
-    _ijkController = GsyVideoPlayerController(
-      player: GsyVideoPlayerType.ijk,
-    );
+    _ijkPlayer = IjkPlayer();
+    await _ijkPlayer!.create();
 
-    // Wait for controller to be ready
-    await Future.delayed(const Duration(milliseconds: 200));
+    // Listen for position updates from native
+    _ijkPlayer!.onPosition = (posMs, durMs) {
+      _position = Duration(milliseconds: posMs);
+      _duration = Duration(milliseconds: durMs);
+      _isPlaying = true;
+      _notifyAll();
+    };
+    _ijkPlayer!.onCompleted = () {
+      _isPlaying = false;
+      _notifyAll();
+    };
 
-    // Set up network source with headers
-    await _ijkController!.setNetWorkBuilder(
-      url,
-      autoPlay: false,
-      mapHeadData: headers ?? {},
-      sounchTouch: true,
-      cacheWithPlay: false,
-    );
-
-    // Listen to GSY events for state updates
-    _ijkController!.addEventsListener((eventType) {
-      switch (eventType) {
-        case VideoEventType.initialized:
-        case VideoEventType.onVideoPlayerInitialized:
-          _isInitialized = true;
-          _duration = _ijkController!.value.duration;
-          final size = _ijkController!.value.size;
-          if (size != null && size.width > 0 && size.height > 0) {
-            _aspectRatio = size.width / size.height;
-          }
-          _notifyAll();
-          break;
-        case VideoEventType.onPrepared:
-          _isBuffering = false;
-          _notifyAll();
-          break;
-        case VideoEventType.onBufferingUpdate:
-          _isBuffering = _ijkController!.value.isBuffering;
-          _notifyAll();
-          break;
-        case VideoEventType.onBufferingEnd:
-          _isBuffering = false;
-          _notifyAll();
-          break;
-        case VideoEventType.onAutoCompletion:
-        case VideoEventType.onCompletion:
-          _isPlaying = false;
-          _notifyAll();
-          break;
-        case VideoEventType.onError:
-          debugPrint('IJK error: ${_ijkController!.value.errorDescription}');
-          _notifyAll();
-          break;
-        default:
-          break;
-      }
-    });
-
-    // Start position polling
-    _pollTimer = Timer.periodic(const Duration(milliseconds: 500), (_) async {
-      if (_ijkController == null) return;
-      try {
-        final pos = await _ijkController!.position;
-        if (pos != null) {
-          _position = pos;
-        }
-        _isPlaying = _ijkController!.value.isPlaying;
-        _duration = _ijkController!.value.duration;
-        _notifyAll();
-      } catch (_) {}
-    });
+    _isInitialized = true;
+    _notifyAll();
   }
 
   /// MPV performance tuning
@@ -295,7 +232,9 @@ class VideoWrapper {
     if (useMpv) {
       await _mpvPlayer?.play();
     } else if (useIjk) {
-      await _ijkController?.resume();
+      await _ijkPlayer?.play();
+      _isPlaying = true;
+      _notifyAll();
     } else {
       await _exoController?.play();
     }
@@ -305,7 +244,9 @@ class VideoWrapper {
     if (useMpv) {
       await _mpvPlayer?.pause();
     } else if (useIjk) {
-      await _ijkController?.pause();
+      await _ijkPlayer?.pause();
+      _isPlaying = false;
+      _notifyAll();
     } else {
       await _exoController?.pause();
     }
@@ -315,7 +256,7 @@ class VideoWrapper {
     if (useMpv) {
       await _mpvPlayer?.seek(position);
     } else if (useIjk) {
-      await _ijkController?.seekTo(position);
+      await _ijkPlayer?.seekTo(position.inMilliseconds);
     } else {
       await _exoController?.seekTo(position);
     }
@@ -325,9 +266,16 @@ class VideoWrapper {
     if (useMpv) {
       await _mpvPlayer?.setRate(speed);
     } else if (useIjk) {
-      await _ijkController?.setSpeed(speed);
+      await _ijkPlayer?.setSpeed(speed);
     } else {
       await _exoController?.setPlaybackSpeed(speed);
+    }
+  }
+
+  /// Start IJK playback (sets source + starts). Called after create.
+  Future<void> startIjkPlayback({int seekMs = 0}) async {
+    if (useIjk && _ijkPlayer != null) {
+      await _ijkPlayer!.setDataSource(url, headers: headers, seekMs: seekMs);
     }
   }
 
@@ -392,7 +340,8 @@ class VideoWrapper {
         ),
       );
     } else if (useIjk) {
-      return GsyVideoPlayer(controller: _ijkController!);
+      // IJK renders via Flutter texture
+      return Texture(textureId: _ijkPlayer!.textureId);
     } else {
       return VideoPlayer(_exoController!);
     }
@@ -401,17 +350,13 @@ class VideoWrapper {
   // ── Disposal ──────────────────────────────────────────────────────────
 
   Future<void> dispose() async {
-    _pollTimer?.cancel();
-    _pollTimer = null;
-
     if (useMpv) {
       await _mpvPlayer?.dispose();
       _mpvPlayer = null;
       _mpvVideoController = null;
     } else if (useIjk) {
-      _ijkController?.removeEventsListener((_) {});
-      await _ijkController?.dispose();
-      _ijkController = null;
+      await _ijkPlayer?.release();
+      _ijkPlayer = null;
     } else {
       for (final l in _listeners) {
         _exoController?.removeListener(l);

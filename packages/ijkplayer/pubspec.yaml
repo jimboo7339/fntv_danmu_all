@@ -1,0 +1,18 @@
+name: fntv_ijkplayer
+description: Minimal ijkplayer Flutter plugin for FnOS TV
+version: 0.0.1
+
+environment:
+  sdk: '>=3.2.0 <4.0.0'
+  flutter: '>=3.3.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+flutter:
+  plugin:
+    platforms:
+      android:
+        package: com.fntv.ijkplayer
+        pluginClass: FntvIjkplayerPlugin
