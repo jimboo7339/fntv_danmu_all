@@ -26,9 +26,12 @@ class ContinueWatchingCard extends StatelessWidget {
         margin: const EdgeInsets.symmetric(horizontal: 5),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.max,
           children: [
-            // Poster with progress bar
-            Expanded(
+            // Poster with progress bar — fixed 2:3 aspect ratio
+            SizedBox(
+              width: 160,
+              height: 180,
               child: Stack(
                 children: [
                   Container(

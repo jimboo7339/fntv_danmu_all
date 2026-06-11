@@ -9,8 +9,11 @@ import 'screens/library_screen.dart';
 import 'screens/settings_screen.dart';
 import 'utils/theme.dart';
 
+import 'utils/log_buffer.dart';
+
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  LogBuffer.instance.install();
   MediaKit.ensureInitialized();
   SystemChrome.setPreferredOrientations([
     DeviceOrientation.landscapeLeft,

@@ -122,7 +122,8 @@ class VideoWrapper {
       _notifyAll();
     });
 
-    await _mpvPlayer!.open(Media(url));
+    // Open without auto-play so we can seek to resume position first
+    await _mpvPlayer!.open(Media(url), play: false);
     _isInitialized = true;
     _notifyAll();
   }
@@ -195,7 +196,20 @@ class VideoWrapper {
 
   Widget buildVideo() {
     if (useMpv) {
-      return Video(controller: _mpvVideoController!);
+      return Video(
+        controller: _mpvVideoController!,
+        subtitleViewConfiguration: const SubtitleViewConfiguration(
+          visible: true,
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: 18,
+            shadows: [
+              Shadow(blurRadius: 4, color: Colors.black),
+              Shadow(blurRadius: 4, color: Colors.black),
+            ],
+          ),
+        ),
+      );
     } else {
       return VideoPlayer(_exoController!);
     }

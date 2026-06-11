@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../providers/app_state.dart';
 import '../utils/theme.dart';
+import '../utils/log_buffer.dart';
 import 'danmu_settings_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
@@ -235,6 +237,29 @@ class SettingsScreen extends StatelessWidget {
                   ],
                 ),
               ),
+              const SizedBox(height: 16),
+
+              // 调试日志
+              _sectionTitle('调试'),
+              Card(
+                child: ListTile(
+                  leading: Container(
+                    width: 36, height: 36,
+                    decoration: BoxDecoration(
+                      color: Colors.orange.withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(Icons.bug_report_rounded, size: 20, color: Colors.orange),
+                  ),
+                  title: const Text('查看日志'),
+                  subtitle: Text(
+                    '${LogBuffer.instance.entries.length} 条记录',
+                    style: const TextStyle(fontSize: 12, color: FnTheme.textSecondary),
+                  ),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: () => _showLogViewer(context),
+                ),
+              ),
               const SizedBox(height: 24),
             ],
           ),
@@ -304,5 +329,139 @@ class SettingsScreen extends StatelessWidget {
         ElevatedButton(onPressed: () { app.danmuUrl = ctrl.text.trim(); Navigator.pop(ctx); }, child: const Text('保存')),
       ],
     ));
+  }
+
+  void _showLogViewer(BuildContext context) {
+    Navigator.push(context, MaterialPageRoute(
+      builder: (_) => const LogViewerScreen(),
+    ));
+  }
+}
+
+class LogViewerScreen extends StatefulWidget {
+  const LogViewerScreen({super.key});
+
+  @override
+  State<LogViewerScreen> createState() => _LogViewerScreenState();
+}
+
+class _LogViewerScreenState extends State<LogViewerScreen> {
+  final _scrollController = ScrollController();
+  String _filter = '';
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final allEntries = LogBuffer.instance.entries;
+    final entries = _filter.isEmpty
+        ? allEntries
+        : allEntries.where((e) => e.message.contains(_filter)).toList();
+
+    return Scaffold(
+      backgroundColor: const Color(0xFF121212),
+      appBar: AppBar(
+        title: const Text('调试日志'),
+        backgroundColor: const Color(0xFF1A1A1A),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.copy_rounded),
+            tooltip: '复制全部',
+            onPressed: () {
+              final text = LogBuffer.instance.dump();
+              Clipboard.setData(ClipboardData(text: text));
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('日志已复制到剪贴板')),
+              );
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.delete_outline_rounded),
+            tooltip: '清空',
+            onPressed: () {
+              setState(() => LogBuffer.instance.clear());
+            },
+          ),
+        ],
+      ),
+      body: Column(
+        children: [
+          // Filter bar
+          Padding(
+            padding: const EdgeInsets.all(8),
+            child: TextField(
+              decoration: InputDecoration(
+                hintText: '过滤日志...',
+                prefixIcon: const Icon(Icons.search, size: 20),
+                filled: true,
+                fillColor: const Color(0xFF1E1E1E),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide.none,
+                ),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                isDense: true,
+              ),
+              style: const TextStyle(fontSize: 13),
+              onChanged: (v) => setState(() => _filter = v),
+            ),
+          ),
+          // Log count
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            child: Row(
+              children: [
+                Text(
+                  '${entries.length} 条${_filter.isNotEmpty ? ' (共 ${allEntries.length} 条)' : ''}',
+                  style: const TextStyle(color: FnTheme.textMuted, fontSize: 11),
+                ),
+              ],
+            ),
+          ),
+          // Log list
+          Expanded(
+            child: entries.isEmpty
+                ? const Center(child: Text('暂无日志', style: TextStyle(color: FnTheme.textMuted)))
+                : ListView.builder(
+                    controller: _scrollController,
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    itemCount: entries.length,
+                    itemBuilder: (_, i) {
+                      final e = entries[i];
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 1),
+                        child: SelectableText(
+                          '[${e.time.toIso8601String().substring(11, 23)}] ${e.message}',
+                          style: const TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 11,
+                            color: FnTheme.textSecondary,
+                            height: 1.4,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+          ),
+        ],
+      ),
+      floatingActionButton: FloatingActionButton.small(
+        backgroundColor: FnTheme.danmuGreen,
+        onPressed: () {
+          if (_scrollController.hasClients) {
+            _scrollController.animateTo(
+              _scrollController.position.maxScrollExtent,
+              duration: const Duration(milliseconds: 200),
+              curve: Curves.easeOut,
+            );
+          }
+        },
+        child: const Icon(Icons.arrow_downward, size: 18),
+      ),
+    );
   }
 }
