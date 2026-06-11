@@ -80,6 +80,10 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # 需要完整历史来获取tag消息
+
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
@@ -88,14 +92,14 @@ jobs:
         id: tag_msg
         run: |
           TAG="${GITHUB_REF#refs/tags/}"
-          # Get annotated tag message, fallback to commit message
+          # 获取annotated tag消息，fallback到commit消息
           MSG=$(git tag -l --format='%(contents)' "$TAG" 2>/dev/null || true)
           if [ -z "$MSG" ]; then
             MSG=$(git log -1 --pretty=%B)
           fi
-          # Write to file for multi-line content
           echo "$MSG" > /tmp/release_notes.md
-          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "--- Release notes ---"
+          cat /tmp/release_notes.md
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
