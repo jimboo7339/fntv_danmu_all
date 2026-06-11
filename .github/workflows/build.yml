@@ -92,9 +92,16 @@ jobs:
         id: tag_msg
         run: |
           TAG="${GITHUB_REF#refs/tags/}"
-          # 获取annotated tag消息，fallback到commit消息
-          MSG=$(git tag -l --format='%(contents)' "$TAG" 2>/dev/null || true)
+          echo "Looking for tag: $TAG"
+          # 方法1: for-each-ref（最可靠）
+          MSG=$(git for-each-ref --format='%(contents)' "refs/tags/$TAG" 2>/dev/null || true)
+          # 方法2: fallback到tag -l
           if [ -z "$MSG" ]; then
+            MSG=$(git tag -l --format='%(contents)' "$TAG" 2>/dev/null || true)
+          fi
+          # 方法3: fallback到commit message
+          if [ -z "$MSG" ]; then
+            echo "Tag message empty, using commit message"
             MSG=$(git log -1 --pretty=%B)
           fi
           echo "$MSG" > /tmp/release_notes.md
