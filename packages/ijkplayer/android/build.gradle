@@ -32,7 +32,6 @@ repositories {
 }
 
 dependencies {
-    // Tencent's ijkplayer fork (2025, actively maintained)
-    implementation 'com.tencent.iot.thirdparty.android:ijkplayer-java:2.0.17'
-    implementation 'com.tencent.iot.thirdparty.android:ijkplayer-arm64:2.0.17'
+    // jdpxiaoming ijkplayer (prebuilt arm64)
+    implementation 'io.github.jdpxiaoming:ijkplayer-arm64:0.0.26'
 }
