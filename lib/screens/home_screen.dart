@@ -106,9 +106,9 @@ class _HomeScreenState extends State<HomeScreen> {
     ));
   }
 
-  void _onWatchRecordTap(WatchRecord record) {
+  void _onWatchRecordTap(WatchRecord record) async {
     debugPrint('WatchRecord tap: ${record.title} seekTs=${record.ts} dur=${record.duration}');
-    Navigator.push(context, MaterialPageRoute(
+    await Navigator.push(context, MaterialPageRoute(
       builder: (_) => PlayerScreen(
         itemGuid: record.guid,
         title: record.title,
@@ -121,6 +121,10 @@ class _HomeScreenState extends State<HomeScreen> {
         parentGuid: record.parentGuid,
       ),
     ));
+    // 从播放页返回后刷新继续观看列表
+    if (mounted) {
+      _app.fetchServerPlayList();
+    }
   }
 
   int _calcColumns(BuildContext context) {

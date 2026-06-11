@@ -29,6 +29,7 @@ class _DetailScreenState extends State<DetailScreen> {
   String? _error;
   Color _dominantColor = const Color(0xFF1A1A2E);
   int _episodeViewMode = 0; // 0=详细列表 1=封面九宫格 2=数字按钮
+  String? _parentGuid; // 用于刷新剧集列表
 
   @override
   void initState() {
@@ -59,6 +60,7 @@ class _DetailScreenState extends State<DetailScreen> {
           if (type == 'TV' || type == 'Episode') {
             final parentGuid = type == 'Episode' ? info.parentGuid : widget.item.guid;
             if (parentGuid != null && parentGuid.isNotEmpty) {
+              _parentGuid = parentGuid;
               _loadEpisodes(parentGuid);
             }
           }
@@ -167,7 +169,7 @@ class _DetailScreenState extends State<DetailScreen> {
           // 优先使用 play/info 返回的 ts（服务端记录的进度），其次用 episode list 的 ts
           final seekTs = info.ts > 0 ? info.ts : item.ts;
           debugPrint('Play item: seekTs=$seekTs (info.ts=${info.ts}, item.ts=${item.ts})');
-          Navigator.push(context, MaterialPageRoute(
+          await Navigator.push(context, MaterialPageRoute(
             builder: (_) => PlayerScreen(
               itemGuid: item.guid,
               title: item.title ?? '',
@@ -180,6 +182,10 @@ class _DetailScreenState extends State<DetailScreen> {
               parentGuid: info.parentGuid ?? item.parentGuid,
             ),
           ));
+          // 从播放页返回后刷新剧集列表（更新观看进度）
+          if (mounted && _parentGuid != null) {
+            _loadEpisodes(_parentGuid!);
+          }
         }
       }
     } catch (e) {
