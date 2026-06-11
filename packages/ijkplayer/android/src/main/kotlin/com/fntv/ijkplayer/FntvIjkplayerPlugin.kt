@@ -89,7 +89,6 @@ class FntvIjkplayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                 setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "protocol_whitelist", "concat,file,http,https,tcp,tls,crypto")
                 setOption(IjkMediaPlayer.OPT_CATEGORY_CODEC, "skip_loop_filter", 48)
                 setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "start-on-prepared", 0)
-                setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "overlay-format", IjkMediaPlayer.SDL_FCC_RV32)
                 setSurface(this@FntvIjkplayerPlugin.surface)
             }
             Log.i(TAG, "Step 2 done: Player ready, textureId=$texId")
