@@ -86,7 +86,15 @@ class _LibraryScreenState extends State<LibraryScreen> {
   @override
   Widget build(BuildContext context) {
     if (_browseGuid != null) {
-      return _buildBrowseView();
+      return PopScope(
+        canPop: false,
+        onPopInvokedWithResult: (didPop, result) {
+          if (!didPop) {
+            setState(() { _browseGuid = null; _browseItems = null; });
+          }
+        },
+        child: _buildBrowseView(),
+      );
     }
     return _buildLibraryList();
   }

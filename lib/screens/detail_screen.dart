@@ -407,7 +407,7 @@ class _DetailScreenState extends State<DetailScreen> {
             ),
           ),
 
-          // Logo 图片或标题
+          // Logo/标题 + 信息区域
           Positioned(
             left: 155,
             bottom: 16,
@@ -416,10 +416,10 @@ class _DetailScreenState extends State<DetailScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                // Logo 图片（如果有）
+                // Logo 图片或标题
                 if (logoUrl.isNotEmpty)
                   ConstrainedBox(
-                    constraints: const BoxConstraints(maxHeight: 80, maxWidth: 280),
+                    constraints: const BoxConstraints(maxHeight: 70, maxWidth: 280),
                     child: CachedNetworkImage(
                       imageUrl: logoUrl,
                       httpHeaders: _app.api.imageHeaders,
@@ -430,17 +430,25 @@ class _DetailScreenState extends State<DetailScreen> {
                   )
                 else
                   _buildTitleText(title),
-                // 副标题
-                if (subtitle != null && subtitle.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 6),
-                    child: Text(
-                      subtitle,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 13, color: FnTheme.textMuted),
+                // 信息行：年份 · 评分 · 集数/时长
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: _buildMetaRow(item),
+                ),
+                // 简介预览（2行）
+                if (_hasOverview(item)) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    item!.overview!,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.white.withAlpha(180),
+                      height: 1.4,
                     ),
                   ),
+                ],
               ],
             ),
           ),
@@ -462,6 +470,59 @@ class _DetailScreenState extends State<DetailScreen> {
           Shadow(blurRadius: 8, color: Colors.black87),
         ],
       ),
+    );
+  }
+
+  bool _hasOverview(ItemInfo? item) {
+    final overview = item?.overview ?? widget.item.overview;
+    return overview != null && overview.isNotEmpty;
+  }
+
+  Widget _buildMetaRow(ItemInfo? item) {
+    final parts = <String>[];
+    // 年份
+    final year = item?.airDate ?? widget.item.airDate;
+    if (year != null && year.isNotEmpty) {
+      parts.add(year.length > 4 ? year.substring(0, 4) : year);
+    }
+    // 评分
+    final vote = item?.voteAverage ?? widget.item.voteAverage;
+    if (vote != null && vote.isNotEmpty && vote != '0' && vote != '0.0') {
+      parts.add('⭐ $vote');
+    }
+    // 集数
+    final epCount = item?.numberOfEpisodes ?? widget.item.numberOfEpisodes;
+    if (epCount > 0) {
+      parts.add('$epCount 集');
+    }
+    // 季数
+    final seasonCount = item?.numberOfSeasons ?? widget.item.numberOfSeasons;
+    if (seasonCount > 0) {
+      parts.add('$seasonCount 季');
+    }
+    // 时长
+    final rt = (item?.runtime ?? 0) > 0 ? item!.runtime : widget.item.runtime;
+    if (rt > 0 && epCount == 0) {
+      parts.add('$rt 分钟');
+    }
+    // 状态（仅 ItemInfo 有）
+    if (item?.status != null && item!.status!.isNotEmpty) {
+      parts.add(item.status!);
+    }
+    if (parts.isEmpty) return const SizedBox.shrink();
+
+    return Wrap(
+      spacing: 6,
+      runSpacing: 4,
+      children: parts.map((p) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(
+          color: Colors.white.withAlpha(20),
+          borderRadius: BorderRadius.circular(4),
+          border: Border.all(color: Colors.white.withAlpha(25), width: 0.5),
+        ),
+        child: Text(p, style: TextStyle(fontSize: 11, color: Colors.white.withAlpha(200))),
+      )).toList(),
     );
   }
 
