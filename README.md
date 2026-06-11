@@ -1,22 +1,47 @@
-# 飞牛TV 弹幕版 · Flutter 跨平台客户端 🎯
+# 飞牛TV 弹幕版 🎬
 
-> 基于飞牛影视 (FnOS) API 的第三方跨平台客户端，支持弹幕、自动连播、多平台运行。
+> 基于飞牛影视 (FnOS) 的第三方播放器客户端，主打弹幕体验和播放器功能增强。
 
 ---
 
-## 📸 功能特性
+## ✨ 核心功能
 
-| 功能 | 说明 |
-|------|------|
-| **弹幕支持** | 集成弹幕 API，自动匹配番剧弹幕，支持滚动/顶部/底部三种弹幕模式 |
-| **继续观看** | 记录播放进度，首页快速续播，进度条可视化 |
-| **剧集自动连播** | 播放完成后自动播放下一集 |
-| **倍速播放** | 支持 0.5x ~ 2.0x 播放速度 |
-| **画质切换** | 支持直链/代理模式，多画质选择 |
-| **锁定模式** | 锁定后隐藏控制栏，防止误触 |
-| **弹幕高度自定义** | 不透明度、字号、显示区域、速度、密度、描边全部可调 |
-| **深色主题** | Material 3 暗色主题，护眼舒适 |
-| **跨平台** | Android / iOS / macOS / Windows / Linux / Web 全平台支持 |
+### 🎯 弹幕系统
+- **自动匹配** — 播放时自动从弹幕服务器搜索匹配番剧，按剧名缓存弹幕源
+- **手动搜索** — 支持手动搜索弹幕源，精确匹配
+- **滚动/顶部/底部** — 三种弹幕模式，完整解析 `m`/`p` 格式
+- **密度控制** — 行尾智能间距，不重叠不拥挤
+- **全面自定义** — 透明度、字号、显示区域、滚动速度、密度、描边、顶部边距均可调
+
+### ▶️ 播放器
+- **MPV 内核** — media_kit (libmpv) 驱动，支持硬件解码
+- **手势控制** — 左侧上下滑=亮度，右侧上下滑=音量，横向滑动=进度，长按=倍速
+- **倍速播放** — 0.5x ~ 3.0x，长按倍速可在设置中配置（1.5/2/2.5/3x）
+- **音轨/字幕切换** — 多音轨时可选语言/编码，多字幕时可选字幕+关闭
+- **字幕样式** — 字号、颜色、底部距离可调，实时预览
+- **自动连播** — 剧集播完自动播放下一集
+- **续播** — 记忆播放进度，下次自动跳转到上次位置
+- **比例切换** — 自动检测视频比例，支持手动切换
+
+### 📺 媒体浏览
+- **媒体库** — 展示所有媒体库，点击进入浏览
+- **详情页** — 海报模糊背景 + palette 取色 + Logo 展示 + 演员列表
+- **选集视图** — 三种模式：详细列表 / 封面九宫格 / 数字按钮
+- **继续观看** — 首页展示未看完的剧集，进度条可视化
+
+### ⚙️ 设置
+- **播放器设置** — 内核选择(MPV/Exo)、解码模式、手势配置
+- **弹幕设置** — 弹幕服务器、样式、搜索管理
+- **账号管理** — 多账号切换
+- **二级菜单** — 精简为 5 个入口卡片
+
+---
+
+## 📸 截图
+
+| 首页 | 详情页 | 播放器 |
+|------|--------|--------|
+| 继续观看 + 媒体库入口 | 海报模糊 + Logo + 信息标签 | 弹幕 + 手势控制 |
 
 ---
 
@@ -24,49 +49,22 @@
 
 | 层级 | 技术 |
 |------|------|
-| **框架** | Flutter 3.x + Dart 3.x |
-| **状态管理** | Provider |
-| **网络请求** | Dio + 自定义 Authx 签名拦截器 |
-| **视频播放** | video_player + chewie |
-| **弹幕渲染** | CustomPainter 自绘引擎 |
-| **图片缓存** | cached_network_image |
-| **本地存储** | shared_preferences |
-| **CI/CD** | GitHub Actions |
+| 框架 | Flutter 3.x + Dart 3.x |
+| 状态管理 | Provider |
+| 网络请求 | Dio + Authx 签名 |
+| 视频播放 | media_kit (MPV) + ExoPlayer |
+| 弹幕渲染 | CustomPainter 自绘引擎 |
+| 图片缓存 | cached_network_image + 认证头 |
+| 调色板 | palette_generator |
+| CI/CD | GitHub Actions |
 
 ---
 
-## 📦 项目结构
+## 📦 下载
 
-```
-lib/
-├── main.dart                           # 应用入口
-├── models/                             # 数据模型
-│   ├── api_response.dart               #   通用 API 响应
-│   ├── danmu_comment.dart              #   弹幕评论
-│   ├── media_item.dart                 #   媒体库条目
-│   ├── play_info.dart                  #   播放信息
-│   ├── play_list_item.dart             #   播放列表项
-│   ├── stream_response.dart            #   流媒体信息
-│   └── watch_record.dart               #   观看记录
-├── services/                           # 网络服务
-│   ├── api_client.dart                 #   API 客户端 (Dio + Authx)
-│   └── auth_utils.dart                 #   签名工具 (MD5)
-├── providers/                          # 状态管理
-│   └── app_state.dart                  #   全局应用状态
-├── screens/                            # 页面
-│   ├── login_screen.dart               #   登录页
-│   ├── home_screen.dart                #   首页 (概览/媒体库/浏览)
-│   ├── player_screen.dart              #   播放器页
-│   └── settings_screen.dart            #   设置页
-├── widgets/                            # 组件
-│   ├── media_card.dart                 #   媒体卡片
-│   ├── continue_watching_card.dart     #   续播卡片
-│   ├── danmu_overlay.dart              #   弹幕覆盖层
-│   └── player_controls.dart            #   播放控制栏
-└── utils/                              # 工具
-    ├── theme.dart                      #   主题定义
-    └── format.dart                     #   格式化工具
-```
+前往 [Releases](https://github.com/jimboo7339/fntv_danmu_all/releases) 页面下载最新 APK。
+
+> 💡 国内加速下载：在 Release 下载链接前加 `https://docker.beehub.top/` 前缀
 
 ---
 
@@ -74,134 +72,103 @@ lib/
 
 ### 环境要求
 
-- Flutter SDK >= 3.2.0
-- Dart SDK >= 3.2.0
+- Flutter SDK >= 3.24
+- Dart SDK >= 3.5
 - Android Studio / Xcode（按目标平台）
 
 ### 本地运行
 
 ```bash
-# 1. 克隆项目
 git clone git@github.com:jimboo7339/fntv_danmu_all.git
 cd fntv_danmu_all
-
-# 2. 安装依赖
 flutter pub get
-
-# 3. 运行（选择你的目标平台）
-flutter run                    # 默认设备
-flutter run -d chrome          # Web
-flutter run -d macos           # macOS
-flutter run -d windows         # Windows
-flutter run -d linux           # Linux
+flutter run
 ```
 
-### 构建发布版
+### 构建 APK
 
 ```bash
-# Android APK
 flutter build apk --release
-
-# Android AAB (Google Play)
-flutter build appbundle --release
-
-# Web
-flutter build web --release
-
-# macOS
-flutter build macos --release
-
-# Windows
-flutter build windows --release
-
-# Linux
-flutter build linux --release
 ```
-
-构建产物位于 `build/` 目录下。
 
 ---
 
-## 🔐 登录说明
+## 🔐 登录
 
-登录账号密码为 **飞牛影视的账号密码**，非本应用的独立账号。
-
-- 服务器地址格式：`http://<你的NAS地址>:<端口>`
-- 默认端口通常为 `5666`
-- 勾选"记住密码"实现自动登录
+- **服务器地址** — `http://<你的NAS地址>:<端口>`（默认端口 5666）
+- **账号密码** — 飞牛影视的账号密码，非本应用独立账号
+- **记住密码** — 勾选后自动登录
 
 ---
 
 ## 🎬 弹幕使用
 
-1. 确保弹幕服务器已部署（默认地址 `http://<NAS>:9321`）
-2. 在 **设置 → 弹幕服务器** 中配置 API 地址
-3. 播放时自动匹配弹幕，也可手动搜索
-4. 在 **设置 → 弹幕设置** 中调整弹幕参数
+1. 确保弹幕服务器已部署（默认端口 9321）
+2. 在 **设置 → 弹幕设置** 中配置弹幕服务器地址
+3. 播放时自动搜索匹配弹幕
+4. 长按播放器弹幕按钮可手动搜索/切换弹幕源
 
 ---
 
-## 🏗 CI/CD 自动构建
+## 📋 项目结构
 
-本项目使用 GitHub Actions 实现自动构建。当推送 `v*` 标签时，自动构建以下平台产物：
-
-| 平台 | 产物格式 |
-|------|----------|
-| Android | `.apk` + `.aab` |
-| Web | `.tar.gz` |
-| Linux | `.tar.gz` |
-| macOS | `.tar.gz` |
-| Windows | `.zip` |
-
-### 发布新版本
-
-```bash
-# 打标签并推送，触发自动构建
-git tag v1.0.0
-git push origin v1.0.0
+```
+lib/
+├── main.dart
+├── models/                    # 数据模型
+│   ├── play_info.dart         #   播放信息
+│   ├── play_list_item.dart    #   播放列表项
+│   ├── danmu_comment.dart     #   弹幕评论
+│   └── watch_record.dart      #   观看记录
+├── services/                  # 网络服务
+│   ├── api_client.dart        #   API 客户端
+│   └── video_wrapper.dart     #   视频包装器 (MPV/Exo)
+├── providers/
+│   └── app_state.dart         #   全局状态
+├── screens/                   # 页面
+│   ├── login_screen.dart      #   登录
+│   ├── home_screen.dart       #   首页
+│   ├── detail_screen.dart     #   详情页
+│   ├── player_screen.dart     #   播放器
+│   ├── library_screen.dart    #   媒体库
+│   └── settings_screen.dart   #   设置
+├── widgets/                   # 组件
+│   ├── danmu_overlay.dart     #   弹幕覆盖层
+│   ├── player_controls.dart   #   播放控制栏
+│   ├── media_card.dart        #   媒体卡片
+│   └── continue_watching_card.dart
+└── utils/
+    ├── theme.dart             #   主题
+    └── format.dart            #   格式化
 ```
 
-构建完成后，GitHub Releases 页面会自动创建发布页，附带所有平台的构建产物。
-
-### 手动触发
-
-在 GitHub 仓库页面 → Actions → Build Release → Run workflow，输入版本号即可。
-
 ---
 
-## 📋 API 接口
+## 🏗 CI/CD
 
-本项目对接飞牛影视以下 API：
+推送 `v*` 标签自动触发 GitHub Actions 构建：
 
-| 接口 | 方法 | 说明 |
-|------|------|------|
-| `/v/api/v1/login` | POST | 用户登录 |
-| `/v/api/v1/user/info` | GET | 获取用户信息 |
-| `/v/api/v1/mediadb/list` | GET | 媒体库列表 |
-| `/v/api/v1/item/list` | POST | 媒体条目列表 |
-| `/v/api/v1/episode/list/{id}` | GET | 剧集列表 |
-| `/v/api/v1/play/info` | POST | 播放信息 |
-| `/v/api/v1/stream` | POST | 流媒体信息 |
-| `/v/api/v1/media/range/{guid}` | GET | 视频流地址 |
-| `/v/api/v1/play/record` | POST | 播放进度记录 |
-| `/v/api/v1/item/watched` | POST | 标记已看 |
-| `/v/api/v1/sys/img/{path}` | GET | 图片代理 |
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
 
-所有请求需携带 `Authx` 签名头（MD5 签名算法见 `services/auth_utils.dart`）。
+构建产物：Android APK（自动发布到 Releases）
 
 ---
 
 ## 🙏 致谢
 
-- [**fntv-electron**](https://github.com/QiaoKes/fntv-electron) — API 接口参考
-- [**Danmu API**](https://github.com/huangxd-/danmu_api) — 弹幕数据服务
-- **Flutter** — 跨平台 UI 框架
+- [fntv-electron](https://github.com/QiaoKes/fntv-electron) — API 接口参考
+- [Danmu API](https://github.com/huangxd-/danmu_api) — 弹幕数据服务
+- [media_kit](https://github.com/media-kit/media-kit) — 跨平台视频播放
+- Flutter — 跨平台 UI 框架
 
 ---
 
 ## ⚠️ 声明
 
-本项目为**第三方客户端**，与飞牛影视官方无关。使用前请确保遵守相关服务条款。
+本项目为第三方客户端，与飞牛影视官方无关。使用前请确保遵守相关服务条款。
 
 ---
 
