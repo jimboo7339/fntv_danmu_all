@@ -24,36 +24,22 @@ class DanmuOverlay extends StatefulWidget {
   State<DanmuOverlay> createState() => _DanmuOverlayState();
 }
 
-class _DanmuOverlayState extends State<DanmuOverlay>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _animCtrl;
-  final List<_DanmuItem> _activeItems = [];
-  int _nextIndex = 0;
-  double _lastTime = 0;
-
-  @override
-  void initState() {
-    super.initState();
-    _animCtrl = AnimationController(
-      vsync: this,
-      duration: const Duration(days: 1),
-    )..addListener(_tick);
-    _animCtrl.repeat();
-  }
-
-  @override
-  void dispose() {
-    _animCtrl.dispose();
-    super.dispose();
-  }
-
-  void _tick() {
-    if (!mounted) return;
-    setState(() {});
-  }
+class _DanmuOverlayState extends State<DanmuOverlay> {
+  // Persistent state across rebuilds
+  final List<_DanmuItem> _activeScroll = [];
+  final List<_DanmuItem> _activeStatic = [];
+  int _lastCommentCount = 0;
+  double _lastPaintTime = 0;
 
   @override
   Widget build(BuildContext context) {
+    // Clear active items when comments list changes (episode switch)
+    if (widget.comments.length != _lastCommentCount) {
+      _activeScroll.clear();
+      _activeStatic.clear();
+      _lastCommentCount = widget.comments.length;
+    }
+
     return IgnorePointer(
       child: CustomPaint(
         painter: _DanmuPainter(
@@ -63,6 +49,10 @@ class _DanmuOverlayState extends State<DanmuOverlay>
           fontSize: widget.fontSize,
           areaPercent: widget.areaPercent,
           showOutline: widget.showOutline,
+          activeScroll: _activeScroll,
+          activeStatic: _activeStatic,
+          lastPaintTime: _lastPaintTime,
+          onPaintTimeUpdate: (t) => _lastPaintTime = t,
         ),
         size: Size.infinite,
       ),
@@ -87,14 +77,18 @@ class _DanmuPainter extends CustomPainter {
   final double fontSize;
   final int areaPercent;
   final bool showOutline;
-
-  static final Map<double, List<_DanmuItem>> _activeScroll = {};
-  static final Map<double, List<_DanmuItem>> _activeStatic = {};
-  static int _lastEmitMs = 0;
+  final List<_DanmuItem> activeScroll;
+  final List<_DanmuItem> activeStatic;
+  final double lastPaintTime;
+  final void Function(double) onPaintTimeUpdate;
 
   _DanmuPainter({
     required this.comments,
     required this.currentTime,
+    required this.activeScroll,
+    required this.activeStatic,
+    required this.lastPaintTime,
+    required this.onPaintTimeUpdate,
     this.opacity = 0.85,
     this.fontSize = 22,
     this.areaPercent = 35,
@@ -105,6 +99,10 @@ class _DanmuPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     if (comments.isEmpty || size.width <= 0) return;
 
+    final now = DateTime.now().millisecondsSinceEpoch / 1000.0;
+    final dt = lastPaintTime > 0 ? (now - lastPaintTime).clamp(0.001, 0.5) : 0.016;
+    onPaintTimeUpdate(now);
+
     final paint = Paint()..isAntiAlias = true;
     final textPainter = TextPainter(textDirection: TextDirection.ltr);
 
@@ -112,28 +110,25 @@ class _DanmuPainter extends CustomPainter {
     final lnH = fontSize * 1.5;
     final maxRow = max(1, (areaH / lnH).floor());
 
-    final curMs = currentTime;
-    final curSec = curMs / 1000.0;
-    final key = 0.0; // single instance key
-
-    // Emit new danmu
-    final active = _activeScroll.putIfAbsent(key, () => []);
-    final staticActive = _activeStatic.putIfAbsent(key, () => []);
+    final curSec = currentTime / 1000.0;
 
     // Clean expired
-    active.removeWhere((a) => a.x + a.tw < -50);
-    staticActive.removeWhere((a) => a.ttl <= 0);
+    activeScroll.removeWhere((a) => a.x + a.tw < -50);
+    activeStatic.removeWhere((a) => a.ttl <= 0);
 
     // Find and emit comments near current time
-    for (int i = 0; i < comments.length; i++) {
+    // Binary search for efficiency with large comment lists
+    int startIdx = _lowerBound(curSec - 0.5);
+    for (int i = startIdx; i < comments.length; i++) {
       final c = comments[i];
       final diff = curSec - c.time;
-      if (diff < -0.1) break; // sorted by time
-      if (diff > 0.5) continue;
-      if (diff < 0) continue;
-      // Check if already emitted (by text+time match)
-      final already = active.any((a) => a.text == c.text && (a.time - c.time).abs() < 0.1) ||
-                      staticActive.any((a) => a.text == c.text && (a.time - c.time).abs() < 0.1);
+      if (diff < -0.1) break; // sorted by time, future comments
+      if (diff > 0.5) continue; // too old, skip
+      if (diff < 0) continue; // slightly future
+
+      // Check if already emitted
+      final already = activeScroll.any((a) => a.text == c.text && (a.time - c.time).abs() < 0.1) ||
+                      activeStatic.any((a) => a.text == c.text && (a.time - c.time).abs() < 0.1);
       if (already) continue;
 
       if (c.type == 4 || c.type == 5) {
@@ -146,11 +141,11 @@ class _DanmuPainter extends CustomPainter {
         item.tw = tp.width;
         item.x = (size.width - item.tw) / 2;
         if (c.type == 5) {
-          item.y = lnH + staticActive.where((a) => a.type == 5).length * lnH;
+          item.y = lnH + activeStatic.where((a) => a.type == 5).length * lnH;
         } else {
-          item.y = size.height - lnH * 0.2 - staticActive.where((a) => a.type == 4).length * lnH;
+          item.y = size.height - lnH * 0.2 - activeStatic.where((a) => a.type == 4).length * lnH;
         }
-        staticActive.add(item);
+        activeStatic.add(item);
       } else {
         // Scroll danmu
         final item = _DanmuItem(text: c.text, time: c.time, color: c.color, type: c.type);
@@ -159,15 +154,15 @@ class _DanmuPainter extends CustomPainter {
           textDirection: TextDirection.ltr,
         )..layout();
         item.tw = tp.width;
-        item.speed = 200 + c.text.length * 4.0;
+        // Speed: traverse screen width in ~8 seconds
+        item.speed = size.width / 8.0 + c.text.length * 3.0;
         item.x = size.width;
-        // Find free row
-        final len = max(1, c.text.length);
+        // Find free row (anti-overlap)
         for (int r = 0; r < maxRow; r++) {
           final rowY = lnH + r * lnH;
           bool blocked = false;
-          for (final a in active) {
-            if ((a.y - rowY).abs() < lnH * 0.5 && a.x + a.tw + 40 > size.width) {
+          for (final a in activeScroll) {
+            if ((a.y - rowY).abs() < lnH * 0.5 && a.x + a.tw + 30 > size.width * 0.7) {
               blocked = true;
               break;
             }
@@ -175,25 +170,37 @@ class _DanmuPainter extends CustomPainter {
           if (!blocked) { item.y = rowY; break; }
           if (r == maxRow - 1) item.y = -100; // no space, hide
         }
-        if (item.y > 0) active.add(item);
+        if (item.y > 0) activeScroll.add(item);
       }
     }
 
-    // Draw scroll danmu
-    for (final a in active) {
-      a.x -= a.speed * 0.016; // ~60fps
+    // Draw scroll danmu with real delta time
+    for (final a in activeScroll) {
+      a.x -= a.speed * dt;
       _drawText(canvas, a.text, a.x, a.y, a.color, paint, textPainter);
     }
 
-    // Draw static danmu
-    for (final a in staticActive) {
-      a.ttl -= 0.016;
+    // Draw static danmu with real delta time
+    for (final a in activeStatic) {
+      a.ttl -= dt;
       _drawText(canvas, a.text, a.x, a.y, a.color, paint, textPainter);
     }
   }
 
+  /// Binary search for the first comment with time >= target - 0.5
+  int _lowerBound(double target) {
+    int lo = 0, hi = comments.length;
+    while (lo < hi) {
+      final mid = (lo + hi) ~/ 2;
+      if (comments[mid].time < target) lo = mid + 1;
+      else hi = mid;
+    }
+    return max(0, lo - 1);
+  }
+
   void _drawText(Canvas canvas, String text, double x, double y, int color,
       Paint paint, TextPainter tp) {
+    if (x < -200) return; // off-screen, skip
     final c = Color(color);
     final alpha = (c.alpha * opacity).toInt().clamp(0, 255);
     final drawColor = c.withAlpha(alpha);

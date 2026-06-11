@@ -278,6 +278,9 @@ class AppState extends ChangeNotifier {
   int get subtitleColorValue => _prefs.getInt('subtitle_color') ?? 0xFFFFFFFF;
   set subtitleColorValue(int v) { _prefs.setInt('subtitle_color', v); notifyListeners(); }
 
+  double get subtitleWeight => _prefs.getDouble('subtitle_weight') ?? 600; // FontWeight.w600
+  set subtitleWeight(double v) { _prefs.setDouble('subtitle_weight', v); notifyListeners(); }
+
   // ====== 弹幕服务器（独立于账号，app级存储） ======
 
   String get danmuUrl {

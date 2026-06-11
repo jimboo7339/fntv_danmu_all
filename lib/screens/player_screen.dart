@@ -98,6 +98,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   Timer? _hideTimer;
   Timer? _progressTimer;
+  Timer? _danmuTimer; // 驱动弹幕刷新的定时器
 
   @override
   void initState() {
@@ -259,6 +260,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _videoCtrl!.play();
       _isPlaying = true;
       _startProgressTimer();
+      _startDanmuTimer();
       _resetHideTimer();
     });
   }
@@ -290,6 +292,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _progressTimer?.cancel();
     _progressTimer = Timer.periodic(const Duration(seconds: 5), (_) {
       _saveProgress();
+    });
+  }
+
+  void _startDanmuTimer() {
+    _danmuTimer?.cancel();
+    // 每100ms刷新一次弹幕位置（60fps不够，因为setState有开销）
+    _danmuTimer = Timer.periodic(const Duration(milliseconds: 100), (_) {
+      if (mounted && _isPlaying && _danmuOn) {
+        setState(() {}); // 触发rebuild更新弹幕currentTime
+      }
     });
   }
 
@@ -619,6 +631,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   void dispose() {
     _hideTimer?.cancel();
     _progressTimer?.cancel();
+    _danmuTimer?.cancel();
     _saveProgress();
     _videoCtrl?.removeListener(_videoListener);
     _videoCtrl?.dispose();
@@ -630,6 +643,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // watch AppState so subtitle style changes trigger rebuild (real-time preview)
+    final appState = context.watch<AppState>();
     return Scaffold(
       backgroundColor: Colors.black,
       body: GestureDetector(
@@ -662,10 +677,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   ? AspectRatio(
                       aspectRatio: _videoCtrl!.aspectRatio,
                       child: _videoCtrl!.buildVideo(
-                        subtitleSize: _app.subtitleSize,
-                        subtitleOutline: _app.subtitleOutline,
-                        subtitleBackground: _app.subtitleBackground,
-                        subtitleColor: Color(_app.subtitleColorValue),
+                        subtitleSize: appState.subtitleSize,
+                        subtitleOutline: appState.subtitleOutline,
+                        subtitleBackground: appState.subtitleBackground,
+                        subtitleColor: Color(appState.subtitleColorValue),
+                        subtitleWeight: appState.subtitleWeight,
                       ),
                     )
                   : const Center(child: CircularProgressIndicator(color: FnTheme.danmuGreen)),
@@ -712,7 +728,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   _isLocked = !_isLocked;
                   if (_isLocked) _showControls = false;
                 }),
-                onDanmu: () => setState(() => _danmuOn = !_danmuOn),
+                onDanmu: () {
+                  setState(() => _danmuOn = !_danmuOn);
+                  if (_danmuOn) {
+                    _startDanmuTimer();
+                  } else {
+                    _danmuTimer?.cancel();
+                  }
+                },
                 onBack: () {
                   // 返回前强制恢复竖屏
                   SystemChrome.setPreferredOrientations([

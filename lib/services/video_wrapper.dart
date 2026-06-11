@@ -101,7 +101,14 @@ class VideoWrapper {
   }
 
   Future<void> _initMpv() async {
-    _mpvPlayer = Player();
+    _mpvPlayer = Player(
+      configuration: const PlayerConfiguration(
+        // 增大demux缓存到128MB，减少倍速播放卡顿
+        bufferSize: 128 * 1024 * 1024,
+        // GPU硬件加速输出
+        vo: 'gpu',
+      ),
+    );
     _mpvVideoController = VideoController(_mpvPlayer!);
 
     // Listen to streams and update cached state
@@ -140,7 +147,32 @@ class VideoWrapper {
     // Open without auto-play so we can seek to resume position first
     await _mpvPlayer!.open(Media(url), play: false);
     _isInitialized = true;
+
+    // 主动读取视频宽高（不等stream异步回调）
+    _readVideoDimensions();
+
     _notifyAll();
+  }
+
+  /// 主动读取视频宽高，避免初始1秒黑边
+  void _readVideoDimensions() {
+    // 多次尝试读取，MPV需要时间解码头帧
+    Future.doWhile(() async {
+      await Future.delayed(const Duration(milliseconds: 100));
+      if (_mpvPlayer == null) return false;
+      final w = _mpvPlayer!.state.width;
+      final h = _mpvPlayer!.state.height;
+      if (w != null && h != null && w > 0 && h > 0) {
+        final newRatio = w / h;
+        if ((newRatio - _aspectRatio).abs() > 0.01) {
+          _aspectRatio = newRatio;
+          _notifyAll();
+        }
+        return false; // got dimensions, stop
+      }
+      return true; // keep trying
+    });
+    // 超时保护：最多试20次（2秒）
   }
 
   // ── Playback controls ─────────────────────────────────────────────────
@@ -214,7 +246,12 @@ class VideoWrapper {
     double subtitleOutline = 1.5,
     bool subtitleBackground = false,
     Color subtitleColor = Colors.white,
+    double subtitleWeight = 600,
   }) {
+    // 将数值转为 FontWeight
+    final fontWeight = FontWeight.values[
+      ((subtitleWeight.clamp(100, 900) - 100) / 100).round().clamp(0, 8)
+    ];
     if (useMpv) {
       return Video(
         controller: _mpvVideoController!,
@@ -225,7 +262,7 @@ class VideoWrapper {
           style: TextStyle(
             color: subtitleColor,
             fontSize: subtitleSize,
-            fontWeight: FontWeight.bold,
+            fontWeight: fontWeight,
             shadows: [
               Shadow(blurRadius: subtitleOutline, color: Colors.black),
               Shadow(blurRadius: subtitleOutline, color: Colors.black),

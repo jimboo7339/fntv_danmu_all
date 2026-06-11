@@ -262,7 +262,7 @@ class PlayerControls extends StatelessWidget {
             },
             child: Container(
               width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               decoration: BoxDecoration(
                 color: isCurrent ? FnTheme.danmuGreen.withOpacity(0.15) : Colors.transparent,
                 borderRadius: BorderRadius.circular(6),
@@ -270,11 +270,11 @@ class PlayerControls extends StatelessWidget {
               child: Row(
                 children: [
                   if (isCurrent)
-                    const Icon(Icons.check, color: FnTheme.danmuGreen, size: 16),
-                  if (isCurrent) const SizedBox(width: 6),
+                    const Icon(Icons.check, color: FnTheme.danmuGreen, size: 14),
+                  if (isCurrent) const SizedBox(width: 4),
                   Text(qualityLabels[i], style: TextStyle(
                     color: isCurrent ? FnTheme.danmuGreen : Colors.white,
-                    fontSize: 13,
+                    fontSize: 12,
                     fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
                   )),
                 ],
@@ -305,7 +305,7 @@ class PlayerControls extends StatelessWidget {
             },
             child: Container(
               width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               decoration: BoxDecoration(
                 color: isCurrent ? FnTheme.danmuGreen.withOpacity(0.15) : Colors.transparent,
                 borderRadius: BorderRadius.circular(6),
@@ -313,11 +313,11 @@ class PlayerControls extends StatelessWidget {
               child: Row(
                 children: [
                   if (isCurrent)
-                    const Icon(Icons.check, color: FnTheme.danmuGreen, size: 16),
-                  if (isCurrent) const SizedBox(width: 6),
+                    const Icon(Icons.check, color: FnTheme.danmuGreen, size: 14),
+                  if (isCurrent) const SizedBox(width: 4),
                   Expanded(child: Text(label, style: TextStyle(
                     color: isCurrent ? FnTheme.danmuGreen : Colors.white,
-                    fontSize: 13,
+                    fontSize: 12,
                     fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
                   ))),
                 ],
@@ -391,12 +391,12 @@ class PlayerControls extends StatelessWidget {
       builder: (ctx) => Align(
         alignment: Alignment.bottomCenter,
         child: Padding(
-          padding: const EdgeInsets.only(bottom: 80, left: 16, right: 16),
+          padding: const EdgeInsets.only(bottom: 70, left: 12, right: 12),
           child: Material(
             color: const Color(0xFF2A2A2A),
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(10),
             child: Padding(
-              padding: const EdgeInsets.all(14),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               child: child,
             ),
           ),
@@ -412,15 +412,6 @@ class PlayerControls extends StatelessWidget {
     if (a.codecName != null && a.codecName!.isNotEmpty) parts.add(a.codecName!.toUpperCase());
     if (a.channels > 0) parts.add('${a.channels}ch');
     if (parts.isEmpty) return '音频 ${index + 1}';
-    return parts.join(' · ');
-  }
-
-  String _subtitleLabel(SubtitleStreamInfo s, int index) {
-    final parts = <String>[];
-    if (s.title != null && s.title!.isNotEmpty) parts.add(s.title!);
-    if (s.language != null && s.language!.isNotEmpty) parts.add(s.language!);
-    if (s.codecName != null && s.codecName!.isNotEmpty) parts.add(s.codecName!.toUpperCase());
-    if (parts.isEmpty) return '字幕 ${index + 1}';
     return parts.join(' · ');
   }
 }
@@ -445,21 +436,22 @@ class _SubtitlePanel extends StatefulWidget {
 class _SubtitlePanelState extends State<_SubtitlePanel> {
   @override
   Widget build(BuildContext context) {
-    final app = context.read<AppState>();
+    // watch for real-time preview — when slider changes, player rebuilds
+    final app = context.watch<AppState>();
     return DraggableScrollableSheet(
-      initialChildSize: 0.6,
-      minChildSize: 0.3,
-      maxChildSize: 0.8,
+      initialChildSize: 0.5,
+      minChildSize: 0.25,
+      maxChildSize: 0.7,
       expand: false,
       builder: (_, scrollCtrl) => ListView(
         controller: scrollCtrl,
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
         children: [
           // 拖拽指示条
           Center(
             child: Container(
-              width: 40, height: 4,
-              margin: const EdgeInsets.only(bottom: 16),
+              width: 36, height: 3,
+              margin: const EdgeInsets.only(bottom: 12),
               decoration: BoxDecoration(
                 color: Colors.white24,
                 borderRadius: BorderRadius.circular(2),
@@ -468,8 +460,8 @@ class _SubtitlePanelState extends State<_SubtitlePanel> {
           ),
           // 字幕轨道选择
           const Text('字幕轨道', style: TextStyle(
-            color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 8),
+            color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 6),
           ...List.generate(widget.subtitleStreams.length + 1, (i) {
             final isOff = i == 0;
             final isCurrent = isOff
@@ -480,20 +472,20 @@ class _SubtitlePanelState extends State<_SubtitlePanel> {
               onTap: () => widget.onSelect(isOff ? -1 : i - 1),
               child: Container(
                 width: double.infinity,
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                margin: const EdgeInsets.only(bottom: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                margin: const EdgeInsets.only(bottom: 2),
                 decoration: BoxDecoration(
                   color: isCurrent ? FnTheme.danmuGreen.withOpacity(0.15) : Colors.transparent,
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(6),
                 ),
                 child: Row(
                   children: [
                     if (isCurrent)
-                      const Icon(Icons.check, color: FnTheme.danmuGreen, size: 16),
-                    if (isCurrent) const SizedBox(width: 6),
+                      const Icon(Icons.check, color: FnTheme.danmuGreen, size: 14),
+                    if (isCurrent) const SizedBox(width: 4),
                     Text(label, style: TextStyle(
                       color: isCurrent ? FnTheme.danmuGreen : Colors.white,
-                      fontSize: 13,
+                      fontSize: 12,
                       fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
                     )),
                   ],
@@ -501,17 +493,25 @@ class _SubtitlePanelState extends State<_SubtitlePanel> {
               ),
             );
           }),
-          const Divider(color: Colors.white12, height: 32),
+          const Divider(color: Colors.white12, height: 24),
           // 字幕样式调节
           const Text('字幕样式', style: TextStyle(
-            color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 12),
+            color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
           // 字号
           _styleSlider(
             label: '字号',
             value: app.subtitleSize,
             min: 14, max: 40,
             onChanged: (v) => setState(() => app.subtitleSize = v),
+          ),
+          // 粗细
+          _styleSlider(
+            label: '粗细',
+            value: app.subtitleWeight,
+            min: 100, max: 900,
+            onChanged: (v) => setState(() => app.subtitleWeight = v),
+            displayValue: _weightLabel(app.subtitleWeight),
           ),
           // 描边
           _styleSlider(
@@ -522,12 +522,12 @@ class _SubtitlePanelState extends State<_SubtitlePanel> {
           ),
           // 背景
           Padding(
-            padding: const EdgeInsets.symmetric(vertical: 4),
+            padding: const EdgeInsets.symmetric(vertical: 2),
             child: Row(
               children: [
                 const SizedBox(
-                  width: 50,
-                  child: Text('背景', style: TextStyle(color: Colors.white70, fontSize: 13)),
+                  width: 44,
+                  child: Text('背景', style: TextStyle(color: Colors.white70, fontSize: 12)),
                 ),
                 Expanded(
                   child: SwitchListTile(
@@ -543,19 +543,19 @@ class _SubtitlePanelState extends State<_SubtitlePanel> {
           ),
           // 颜色
           Padding(
-            padding: const EdgeInsets.symmetric(vertical: 4),
+            padding: const EdgeInsets.symmetric(vertical: 2),
             child: Row(
               children: [
                 const SizedBox(
-                  width: 50,
-                  child: Text('颜色', style: TextStyle(color: Colors.white70, fontSize: 13)),
+                  width: 44,
+                  child: Text('颜色', style: TextStyle(color: Colors.white70, fontSize: 12)),
                 ),
                 ...([0xFFFFFFFF, 0xFFFFFF00, 0xFF00FF00, 0xFF00FFFF, 0xFFFF6600].map((c) =>
                   GestureDetector(
                     onTap: () => setState(() => app.subtitleColorValue = c),
                     child: Container(
-                      width: 28, height: 28,
-                      margin: const EdgeInsets.only(right: 8),
+                      width: 26, height: 26,
+                      margin: const EdgeInsets.only(right: 6),
                       decoration: BoxDecoration(
                         color: Color(c),
                         shape: BoxShape.circle,
@@ -574,20 +574,30 @@ class _SubtitlePanelState extends State<_SubtitlePanel> {
     );
   }
 
+  String _weightLabel(double w) {
+    if (w <= 200) return '极细';
+    if (w <= 300) return '细';
+    if (w <= 400) return '常规';
+    if (w <= 600) return '中粗';
+    if (w <= 700) return '粗';
+    return '极粗';
+  }
+
   Widget _styleSlider({
     required String label,
     required double value,
     required double min,
     required double max,
     required void Function(double) onChanged,
+    String? displayValue,
   }) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.symmetric(vertical: 2),
       child: Row(
         children: [
           SizedBox(
-            width: 50,
-            child: Text(label, style: const TextStyle(color: Colors.white70, fontSize: 13)),
+            width: 44,
+            child: Text(label, style: const TextStyle(color: Colors.white70, fontSize: 12)),
           ),
           Expanded(
             child: SliderTheme(
@@ -595,7 +605,7 @@ class _SubtitlePanelState extends State<_SubtitlePanel> {
                 activeTrackColor: FnTheme.danmuGreen,
                 inactiveTrackColor: Colors.white24,
                 thumbColor: FnTheme.danmuGreen,
-                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 5),
                 trackHeight: 2,
               ),
               child: Slider(
@@ -607,10 +617,10 @@ class _SubtitlePanelState extends State<_SubtitlePanel> {
             ),
           ),
           SizedBox(
-            width: 36,
+            width: 40,
             child: Text(
-              value.toStringAsFixed(1),
-              style: const TextStyle(color: Colors.white54, fontSize: 11),
+              displayValue ?? value.toStringAsFixed(1),
+              style: const TextStyle(color: Colors.white54, fontSize: 10),
               textAlign: TextAlign.right,
             ),
           ),
