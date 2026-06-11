@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:provider/provider.dart';
+import '../providers/app_state.dart';
 import '../models/play_list_item.dart';
 import '../utils/theme.dart';
 
@@ -38,6 +40,7 @@ class MediaCard extends StatelessWidget {
                 child: imageUrl.isNotEmpty
                     ? CachedNetworkImage(
                         imageUrl: imageUrl,
+                        httpHeaders: context.read<AppState>().api.imageHeaders,
                         fit: BoxFit.cover,
                         placeholder: (_, __) => const Center(
                           child: Icon(Icons.movie_outlined, color: Colors.grey, size: 32)),

@@ -134,7 +134,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildOverview() {
-    final history = _app.watchHistory.where((r) => !r.isNearlyFinished).toList();
+    final history = context.watch<AppState>().watchHistory.where((r) => !r.isNearlyFinished).toList();
     return _loading
         ? const Center(child: CircularProgressIndicator(color: FnTheme.danmuGreen))
         : RefreshIndicator(

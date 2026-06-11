@@ -102,6 +102,21 @@ class ApiClient {
     return '$_baseUrl/v/api/v1/sys/img$p?w=$width';
   }
 
+  /// 返回图片请求所需的认证头，供 CachedNetworkImage 使用
+  Map<String, String> get imageHeaders {
+    final headers = <String, String>{
+      'Content-Type': 'application/json',
+      'Cookie': 'mode=relay',
+    };
+    if (_token != null) {
+      headers['Authorization'] = _token!;
+    }
+    // Authx 需要 url path 和 body，对图片 GET 请求 body 为 null
+    final authx = FnAuthUtils.genAuthx('/v/api/v1/sys/img', null);
+    headers['Authx'] = authx;
+    return headers;
+  }
+
   Future<void> recordPlayStatus(Map<String, dynamic> body) async {
     await _dio.post('api/v1/play/record', data: body);
   }

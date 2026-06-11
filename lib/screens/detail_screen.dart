@@ -255,6 +255,7 @@ class _DetailScreenState extends State<DetailScreen> {
           if (backdropUrl.isNotEmpty)
             CachedNetworkImage(
               imageUrl: backdropUrl,
+              httpHeaders: _app.api.imageHeaders,
               fit: BoxFit.cover,
               errorWidget: (_, __, ___) => Container(color: const Color(0xFF121212)),
             )
@@ -313,6 +314,7 @@ class _DetailScreenState extends State<DetailScreen> {
               child: posterUrl.isNotEmpty
                   ? CachedNetworkImage(
                       imageUrl: posterUrl,
+                      httpHeaders: _app.api.imageHeaders,
                       fit: BoxFit.cover,
                       placeholder: (_, __) => Container(
                         color: const Color(0xFF2A2A2A),
@@ -532,6 +534,7 @@ class _DetailScreenState extends State<DetailScreen> {
                   if (posterUrl.isNotEmpty)
                     CachedNetworkImage(
                       imageUrl: posterUrl,
+                      httpHeaders: _app.api.imageHeaders,
                       fit: BoxFit.cover,
                       errorWidget: (_, __, ___) => Center(
                         child: Text('$epNum',
