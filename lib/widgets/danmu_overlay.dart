@@ -189,14 +189,19 @@ class _DanmuPainter extends CustomPainter {
         item.speed = (size.width / 7.0 + c.text.length * 2.0) * speed;
         item.x = size.width;
 
-        // 找空闲行（反重叠）
+        // 找空闲行（反重叠）— 检查新弹幕是否和已有弹幕物理重叠
         for (int r = 0; r < maxRow; r++) {
           final rowY = topMargin + lnH + r * lnH;
           bool blocked = false;
           for (final a in activeScroll) {
-            if ((a.y - rowY).abs() < lnH * 0.6 && a.x + a.tw > 50) {
-              blocked = true;
-              break;
+            if ((a.y - rowY).abs() < lnH * 0.6) {
+              // 新弹幕右边缘 = size.width + item.tw
+              // 已有弹幕左边缘 = a.x
+              // 重叠条件: 已有弹幕还没滚出新弹幕的起始区域
+              if (a.x + a.tw > size.width - item.tw - 20) {
+                blocked = true;
+                break;
+              }
             }
           }
           if (!blocked) { item.y = rowY; break; }

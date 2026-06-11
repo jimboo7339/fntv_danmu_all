@@ -295,6 +295,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
       }
       _videoCtrl!.play();
       _isPlaying = true;
+      // 立即上报一次进度（不等5秒定时器）
+      Future.delayed(const Duration(seconds: 2), () => _saveProgress());
       _startProgressTimer();
       _startDanmuTimer();
       _resetHideTimer();
@@ -370,7 +372,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
         'ts': pos,
         'duration': dur,
       }).catchError((e) {
-        debugPrint('recordPlayStatus error: $e');
+        debugPrint('❌ recordPlayStatus error: $e (item=$episodeGuid, media=${_mediaGuid ?? ""}, ts=$pos, dur=$dur)');
       });
     }
   }
@@ -795,6 +797,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _hideTimer?.cancel();
     _gestureOverlayTimer?.cancel();
     _progressTimer?.cancel();
+    _saveProgress(); // 退出时立即上报最终进度
     _danmuTimer?.cancel();
     _saveProgress();
     _videoCtrl?.removeListener(_videoListener);
