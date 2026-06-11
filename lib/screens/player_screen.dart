@@ -309,6 +309,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
         ts: pos,
         duration: dur,
       ));
+      // 同步上报服务端（用于继续观看列表）
+      _app.api.recordPlayStatus({
+        'item_guid': widget.itemGuid,
+        'position': pos,
+        'duration': dur,
+        'progress': dur > 0 ? pos / dur : 0,
+        'is_finished': pos >= dur * 0.9,
+      }).catchError((e) {
+        debugPrint('recordPlayStatus error: $e');
+      });
     }
   }
 
@@ -480,6 +490,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
       }
 
       debugPrint('Danmu: loaded ${danmuList.length} comments');
+      // 必须按时间排序，渲染器假设已排序（遇到未来时间会break）
+      danmuList.sort((a, b) => a.time.compareTo(b.time));
       if (mounted && danmuList.isNotEmpty) {
         setState(() => _danmuItems = danmuList);
       }
