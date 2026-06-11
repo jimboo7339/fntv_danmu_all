@@ -37,7 +37,12 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _loadOverview() async {
     setState(() { _loading = true; _browseGuid = null; _browseItems = null; });
     try {
-      final resp = await _app.api.getMediaDbList();
+      // 同时加载媒体库列表和服务端继续观看记录
+      final results = await Future.wait([
+        _app.api.getMediaDbList(),
+        _app.fetchServerPlayList(),
+      ]);
+      final resp = results[0] as Map<String, dynamic>;
       if (resp['code'] == 0 && resp['data'] != null) {
         _libraries = (resp['data'] as List).map((e) => MediaDbItem.fromJson(e)).toList();
         for (final lib in _libraries) {

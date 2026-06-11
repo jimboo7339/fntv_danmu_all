@@ -161,6 +161,36 @@ class VideoWrapper {
     }
   }
 
+  /// Switch audio track by index (0-based). Only works with mpv engine.
+  Future<void> setAudioTrack(int index) async {
+    if (useMpv && _mpvPlayer != null) {
+      try {
+        // mpv uses 1-based track IDs for embedded tracks
+        final trackId = '${index + 1}';
+        await _mpvPlayer!.setAudioTrack(AudioTrack(trackId, null, null));
+      } catch (e) {
+        debugPrint('setAudioTrack error: $e');
+      }
+    }
+  }
+
+  /// Switch subtitle track by index (0-based). Pass -1 to disable. Only works with mpv engine.
+  Future<void> setSubtitleTrack(int index) async {
+    if (useMpv && _mpvPlayer != null) {
+      try {
+        if (index < 0) {
+          await _mpvPlayer!.setSubtitleTrack(SubtitleTrack.no());
+        } else {
+          // mpv uses 1-based track IDs for embedded tracks
+          final trackId = '${index + 1}';
+          await _mpvPlayer!.setSubtitleTrack(SubtitleTrack(trackId, null, null));
+        }
+      } catch (e) {
+        debugPrint('setSubtitleTrack error: $e');
+      }
+    }
+  }
+
   // ── Widget builder ────────────────────────────────────────────────────
 
   Widget buildVideo() {

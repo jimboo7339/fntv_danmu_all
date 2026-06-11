@@ -193,6 +193,50 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// 从服务端获取继续观看列表并合并到本地历史
+  Future<void> fetchServerPlayList() async {
+    try {
+      final resp = await api.getPlayList();
+      if (resp['code'] == 0 && resp['data'] != null) {
+        final serverList = resp['data'] as List;
+        for (final item in serverList) {
+          final guid = item['itemId'] ?? item['guid'] ?? '';
+          if (guid.isEmpty) continue;
+          final name = item['name'] ?? item['title'] ?? '';
+          final poster = item['poster'] ?? '';
+          final position = ((item['position'] ?? 0) as num).toInt();
+          final duration = ((item['duration'] ?? 0) as num).toInt();
+          final lastPlayTime = ((item['lastPlayTime'] ?? 0) as num).toInt();
+          if (duration <= 0) continue;
+          // 用服务端数据构建 WatchRecord
+          final record = WatchRecord(
+            guid: guid,
+            title: name,
+            poster: poster,
+            ts: position,
+            duration: duration,
+            updatedAt: lastPlayTime > 0 ? lastPlayTime * 1000 : DateTime.now().millisecondsSinceEpoch,
+          );
+          // 合并：如果本地已有同 guid 且更新，保留本地；否则用服务端
+          final existingIdx = _watchHistory.indexWhere((r) => r.guid == guid);
+          if (existingIdx >= 0) {
+            final existing = _watchHistory[existingIdx];
+            if (existing.updatedAt < record.updatedAt) {
+              _watchHistory[existingIdx] = record;
+            }
+          } else {
+            _watchHistory.add(record);
+          }
+        }
+        _watchHistory.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+        if (_watchHistory.length > 100) _watchHistory = _watchHistory.sublist(0, 100);
+        notifyListeners();
+      }
+    } catch (e) {
+      debugPrint('fetchServerPlayList error: $e');
+    }
+  }
+
   void addWatchRecord(WatchRecord record) {
     record.updatedAt = DateTime.now().millisecondsSinceEpoch;
     _watchHistory.removeWhere((r) => r.dedupKey == record.dedupKey);

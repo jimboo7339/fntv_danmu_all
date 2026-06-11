@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../models/play_list_item.dart';
 import '../utils/format.dart';
 import '../utils/theme.dart';
+import '../models/stream_response.dart';
 
 class PlayerControls extends StatelessWidget {
   final String title;
@@ -17,6 +18,10 @@ class PlayerControls extends StatelessWidget {
   final int qualityCount;
   final List<String> qualityLabels;
   final int qualityIndex;
+  final List<AudioStreamInfo>? audioStreams;
+  final List<SubtitleStreamInfo>? subtitleStreams;
+  final int selectedAudioIndex;
+  final int selectedSubtitleIndex; // -1 = off
   final VoidCallback onPlayPause;
   final void Function(Duration) onSeek;
   final void Function(double) onSpeed;
@@ -25,6 +30,8 @@ class PlayerControls extends StatelessWidget {
   final VoidCallback onBack;
   final void Function(int) onEpisode;
   final void Function(int) onQuality;
+  final void Function(int) onAudioSelected;
+  final void Function(int) onSubtitleSelected;
   final void Function(double) onSeekChanged;
 
   const PlayerControls({
@@ -41,6 +48,10 @@ class PlayerControls extends StatelessWidget {
     required this.qualityCount,
     required this.qualityLabels,
     required this.qualityIndex,
+    this.audioStreams,
+    this.subtitleStreams,
+    this.selectedAudioIndex = 0,
+    this.selectedSubtitleIndex = -1,
     required this.onPlayPause,
     required this.onSeek,
     required this.onSpeed,
@@ -49,6 +60,8 @@ class PlayerControls extends StatelessWidget {
     required this.onBack,
     required this.onEpisode,
     required this.onQuality,
+    required this.onAudioSelected,
+    required this.onSubtitleSelected,
     required this.onSeekChanged,
   });
 
@@ -171,6 +184,12 @@ class PlayerControls extends StatelessWidget {
                       // Episodes
                       if (episodeList != null && episodeList!.isNotEmpty)
                         _ctrlBtn('选集', () => _showEpisodePicker(context)),
+                      // Audio track
+                      if (audioStreams != null && audioStreams!.length > 1)
+                        _ctrlBtn('音频', () => _showAudioPicker(context)),
+                      // Subtitle track
+                      if (subtitleStreams != null && subtitleStreams!.isNotEmpty)
+                        _ctrlBtn('字幕', () => _showSubtitlePicker(context)),
                     ],
                   ),
                 ),
@@ -203,7 +222,7 @@ class PlayerControls extends StatelessWidget {
     showModalBottomSheet(
       context: context,
       backgroundColor: const Color(0xFF1E1E1E),
-      builder: (_) => SizedBox(
+      builder: (sheetContext) => SizedBox(
         height: 300,
         child: Column(
           children: [
@@ -229,7 +248,7 @@ class PlayerControls extends StatelessWidget {
                       ),
                     ),
                     onTap: () {
-                      Navigator.pop(context);
+                      Navigator.pop(sheetContext);
                       onEpisode(i);
                     },
                   );
@@ -250,7 +269,7 @@ class PlayerControls extends StatelessWidget {
     showModalBottomSheet(
       context: context,
       backgroundColor: const Color(0xFF1E1E1E),
-      builder: (_) => SizedBox(
+      builder: (sheetContext) => SizedBox(
         height: 250,
         child: ListView.builder(
           itemCount: items.length,
@@ -258,7 +277,7 @@ class PlayerControls extends StatelessWidget {
             title: Text(items[i], style: TextStyle(
               color: i == qualityIndex ? FnTheme.danmuGreen : Colors.white)),
             onTap: () {
-              Navigator.pop(context);
+              Navigator.pop(sheetContext);
               onQuality(i);
             },
           ),
@@ -272,7 +291,7 @@ class PlayerControls extends StatelessWidget {
     showModalBottomSheet(
       context: context,
       backgroundColor: const Color(0xFF1E1E1E),
-      builder: (_) => SizedBox(
+      builder: (sheetContext) => SizedBox(
         height: 300,
         child: Column(
           children: [
@@ -288,6 +307,7 @@ class PlayerControls extends StatelessWidget {
                   final s = speeds[i];
                   final isCurrent = (s - speed).abs() < 0.01;
                   return ListTile(
+                    autofocus: isCurrent,
                     title: Text(
                       s == 1.0 ? '1.0x  正常' : '${s}x',
                       style: TextStyle(
@@ -299,7 +319,7 @@ class PlayerControls extends StatelessWidget {
                         ? const Icon(Icons.check, color: FnTheme.danmuGreen)
                         : null,
                     onTap: () {
-                      Navigator.pop(context);
+                      Navigator.pop(sheetContext);
                       onSpeed(s);
                     },
                   );
@@ -310,5 +330,127 @@ class PlayerControls extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  void _showAudioPicker(BuildContext context) {
+    if (audioStreams == null || audioStreams!.isEmpty) return;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1E1E1E),
+      builder: (sheetContext) => SizedBox(
+        height: 300,
+        child: Column(
+          children: [
+            const Padding(
+              padding: EdgeInsets.all(12),
+              child: Text('音频轨道', style: TextStyle(
+                fontWeight: FontWeight.bold, fontSize: 16, color: Colors.white)),
+            ),
+            Expanded(
+              child: ListView.builder(
+                itemCount: audioStreams!.length,
+                itemBuilder: (_, i) {
+                  final a = audioStreams![i];
+                  final isCurrent = i == selectedAudioIndex;
+                  final label = _audioLabel(a, i);
+                  return ListTile(
+                    selected: isCurrent,
+                    selectedTileColor: FnTheme.danmuGreen.withOpacity(0.15),
+                    title: Text(
+                      label,
+                      style: TextStyle(
+                        color: isCurrent ? FnTheme.danmuGreen : Colors.white,
+                        fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
+                      ),
+                    ),
+                    trailing: isCurrent
+                        ? const Icon(Icons.check, color: FnTheme.danmuGreen)
+                        : null,
+                    onTap: () {
+                      Navigator.pop(sheetContext);
+                      onAudioSelected(i);
+                    },
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showSubtitlePicker(BuildContext context) {
+    if (subtitleStreams == null) return;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1E1E1E),
+      builder: (sheetContext) => SizedBox(
+        height: 300,
+        child: Column(
+          children: [
+            const Padding(
+              padding: EdgeInsets.all(12),
+              child: Text('字幕轨道', style: TextStyle(
+                fontWeight: FontWeight.bold, fontSize: 16, color: Colors.white)),
+            ),
+            Expanded(
+              child: ListView.builder(
+                itemCount: subtitleStreams!.length + 1,
+                itemBuilder: (_, i) {
+                  final isOff = i == 0;
+                  final isCurrent = isOff
+                      ? selectedSubtitleIndex < 0
+                      : (i - 1) == selectedSubtitleIndex;
+                  String label;
+                  if (isOff) {
+                    label = '关闭字幕';
+                  } else {
+                    label = _subtitleLabel(subtitleStreams![i - 1], i - 1);
+                  }
+                  return ListTile(
+                    selected: isCurrent,
+                    selectedTileColor: FnTheme.danmuGreen.withOpacity(0.15),
+                    title: Text(
+                      label,
+                      style: TextStyle(
+                        color: isCurrent ? FnTheme.danmuGreen : Colors.white,
+                        fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
+                      ),
+                    ),
+                    trailing: isCurrent
+                        ? const Icon(Icons.check, color: FnTheme.danmuGreen)
+                        : null,
+                    onTap: () {
+                      Navigator.pop(sheetContext);
+                      onSubtitleSelected(isOff ? -1 : i - 1);
+                    },
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _audioLabel(AudioStreamInfo a, int index) {
+    final parts = <String>[];
+    if (a.title != null && a.title!.isNotEmpty) parts.add(a.title!);
+    if (a.language != null && a.language!.isNotEmpty) parts.add(a.language!);
+    if (a.codecName != null && a.codecName!.isNotEmpty) parts.add(a.codecName!.toUpperCase());
+    if (a.channels > 0) parts.add('${a.channels}ch');
+    if (parts.isEmpty) return '音频 ${index + 1}';
+    return parts.join(' · ');
+  }
+
+  String _subtitleLabel(SubtitleStreamInfo s, int index) {
+    final parts = <String>[];
+    if (s.title != null && s.title!.isNotEmpty) parts.add(s.title!);
+    if (s.language != null && s.language!.isNotEmpty) parts.add(s.language!);
+    if (s.codecName != null && s.codecName!.isNotEmpty) parts.add(s.codecName!.toUpperCase());
+    if (parts.isEmpty) return '字幕 ${index + 1}';
+    return parts.join(' · ');
   }
 }

@@ -70,6 +70,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
   int _streamBitrate = 0;
   int _streamDuration = 0;
 
+  // Audio/subtitle streams
+  List<AudioStreamInfo>? _audioStreams;
+  List<SubtitleStreamInfo>? _subtitleStreams;
+  int _selectedAudioIndex = 0;
+  int _selectedSubtitleIndex = -1; // -1 = off
+
   // Direct link
   String _cloudDirectUrl = '';
   bool _cloudDirectMode = true;
@@ -193,6 +199,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
           _qualityUrls = sd.directLinkQualities!.map((q) => (q.url ?? '').replaceAll(r'\u0026', '&')).toList();
           if (_qualityIndex >= _qualityCount) _qualityIndex = 0;
           _cloudDirectUrl = _qualityUrls[_qualityIndex];
+        }
+        // Parse audio/subtitle streams
+        if (sd.audioStreams != null && sd.audioStreams!.isNotEmpty) {
+          _audioStreams = sd.audioStreams;
+          _selectedAudioIndex = 0;
+        }
+        if (sd.subtitleStreams != null && sd.subtitleStreams!.isNotEmpty) {
+          _subtitleStreams = sd.subtitleStreams;
+          _selectedSubtitleIndex = -1; // default off
         }
       }
     } catch (e) {
@@ -474,6 +489,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _cloudDirectUrl = '';
       _isInitialized = false;
       _danmuItems.clear();
+      _audioStreams = null;
+      _subtitleStreams = null;
+      _selectedAudioIndex = 0;
+      _selectedSubtitleIndex = -1;
     });
     _videoCtrl?.dispose();
     _videoCtrl = null;
@@ -513,9 +532,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   void _setSpeed(double speed) {
     _speed = speed;
     _videoCtrl?.setSpeed(_speed);
-    _app.decoderMode; // just to access prefs
     setState(() {});
-    // 保存倍速到 SharedPreferences
     SharedPreferences.getInstance().then((prefs) {
       prefs.setDouble('play_speed', _speed);
     });
@@ -612,6 +629,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 qualityCount: _qualityCount,
                 qualityLabels: _qualityLabels,
                 qualityIndex: _qualityIndex,
+                audioStreams: _audioStreams,
+                subtitleStreams: _subtitleStreams,
+                selectedAudioIndex: _selectedAudioIndex,
+                selectedSubtitleIndex: _selectedSubtitleIndex,
                 onPlayPause: _togglePlay,
                 onSeek: _seek,
                 onSpeed: _setSpeed,
@@ -641,6 +662,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   _videoCtrl = null;
                   setState(() => _isInitialized = false);
                   _startPlayback();
+                },
+                onAudioSelected: (idx) {
+                  setState(() => _selectedAudioIndex = idx);
+                  _videoCtrl?.setAudioTrack(idx);
+                },
+                onSubtitleSelected: (idx) {
+                  setState(() => _selectedSubtitleIndex = idx);
+                  _videoCtrl?.setSubtitleTrack(idx);
                 },
                 onSeekChanged: (val) {
                   _videoCtrl?.seekTo(Duration(milliseconds: val.toInt()));

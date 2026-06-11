@@ -121,6 +121,12 @@ class ApiClient {
     await _dio.post('api/v1/play/record', data: body);
   }
 
+  /// 获取继续观看列表（服务端播放记录）
+  Future<Map<String, dynamic>> getPlayList() async {
+    final resp = await _dio.get('api/v1/play/list');
+    return resp.data;
+  }
+
   Future<void> setWatched(Map<String, dynamic> body) async {
     await _dio.post('api/v1/item/watched', data: body);
   }
