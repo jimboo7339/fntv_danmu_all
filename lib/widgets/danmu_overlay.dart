@@ -1,4 +1,5 @@
 import 'dart:math';
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import '../models/danmu_comment.dart';
 
@@ -9,6 +10,7 @@ class DanmuOverlay extends StatefulWidget {
   final double fontSize;
   final int areaPercent;
   final bool showOutline;
+  final double speed; // 弹幕速度倍率
 
   const DanmuOverlay({
     super.key,
@@ -18,43 +20,74 @@ class DanmuOverlay extends StatefulWidget {
     this.fontSize = 22,
     this.areaPercent = 35,
     this.showOutline = true,
+    this.speed = 1.0,
   });
 
   @override
   State<DanmuOverlay> createState() => _DanmuOverlayState();
 }
 
-class _DanmuOverlayState extends State<DanmuOverlay> {
-  // Persistent state across rebuilds
+class _DanmuOverlayState extends State<DanmuOverlay>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _animCtrl;
   final List<_DanmuItem> _activeScroll = [];
   final List<_DanmuItem> _activeStatic = [];
   int _lastCommentCount = 0;
-  double _lastPaintTime = 0;
+  double _lastRealTime = 0;
+
+  // 缓存的TextPainter，避免每帧重建
+  final Map<String, ui.Paragraph> _paragraphCache = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _animCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 50), // 20fps update
+    )..addListener(_tick);
+    _animCtrl.repeat();
+  }
+
+  @override
+  void dispose() {
+    _animCtrl.dispose();
+    _paragraphCache.clear();
+    super.dispose();
+  }
+
+  void _tick() {
+    if (!mounted) return;
+    setState(() {});
+  }
 
   @override
   Widget build(BuildContext context) {
-    // Clear active items when comments list changes (episode switch)
     if (widget.comments.length != _lastCommentCount) {
       _activeScroll.clear();
       _activeStatic.clear();
+      _paragraphCache.clear();
       _lastCommentCount = widget.comments.length;
     }
 
     return IgnorePointer(
-      child: CustomPaint(
-        painter: _DanmuPainter(
-          comments: widget.comments,
-          currentTime: widget.currentTime,
-          opacity: widget.opacity,
-          fontSize: widget.fontSize,
-          areaPercent: widget.areaPercent,
-          showOutline: widget.showOutline,
-          activeScroll: _activeScroll,
-          activeStatic: _activeStatic,
-          lastPaintTime: _lastPaintTime,
-          onPaintTimeUpdate: (t) => _lastPaintTime = t,
+      child: RepaintBoundary(
+        child: CustomPaint(
+          painter: _DanmuPainter(
+            comments: widget.comments,
+            currentTime: widget.currentTime,
+            opacity: widget.opacity,
+            fontSize: widget.fontSize,
+            areaPercent: widget.areaPercent,
+            showOutline: widget.showOutline,
+            speed: widget.speed,
+            activeScroll: _activeScroll,
+            activeStatic: _activeStatic,
+            lastRealTime: _lastRealTime,
+            paragraphCache: _paragraphCache,
+            onRealTimeUpdate: (t) => _lastRealTime = t,
+          ),
+          size: Size.infinite,
         ),
-        size: Size.infinite,
       ),
     );
   }
@@ -66,7 +99,7 @@ class _DanmuItem {
   int color;
   int type;
   double x = 0, y = 0, speed = 0, tw = 0;
-  double ttl = 5.0;
+  double ttl = 6.0;
   _DanmuItem({required this.text, required this.time, this.color = 0xFFFFFFFF, this.type = 1});
 }
 
@@ -77,22 +110,26 @@ class _DanmuPainter extends CustomPainter {
   final double fontSize;
   final int areaPercent;
   final bool showOutline;
+  final double speed;
   final List<_DanmuItem> activeScroll;
   final List<_DanmuItem> activeStatic;
-  final double lastPaintTime;
-  final void Function(double) onPaintTimeUpdate;
+  final double lastRealTime;
+  final Map<String, ui.Paragraph> paragraphCache;
+  final void Function(double) onRealTimeUpdate;
 
   _DanmuPainter({
     required this.comments,
     required this.currentTime,
     required this.activeScroll,
     required this.activeStatic,
-    required this.lastPaintTime,
-    required this.onPaintTimeUpdate,
+    required this.lastRealTime,
+    required this.paragraphCache,
+    required this.onRealTimeUpdate,
     this.opacity = 0.85,
     this.fontSize = 22,
     this.areaPercent = 35,
     this.showOutline = true,
+    this.speed = 1.0,
   });
 
   @override
@@ -100,45 +137,35 @@ class _DanmuPainter extends CustomPainter {
     if (comments.isEmpty || size.width <= 0) return;
 
     final now = DateTime.now().millisecondsSinceEpoch / 1000.0;
-    final dt = lastPaintTime > 0 ? (now - lastPaintTime).clamp(0.001, 0.5) : 0.016;
-    onPaintTimeUpdate(now);
-
-    final paint = Paint()..isAntiAlias = true;
-    final textPainter = TextPainter(textDirection: TextDirection.ltr);
+    final dt = lastRealTime > 0 ? (now - lastRealTime).clamp(0.001, 0.2) : 0.05;
+    onRealTimeUpdate(now);
 
     final areaH = size.height * areaPercent / 100;
     final lnH = fontSize * 1.5;
     final maxRow = max(1, (areaH / lnH).floor());
-
     final curSec = currentTime / 1000.0;
 
-    // Clean expired
-    activeScroll.removeWhere((a) => a.x + a.tw < -50);
+    // 清除过期弹幕
+    activeScroll.removeWhere((a) => a.x + a.tw < -100);
     activeStatic.removeWhere((a) => a.ttl <= 0);
 
-    // Find and emit comments near current time
-    // Binary search for efficiency with large comment lists
+    // 发射新弹幕 — 二分查找起始位置
     int startIdx = _lowerBound(curSec - 0.5);
     for (int i = startIdx; i < comments.length; i++) {
       final c = comments[i];
       final diff = curSec - c.time;
-      if (diff < -0.1) break; // sorted by time, future comments
-      if (diff > 0.5) continue; // too old, skip
-      if (diff < 0) continue; // slightly future
+      if (diff < -0.1) break;
+      if (diff > 0.5) continue;
+      if (diff < 0) continue;
 
-      // Check if already emitted
-      final already = activeScroll.any((a) => a.text == c.text && (a.time - c.time).abs() < 0.1) ||
-                      activeStatic.any((a) => a.text == c.text && (a.time - c.time).abs() < 0.1);
+      // 去重检查（只检查最近的活跃弹幕）
+      final already = activeScroll.any((a) => a.text == c.text && (a.time - c.time).abs() < 0.5) ||
+                      activeStatic.any((a) => a.text == c.text && (a.time - c.time).abs() < 0.5);
       if (already) continue;
 
       if (c.type == 4 || c.type == 5) {
-        // Static danmu
         final item = _DanmuItem(text: c.text, time: c.time, color: c.color, type: c.type);
-        final tp = TextPainter(
-          text: TextSpan(text: c.text, style: TextStyle(fontSize: fontSize, fontWeight: FontWeight.bold)),
-          textDirection: TextDirection.ltr,
-        )..layout();
-        item.tw = tp.width;
+        item.tw = _measureText(c.text);
         item.x = (size.width - item.tw) / 2;
         if (c.type == 5) {
           item.y = lnH + activeStatic.where((a) => a.type == 5).length * lnH;
@@ -147,47 +174,109 @@ class _DanmuPainter extends CustomPainter {
         }
         activeStatic.add(item);
       } else {
-        // Scroll danmu
         final item = _DanmuItem(text: c.text, time: c.time, color: c.color, type: c.type);
-        final tp = TextPainter(
-          text: TextSpan(text: c.text, style: TextStyle(fontSize: fontSize, fontWeight: FontWeight.bold)),
-          textDirection: TextDirection.ltr,
-        )..layout();
-        item.tw = tp.width;
-        // Speed: traverse screen width in ~8 seconds
-        item.speed = size.width / 8.0 + c.text.length * 3.0;
+        item.tw = _measureText(c.text);
+        item.speed = (size.width / 7.0 + c.text.length * 2.0) * speed;
         item.x = size.width;
-        // Find free row (anti-overlap)
+
+        // 找空闲行（反重叠）
         for (int r = 0; r < maxRow; r++) {
           final rowY = lnH + r * lnH;
           bool blocked = false;
           for (final a in activeScroll) {
-            if ((a.y - rowY).abs() < lnH * 0.5 && a.x + a.tw + 30 > size.width * 0.7) {
+            if ((a.y - rowY).abs() < lnH * 0.6 && a.x + a.tw + 20 > size.width * 0.6) {
               blocked = true;
               break;
             }
           }
           if (!blocked) { item.y = rowY; break; }
-          if (r == maxRow - 1) item.y = -100; // no space, hide
+          if (r == maxRow - 1) item.y = -100;
         }
         if (item.y > 0) activeScroll.add(item);
       }
     }
 
-    // Draw scroll danmu with real delta time
+    // 绘制滚动弹幕
     for (final a in activeScroll) {
       a.x -= a.speed * dt;
-      _drawText(canvas, a.text, a.x, a.y, a.color, paint, textPainter);
+      _drawDanmu(canvas, a, size);
     }
 
-    // Draw static danmu with real delta time
+    // 绘制静态弹幕
     for (final a in activeStatic) {
       a.ttl -= dt;
-      _drawText(canvas, a.text, a.x, a.y, a.color, paint, textPainter);
+      _drawDanmu(canvas, a, size);
     }
   }
 
-  /// Binary search for the first comment with time >= target - 0.5
+  double _measureText(String text) {
+    final key = '${fontSize}_$text';
+    if (paragraphCache.containsKey(key)) {
+      return paragraphCache[key]!.longestLine + 10;
+    }
+    final builder = ui.ParagraphBuilder(ui.ParagraphStyle(fontSize: fontSize, fontWeight: FontWeight.bold))
+      ..pushStyle(ui.TextStyle(color: const Color(0xFFFFFFFF), fontSize: fontSize))
+      ..addText(text);
+    final p = builder.build()..layout(ui.ParagraphConstraints(width: double.infinity));
+    paragraphCache[key] = p;
+    return p.longestLine + 10;
+  }
+
+  void _drawDanmu(Canvas canvas, _DanmuItem a, Size size) {
+    if (a.x < -a.tw - 50 || a.x > size.width + 50) return;
+
+    final key = '${fontSize}_${a.text}';
+    final cachedP = paragraphCache[key];
+
+    if (showOutline) {
+      // 描边：用 Paint 的 foreground
+      final outlineBuilder = ui.ParagraphBuilder(
+        ui.ParagraphStyle(fontSize: fontSize, fontWeight: FontWeight.bold),
+      )
+        ..pushStyle(ui.TextStyle(
+          color: const Color(0xFF000000),
+          fontSize: fontSize,
+          foreground: Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 1.5
+            ..color = Colors.black.withAlpha(((opacity) * 255).toInt().clamp(0, 255)),
+        ))
+        ..addText(a.text);
+      final outlineP = outlineBuilder.build()
+        ..layout(ui.ParagraphConstraints(width: double.infinity));
+      canvas.drawParagraph(outlineP, Offset(a.x, a.y));
+    }
+
+    // 正文
+    if (cachedP != null) {
+      // 复用缓存但需要重新着色
+      final c = Color(a.color);
+      final alpha = (c.alpha * opacity).toInt().clamp(0, 255);
+      final drawColor = c.withAlpha(alpha);
+      final builder = ui.ParagraphBuilder(
+        ui.ParagraphStyle(fontSize: fontSize, fontWeight: FontWeight.bold),
+      )
+        ..pushStyle(ui.TextStyle(color: drawColor, fontSize: fontSize))
+        ..addText(a.text);
+      final p = builder.build()
+        ..layout(ui.ParagraphConstraints(width: double.infinity));
+      canvas.drawParagraph(p, Offset(a.x, a.y));
+    } else {
+      final c = Color(a.color);
+      final alpha = (c.alpha * opacity).toInt().clamp(0, 255);
+      final drawColor = c.withAlpha(alpha);
+      final builder = ui.ParagraphBuilder(
+        ui.ParagraphStyle(fontSize: fontSize, fontWeight: FontWeight.bold),
+      )
+        ..pushStyle(ui.TextStyle(color: drawColor, fontSize: fontSize))
+        ..addText(a.text);
+      final p = builder.build()
+        ..layout(ui.ParagraphConstraints(width: double.infinity));
+      paragraphCache[key] = p;
+      canvas.drawParagraph(p, Offset(a.x, a.y));
+    }
+  }
+
   int _lowerBound(double target) {
     int lo = 0, hi = comments.length;
     while (lo < hi) {
@@ -196,41 +285,6 @@ class _DanmuPainter extends CustomPainter {
       else hi = mid;
     }
     return max(0, lo - 1);
-  }
-
-  void _drawText(Canvas canvas, String text, double x, double y, int color,
-      Paint paint, TextPainter tp) {
-    if (x < -200) return; // off-screen, skip
-    final c = Color(color);
-    final alpha = (c.alpha * opacity).toInt().clamp(0, 255);
-    final drawColor = c.withAlpha(alpha);
-
-    if (showOutline) {
-      tp.text = TextSpan(
-        text: text,
-        style: TextStyle(
-          fontSize: fontSize,
-          fontWeight: FontWeight.bold,
-          foreground: Paint()
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 1.5
-            ..color = Colors.black.withAlpha(alpha),
-        ),
-      );
-      tp.layout();
-      tp.paint(canvas, Offset(x, y));
-    }
-
-    tp.text = TextSpan(
-      text: text,
-      style: TextStyle(
-        fontSize: fontSize,
-        fontWeight: FontWeight.bold,
-        color: drawColor,
-      ),
-    );
-    tp.layout();
-    tp.paint(canvas, Offset(x, y));
   }
 
   @override

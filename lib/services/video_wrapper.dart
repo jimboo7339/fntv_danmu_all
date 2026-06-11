@@ -148,10 +148,35 @@ class VideoWrapper {
     await _mpvPlayer!.open(Media(url), play: false);
     _isInitialized = true;
 
+    // MPV 性能优化：设置解码参数
+    _tuneMpvPerformance();
+
     // 主动读取视频宽高（不等stream异步回调）
     _readVideoDimensions();
 
     _notifyAll();
+  }
+
+  /// MPV 性能优化：framedrop + 解码线程 + 音频同步
+  void _tuneMpvPerformance() {
+    try {
+      final native = _mpvPlayer!.platform;
+      if (native != null && native is NativePlayer) {
+        // 允许解码器丢帧（网络不好时跳过卡住的帧）
+        native.setProperty('framedrop', 'decoder');
+        // 视频解码线程数
+        native.setProperty('vd-lavc-threads', '4');
+        // 音频同步校正
+        native.setProperty('audio-sync', 'yes');
+        // 显示同步模式
+        native.setProperty('video-sync', 'audio');
+        // 硬件解码
+        native.setProperty('hwdec', 'auto');
+        debugPrint('MPV performance tuning applied');
+      }
+    } catch (e) {
+      debugPrint('MPV tuning error: $e');
+    }
   }
 
   /// 主动读取视频宽高，避免初始1秒黑边

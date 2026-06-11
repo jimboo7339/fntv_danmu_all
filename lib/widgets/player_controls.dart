@@ -100,7 +100,8 @@ class PlayerControls extends StatelessWidget {
                       overflow: TextOverflow.ellipsis),
                   ),
                   GestureDetector(
-                    onTap: onDanmu,
+                    onTap: () => _showDanmuPanel(context),
+                    onLongPress: onDanmu, // 长按快速开关
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                       decoration: BoxDecoration(
@@ -342,6 +343,29 @@ class PlayerControls extends StatelessWidget {
                 onSubtitleSelected(idx);
               },
             ),
+          ),
+        );
+      },
+    );
+  }
+
+  // ── 弹幕设置：右侧滑入面板 ──────────────────────────────
+
+  void _showDanmuPanel(BuildContext context) {
+    showGeneralDialog(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: 'danmu',
+      barrierColor: Colors.black38,
+      transitionDuration: const Duration(milliseconds: 250),
+      pageBuilder: (_, __, ___) => const SizedBox.shrink(),
+      transitionBuilder: (ctx, anim, _, __) {
+        return Align(
+          alignment: Alignment.centerRight,
+          child: SlideTransition(
+            position: Tween<Offset>(begin: const Offset(1, 0), end: Offset.zero)
+                .animate(CurvedAnimation(parent: anim, curve: Curves.easeOut)),
+            child: const _DanmuPanel(),
           ),
         );
       },
@@ -703,6 +727,168 @@ class _SubtitlePanelState extends State<_SubtitlePanel> {
     if (s.codecName != null && s.codecName!.isNotEmpty) parts.add(s.codecName!.toUpperCase());
     if (parts.isEmpty) return '字幕 ${index + 1}';
     return parts.join(' · ');
+  }
+}
+
+// ── 弹幕设置右侧面板 ──────────────────────────────────────
+
+class _DanmuPanel extends StatelessWidget {
+  const _DanmuPanel();
+
+  @override
+  Widget build(BuildContext context) {
+    final app = context.watch<AppState>();
+    final screenW = MediaQuery.of(context).size.width;
+    final panelW = screenW * 0.30;
+    return Material(
+      color: const Color(0xFF1A1A1A),
+      child: SizedBox(
+        width: panelW.clamp(250.0, 350.0),
+        child: Column(
+          children: [
+            Container(
+              padding: const EdgeInsets.fromLTRB(16, 48, 16, 12),
+              decoration: const BoxDecoration(
+                border: Border(bottom: BorderSide(color: Colors.white12)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.comment, color: FnTheme.danmuGreen, size: 20),
+                  const SizedBox(width: 8),
+                  const Text('弹幕设置', style: TextStyle(
+                    color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                ],
+              ),
+            ),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.all(12),
+                children: [
+                  // 开关
+                  SwitchListTile(
+                    dense: true,
+                    title: const Text('开启弹幕', style: TextStyle(color: Colors.white, fontSize: 14)),
+                    value: app.danmuOn,
+                    activeColor: FnTheme.danmuGreen,
+                    onChanged: (v) => app.danmuOn = v,
+                  ),
+                  const Divider(color: Colors.white12, height: 16),
+                  // 字号
+                  _slider('字号', app.danmuFontSize, 14, 36, (v) => app.danmuFontSize = v, '${app.danmuFontSize.toInt()}'),
+                  // 速度
+                  _slider('速度', app.danmuSpeed, 0.3, 3.0, (v) => app.danmuSpeed = v, '${app.danmuSpeed.toStringAsFixed(1)}x'),
+                  // 透明度
+                  _slider('透明度', app.danmuOpacity, 0.1, 1.0, (v) => app.danmuOpacity = v, '${(app.danmuOpacity * 100).toInt()}%'),
+                  // 区域
+                  _slider('区域', app.danmuArea.toDouble(), 10, 100, (v) => app.danmuArea = v.toInt(), '${app.danmuArea}%'),
+                  // 密度
+                  _slider('密度', app.danmuDensity.toDouble(), 10, 100, (v) => app.danmuDensity = v.toInt(), '${app.danmuDensity}%'),
+                  const Divider(color: Colors.white12, height: 16),
+                  // 描边
+                  SwitchListTile(
+                    dense: true,
+                    title: const Text('文字描边', style: TextStyle(color: Colors.white, fontSize: 14)),
+                    value: app.danmuOutline,
+                    activeColor: FnTheme.danmuGreen,
+                    onChanged: (v) => app.danmuOutline = v,
+                  ),
+                  // 防重叠
+                  SwitchListTile(
+                    dense: true,
+                    title: const Text('防止重叠', style: TextStyle(color: Colors.white, fontSize: 14)),
+                    value: app.danmuAntiOverlap,
+                    activeColor: FnTheme.danmuGreen,
+                    onChanged: (v) => app.danmuAntiOverlap = v,
+                  ),
+                  // 合并重复
+                  SwitchListTile(
+                    dense: true,
+                    title: const Text('合并重复', style: TextStyle(color: Colors.white, fontSize: 14)),
+                    value: app.danmuMergeDuplicates,
+                    activeColor: FnTheme.danmuGreen,
+                    onChanged: (v) => app.danmuMergeDuplicates = v,
+                  ),
+                  const Divider(color: Colors.white12, height: 16),
+                  // 弹幕服务器
+                  ListTile(
+                    dense: true,
+                    title: const Text('弹幕服务器', style: TextStyle(color: Colors.white, fontSize: 14)),
+                    subtitle: Text(
+                      app.danmuUrl.isEmpty ? '未设置' : app.danmuUrl,
+                      style: TextStyle(color: app.danmuUrl.isEmpty ? Colors.orange : Colors.white54, fontSize: 11),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    trailing: const Icon(Icons.chevron_right, color: Colors.white38, size: 20),
+                    onTap: () => _showUrlEditor(context, app),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _slider(String label, double value, double min, double max,
+      ValueChanged<double> onChanged, String display) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        children: [
+          SizedBox(width: 44, child: Text(label, style: const TextStyle(color: Colors.white70, fontSize: 12))),
+          Expanded(
+            child: SliderTheme(
+              data: const SliderThemeData(
+                activeTrackColor: FnTheme.danmuGreen,
+                inactiveTrackColor: Colors.white24,
+                thumbColor: FnTheme.danmuGreen,
+                thumbShape: RoundSliderThumbShape(enabledThumbRadius: 5),
+                trackHeight: 2,
+              ),
+              child: Slider(
+                value: value.clamp(min, max),
+                min: min,
+                max: max,
+                onChanged: onChanged,
+              ),
+            ),
+          ),
+          SizedBox(
+            width: 40,
+            child: Text(display, style: const TextStyle(color: Colors.white54, fontSize: 10), textAlign: TextAlign.right),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showUrlEditor(BuildContext context, AppState app) {
+    final ctrl = TextEditingController(text: app.danmuUrl);
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF2A2A2A),
+        title: const Text('弹幕服务器地址', style: TextStyle(color: Colors.white, fontSize: 16)),
+        content: TextField(
+          controller: ctrl,
+          style: const TextStyle(color: Colors.white),
+          decoration: const InputDecoration(
+            hintText: 'http://192.168.1.100:9321',
+            hintStyle: TextStyle(color: Colors.white38),
+            enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.white24)),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
+          TextButton(
+            onPressed: () { app.danmuUrl = ctrl.text.trim(); Navigator.pop(ctx); },
+            child: const Text('保存', style: TextStyle(color: FnTheme.danmuGreen)),
+          ),
+        ],
+      ),
+    );
   }
 }
 

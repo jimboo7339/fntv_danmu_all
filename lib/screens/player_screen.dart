@@ -702,6 +702,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 fontSize: _app.danmuFontSize,
                 areaPercent: _app.danmuArea,
                 showOutline: _app.danmuOutline,
+                speed: _app.danmuSpeed,
               ),
 
             // Controls

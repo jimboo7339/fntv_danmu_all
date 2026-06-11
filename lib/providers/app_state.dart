@@ -291,6 +291,15 @@ class AppState extends ChangeNotifier {
 
   set danmuUrl(String v) { _prefs.setString('danmu_url', v); notifyListeners(); }
 
+  /// 缓存弹幕源（animeId）按剧名，下次自动选择
+  int getCachedDanmuAnimeId(String showName) {
+    return _prefs.getInt('danmu_src_$showName') ?? 0;
+  }
+
+  void setCachedDanmuAnimeId(String showName, int animeId) {
+    _prefs.setInt('danmu_src_$showName', animeId);
+  }
+
   // ====== Player Engine ======
 
   /// 'exo' or 'mpv'. Default: 'mpv' on all platforms.
