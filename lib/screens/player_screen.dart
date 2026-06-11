@@ -291,19 +291,29 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _videoCtrl?.dispose();
     _videoCtrl = VideoWrapper(useMpv: _useMpv, url: url);
     _videoCtrl!.addListener(_videoListener);
-    _videoCtrl!.initialize().then((_) {
+    _videoCtrl!.initialize().then((_) async {
       if (!mounted) return;
       setState(() => _isInitialized = true);
       _videoCtrl!.setSpeed(_speed);
-      _videoCtrl!.play();
-      _isPlaying = true;
-      // Seek 必须在 play() 之后，且对 MPV 需要延迟等视频加载完成
+      // Seek 必须在 play() 之前！否则 MPV 会从 0 开始播，几百毫秒后才跳到目标位置
       // 优先使用 widget.seekTs（详情页传入），其次用 _serverSeekTs（play/info 获取）
       final seekTs = widget.seekTs > 0 ? widget.seekTs : _serverSeekTs;
       if (seekTs > 0) {
         final seekMs = seekTs * 1000;
-        debugPrint('🎯 Will seek to ${seekTs}s (${seekMs}ms) — widget=${widget.seekTs}s, server=${_serverSeekTs}s');
-        // MPV 需要多次尝试 seek，因为首次可能被忽略
+        final durMs = _videoCtrl!.duration.inMilliseconds;
+        final targetMs = durMs > 0 ? seekMs.clamp(0, durMs - 1000).toInt() : seekMs;
+        debugPrint('🎯 Pre-seek to ${targetMs}ms before play — widget=${widget.seekTs}s, server=${_serverSeekTs}s');
+        // 先 seek（MPV 在 open(play:false) 后即可 seek）
+        _videoCtrl!.seekTo(Duration(milliseconds: targetMs));
+        // 稍等一下让 seek 生效，再开始播放
+        await Future.delayed(const Duration(milliseconds: 200));
+        if (!mounted) return;
+      }
+      _videoCtrl!.play();
+      _isPlaying = true;
+      // 二次保障：play 后延迟再 seek 一次（应对 MPV 可能的 seek 重置）
+      if (seekTs > 0) {
+        final seekMs = seekTs * 1000;
         _performSeekWithRetry(seekMs, isMpv: _useMpv);
       } else {
         debugPrint('ℹ️ No seek needed: widget.seekTs=${widget.seekTs}s, _serverSeekTs=${_serverSeekTs}s');

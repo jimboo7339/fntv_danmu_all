@@ -10,9 +10,9 @@ class DanmuOverlay extends StatefulWidget {
   final double fontSize;
   final int areaPercent;
   final bool showOutline;
-  final double speed; // 弹幕速度倍率
-  final double danmuDensity; // 弹幕密度 0.0~1.0
-  final double topMargin; // 顶部偏移像素
+  final double speed;
+  final double danmuDensity;
+  final double topMargin;
   const DanmuOverlay({
     super.key,
     required this.comments,
@@ -35,14 +35,9 @@ class _DanmuOverlayState extends State<DanmuOverlay>
   late AnimationController _animCtrl;
   final List<_DanmuItem> _activeScroll = [];
   final List<_DanmuItem> _activeStatic = [];
-  // 每行的"弹幕完全移出屏幕的时间"（wall clock seconds）
-  final Map<int, double> _rowBusyUntil = {};
-  // 弹幕去重：danmu.time -> 上次尝试发射的 wall clock 时间
-  final Map<double, double> _lastAttemptTime = {};
   int _lastCommentCount = 0;
   double _lastRealTime = 0;
 
-  // 缓存的TextPainter，避免每帧重建
   final Map<String, ui.Paragraph> _paragraphCache = {};
 
   @override
@@ -50,7 +45,7 @@ class _DanmuOverlayState extends State<DanmuOverlay>
     super.initState();
     _animCtrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 50), // 20fps update
+      duration: const Duration(milliseconds: 50),
     )..addListener(_tick);
     _animCtrl.repeat();
   }
@@ -72,8 +67,6 @@ class _DanmuOverlayState extends State<DanmuOverlay>
     if (widget.comments.length != _lastCommentCount) {
       _activeScroll.clear();
       _activeStatic.clear();
-      _rowBusyUntil.clear();
-      _lastAttemptTime.clear();
       _paragraphCache.clear();
       _lastCommentCount = widget.comments.length;
     }
@@ -93,8 +86,6 @@ class _DanmuOverlayState extends State<DanmuOverlay>
             topMargin: widget.topMargin,
             activeScroll: _activeScroll,
             activeStatic: _activeStatic,
-            rowBusyUntil: _rowBusyUntil,
-            lastAttemptTime: _lastAttemptTime,
             lastRealTime: _lastRealTime,
             paragraphCache: _paragraphCache,
             onRealTimeUpdate: (t) => _lastRealTime = t,
@@ -108,11 +99,12 @@ class _DanmuOverlayState extends State<DanmuOverlay>
 
 class _DanmuItem {
   String text;
-  double time;
+  double time;      // 弹幕在视频中的时间点（秒）
   int color;
   int type;
   double x = 0, y = 0, speed = 0, tw = 0;
   double ttl = 6.0;
+  double launchedAt = 0; // 发射时的 wall clock（秒），0=未发射
   _DanmuItem({required this.text, required this.time, this.color = 0xFFFFFFFF, this.type = 1});
 }
 
@@ -128,8 +120,6 @@ class _DanmuPainter extends CustomPainter {
   final double topMargin;
   final List<_DanmuItem> activeScroll;
   final List<_DanmuItem> activeStatic;
-  final Map<int, double> rowBusyUntil;
-  final Map<double, double> lastAttemptTime;
   final double lastRealTime;
   final Map<String, ui.Paragraph> paragraphCache;
   final void Function(double) onRealTimeUpdate;
@@ -139,8 +129,6 @@ class _DanmuPainter extends CustomPainter {
     required this.currentTime,
     required this.activeScroll,
     required this.activeStatic,
-    required this.rowBusyUntil,
-    required this.lastAttemptTime,
     required this.lastRealTime,
     required this.paragraphCache,
     required this.onRealTimeUpdate,
@@ -167,16 +155,27 @@ class _DanmuPainter extends CustomPainter {
     final curSec = currentTime / 1000.0;
     final densityWindow = 0.5 * danmuDensity.clamp(0.1, 1.0);
 
-    // 统一速度：所有弹幕同一速度（px/second）
+    // 统一速度
     final uniformSpeed = (size.width / 6.0) * speed;
-    // 弹幕完全通过屏幕的时间
-    final baseTransitTime = (size.width * 2.0) / uniformSpeed; // 留双倍屏幕宽度余量
 
-    // 清除过期弹幕
-    activeScroll.removeWhere((a) => a.x + a.tw < -100);
+    // 清除已离开屏幕的弹幕
+    activeScroll.removeWhere((a) => a.x + a.tw < -50);
     activeStatic.removeWhere((a) => a.ttl <= 0);
 
-    // 发射新弹幕 — 二分查找起始位置
+    // 动态计算每行是否空闲：遍历 activeScroll 找每行最近发射的弹幕
+    // 如果该弹幕已经移出了右边缘（x + tw < size.width），说明行尾有空隙可以塞新弹幕
+    final Map<int, _DanmuItem?> rowLastItem = {};
+    for (final a in activeScroll) {
+      if (a.launchedAt <= 0) continue;
+      final row = ((a.y - topMargin - lnH) / lnH).round();
+      if (row < 0 || row >= maxRow) continue;
+      final existing = rowLastItem[row];
+      if (existing == null || a.launchedAt > existing.launchedAt) {
+        rowLastItem[row] = a;
+      }
+    }
+
+    // 发射新弹幕
     int startIdx = _lowerBound(curSec - densityWindow);
     for (int i = startIdx; i < comments.length; i++) {
       final c = comments[i];
@@ -185,14 +184,9 @@ class _DanmuPainter extends CustomPainter {
       if (diff > densityWindow) continue;
       if (diff < 0) continue;
 
-      // 去重检查 — 先检查是否已成功发射到屏幕上（严格去重）
-      final isDisplayed = activeScroll.any((a) => (a.time - c.time).abs() < 0.05) ||
-                          activeStatic.any((a) => (a.time - c.time).abs() < 0.05);
+      // 去重：已显示的严格去重
+      final isDisplayed = activeScroll.any((a) => (a.time - c.time).abs() < 0.05);
       if (isDisplayed) continue;
-      // 再检查最近是否尝试过（0.3s 内不重复尝试，给行调度器时间）
-      final lastAttempt = lastAttemptTime[c.time];
-      if (lastAttempt != null && (now - lastAttempt) < 0.3) continue;
-      lastAttemptTime[c.time] = now;
 
       if (c.type == 4 || c.type == 5) {
         final item = _DanmuItem(text: c.text, time: c.time, color: c.color, type: c.type);
@@ -208,29 +202,34 @@ class _DanmuPainter extends CustomPainter {
         final item = _DanmuItem(text: c.text, time: c.time, color: c.color, type: c.type);
         item.tw = _measureText(c.text);
         item.speed = uniformSpeed;
-        item.x = size.width;
 
-        // 找空闲行：用 wall clock 时间（now）来判断行是否可用
-        // rowBusyUntil[row] = 该行上一条弹幕完全移出屏幕的 wall clock 时间
+        // 找空闲行
         int? selectedRow;
         for (int r = 0; r < maxRow; r++) {
-          final busyUntil = rowBusyUntil[r] ?? 0.0;
-          if (now >= busyUntil) {
+          final lastInRow = rowLastItem[r];
+          if (lastInRow == null) {
+            // 该行没有任何弹幕，可以直接用
+            selectedRow = r;
+            break;
+          }
+          // 关键判断：上一条弹幕的尾部是否已经移出屏幕右边缘
+          // 如果 lastItem 的 x + tw < size.width，说明它的尾部已经进入屏幕
+          // 此时新弹幕可以紧跟其后（从右侧开始），不会重叠
+          if (lastInRow.x + lastInRow.tw < size.width + 20) {
             selectedRow = r;
             break;
           }
         }
 
         if (selectedRow != null) {
-          // 计算弹幕从右侧完全通过屏幕左侧需要的时间
-          final transitTime = (size.width + item.tw) / item.speed;
-          // 更新该行的忙碌时间 = 当前 wall clock + 通过时间
-          rowBusyUntil[selectedRow] = now + transitTime;
-
+          item.x = size.width; // 从右侧开始
           item.y = topMargin + lnH + selectedRow * lnH;
+          item.launchedAt = now;
           activeScroll.add(item);
+          // 更新该行的最后弹幕引用
+          rowLastItem[selectedRow] = item;
         }
-        // 没有空闲行则跳过此弹幕，下次 tick 会重新尝试
+        // 没有空闲行则跳过，下个 tick 重试
       }
     }
 
@@ -264,7 +263,6 @@ class _DanmuPainter extends CustomPainter {
     if (a.x < -a.tw - 50 || a.x > size.width + 50) return;
 
     if (showOutline) {
-      // 描边：用 Paint 的 foreground
       final outlineBuilder = ui.ParagraphBuilder(
         ui.ParagraphStyle(fontSize: fontSize, fontWeight: FontWeight.bold),
       )
@@ -282,7 +280,6 @@ class _DanmuPainter extends CustomPainter {
       canvas.drawParagraph(outlineP, Offset(a.x, a.y));
     }
 
-    // 正文
     final c = Color(a.color);
     final alpha = (c.alpha * opacity).toInt().clamp(0, 255);
     final drawColor = c.withAlpha(alpha);
