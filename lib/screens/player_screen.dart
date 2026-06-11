@@ -102,13 +102,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
   @override
   void initState() {
     super.initState();
+    _appState = context.read<AppState>(); // Cache before dispose
     _itemTitle = widget.title;
     _tvTitle = widget.tvTitle;
     _episodeNumber = widget.episodeNumber;
     _parentGuid = widget.parentGuid;
-    final app = context.read<AppState>();
-    _danmuOn = app.danmuOn;
-    _useMpv = app.playerEngine == 'mpv';
+    _danmuOn = _appState!.danmuOn;
+    _useMpv = _appState!.playerEngine == 'mpv';
     WakelockPlus.enable();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     SystemChrome.setPreferredOrientations([
@@ -118,7 +118,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _loadPlayInfo();
   }
 
-  AppState get _app => context.read<AppState>();
+  // Cached AppState reference (safe to use in dispose)
+  AppState? _appState;
+  AppState get _app => _appState!;
 
   String get _displayTitle {
     final buf = StringBuffer();
@@ -208,6 +210,19 @@ class _PlayerScreenState extends State<PlayerScreen> {
         if (sd.subtitleStreams != null && sd.subtitleStreams!.isNotEmpty) {
           _subtitleStreams = sd.subtitleStreams;
           _selectedSubtitleIndex = -1; // default off
+          // ExoPlayer 不支持内嵌字幕提取，提示切换 MPV
+          if (!_useMpv && mounted) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('检测到字幕，建议在设置中切换到 MPV 内核以显示字幕'),
+                    duration: Duration(seconds: 4),
+                  ),
+                );
+              }
+            });
+          }
         }
       }
     } catch (e) {
@@ -238,6 +253,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       setState(() => _isInitialized = true);
       _videoCtrl!.setSpeed(_speed);
       if (widget.seekTs > 0) {
+        debugPrint('Seeking to ${widget.seekTs}s');
         _videoCtrl!.seekTo(Duration(seconds: widget.seekTs));
       }
       _videoCtrl!.play();

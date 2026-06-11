@@ -107,6 +107,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _onWatchRecordTap(WatchRecord record) {
+    debugPrint('WatchRecord tap: ${record.title} seekTs=${record.ts} dur=${record.duration}');
     Navigator.push(context, MaterialPageRoute(
       builder: (_) => PlayerScreen(
         itemGuid: record.guid,
@@ -179,7 +180,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   SliverToBoxAdapter(
                     child: SizedBox(
-                      height: 200,
+                      height: 160,
                       child: ListView.builder(
                         scrollDirection: Axis.horizontal,
                         padding: const EdgeInsets.symmetric(horizontal: 12),

@@ -198,6 +198,7 @@ class VideoWrapper {
     if (useMpv) {
       return Video(
         controller: _mpvVideoController!,
+        controls: (state) => const SizedBox.shrink(), // 禁用media_kit内置controls
         subtitleViewConfiguration: const SubtitleViewConfiguration(
           visible: true,
           style: TextStyle(

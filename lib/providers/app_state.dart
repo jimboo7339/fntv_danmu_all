@@ -227,6 +227,7 @@ class AppState extends ChangeNotifier {
           } else {
             _watchHistory.add(record);
           }
+          debugPrint('ServerRecord: $name pos=$position dur=$duration ts=${record.ts}');
         }
         _watchHistory.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
         if (_watchHistory.length > 100) _watchHistory = _watchHistory.sublist(0, 100);

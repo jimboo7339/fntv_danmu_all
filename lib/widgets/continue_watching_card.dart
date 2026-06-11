@@ -22,16 +22,15 @@ class ContinueWatchingCard extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        width: 160,
+        width: 220,
         margin: const EdgeInsets.symmetric(horizontal: 5),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.max,
+          mainAxisSize: MainAxisSize.min,
           children: [
-            // Poster with progress bar — fixed 2:3 aspect ratio
-            SizedBox(
-              width: 160,
-              height: 180,
+            // Poster with progress bar — 16:9 landscape thumbnail
+            AspectRatio(
+              aspectRatio: 16 / 9,
               child: Stack(
                 children: [
                   Container(
