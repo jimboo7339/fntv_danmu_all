@@ -32,6 +32,7 @@ repositories {
 }
 
 dependencies {
-    // jdpxiaoming ijkplayer (prebuilt arm64)
+    // jdpxiaoming ijkplayer (prebuilt, Maven Central)
+    implementation 'io.github.jdpxiaoming:ijkplayer-java:0.0.26'
     implementation 'io.github.jdpxiaoming:ijkplayer-arm64:0.0.26'
 }
