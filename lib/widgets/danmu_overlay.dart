@@ -197,7 +197,7 @@ class _DanmuPainter extends CustomPainter {
         // 找空闲行 — 基于时间间隔，同速弹幕自然不重叠
         // 计算弹幕通过屏幕的时间，作为同行最小间隔
         final transitTime = (size.width + item.tw) / item.speed;
-        final minGap = (transitTime * 0.12).clamp(0.3, 1.5); // 12%通过时间，0.3~1.5秒
+        final minGap = (transitTime * 0.35).clamp(0.5, 2.5); // 35%通过时间，确保不重叠
         for (int r = 0; r < maxRow; r++) {
           final lastT = rowLastLaunch[r] ?? -999;
           if (curSec - lastT >= minGap) {

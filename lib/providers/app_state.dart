@@ -185,21 +185,25 @@ class AppState extends ChangeNotifier {
         final serverList = resp['data'] as List;
         final newList = <WatchRecord>[];
         for (final item in serverList) {
-          final guid = item['itemId'] ?? item['guid'] ?? '';
+          final guid = item['guid'] ?? item['itemId'] ?? '';
           if (guid.isEmpty) continue;
-          final name = item['name'] ?? item['title'] ?? '';
+          final name = item['title'] ?? item['name'] ?? '';
+          final tvTitle = item['tv_title'] ?? '';
           final poster = item['poster'] ?? '';
-          final position = ((item['position'] ?? 0) as num).toInt();
+          final ts = ((item['ts'] ?? item['position'] ?? 0) as num).toInt();
           final duration = ((item['duration'] ?? 0) as num).toInt();
-          final lastPlayTime = ((item['lastPlayTime'] ?? 0) as num).toInt();
+          final episodeNumber = item['episode_number'] ?? 0;
+          final parentGuid = item['parent_guid'] ?? '';
           if (duration <= 0) continue;
           newList.add(WatchRecord(
             guid: guid,
             title: name,
+            tvTitle: tvTitle.isNotEmpty ? tvTitle : null,
+            episodeNumber: episodeNumber,
             poster: poster,
-            ts: position,
+            parentGuid: parentGuid.isNotEmpty ? parentGuid : null,
+            ts: ts,
             duration: duration,
-            updatedAt: lastPlayTime > 0 ? lastPlayTime * 1000 : DateTime.now().millisecondsSinceEpoch,
           ));
         }
         newList.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
