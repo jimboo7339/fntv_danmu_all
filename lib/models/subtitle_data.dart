@@ -31,6 +31,7 @@ class SubtitleData {
   });
 
   bool get isEmpty => entries.isEmpty;
+  bool get isNotEmpty => entries.isNotEmpty;
 
   /// 二分查找：获取当前时间点应显示的字幕
   SubtitleEntry? getEntryAt(Duration position) {

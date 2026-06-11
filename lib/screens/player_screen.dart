@@ -21,6 +21,7 @@ import '../widgets/player_controls.dart';
 import '../services/video_wrapper.dart';
 import 'package:screen_brightness/screen_brightness.dart';
 import 'package:flutter_volume_controller/flutter_volume_controller.dart';
+import 'package:dio/dio.dart';
 import 'package:file_picker/file_picker.dart';
 import 'dart:io';
 
