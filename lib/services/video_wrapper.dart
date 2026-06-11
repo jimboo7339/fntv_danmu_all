@@ -3,17 +3,15 @@ import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
-import 'package:fntv_ijkplayer/fntv_ijkplayer.dart';
 
-/// Unified video controller wrapper supporting ExoPlayer, MPV, and IJK engines.
+/// Unified video controller wrapper supporting ExoPlayer and MPV engines.
 class VideoWrapper {
-  /// Engine type: 'mpv', 'exo', or 'ijk'
+  /// Engine type: 'mpv' or 'exo'
   final String engine;
   final String url;
   final Map<String, String>? headers;
 
   bool get useMpv => engine == 'mpv';
-  bool get useIjk => engine == 'ijk';
   bool get useExo => engine == 'exo';
 
   // video_player (ExoPlayer) controller
@@ -22,9 +20,6 @@ class VideoWrapper {
   // media_kit (MPV) controllers
   Player? _mpvPlayer;
   VideoController? _mpvVideoController;
-
-  // IJK player (custom method channel bridge)
-  IjkPlayer? _ijkPlayer;
 
   // Cached state
   Duration _position = Duration.zero;
@@ -46,37 +41,31 @@ class VideoWrapper {
 
   Duration get position {
     if (useMpv) return _position;
-    if (useIjk) return _position;
     return _exoController?.value.position ?? Duration.zero;
   }
 
   Duration get duration {
     if (useMpv) return _duration;
-    if (useIjk) return _duration;
     return _exoController?.value.duration ?? Duration.zero;
   }
 
   double get aspectRatio {
     if (useMpv) return _aspectRatio;
-    if (useIjk) return _aspectRatio;
     return _exoController?.value.aspectRatio ?? 16 / 9;
   }
 
   bool get isPlaying {
     if (useMpv) return _isPlaying;
-    if (useIjk) return _isPlaying;
     return _exoController?.value.isPlaying ?? false;
   }
 
   bool get isBuffering {
     if (useMpv) return _isBuffering;
-    if (useIjk) return _isBuffering;
     return _exoController?.value.isBuffering ?? false;
   }
 
   bool get isInitialized {
     if (useMpv) return _isInitialized;
-    if (useIjk) return _isInitialized;
     return _exoController?.value.isInitialized ?? false;
   }
 
@@ -107,15 +96,16 @@ class VideoWrapper {
   Future<void> initialize() async {
     if (useMpv) {
       await _initMpv();
-    } else if (useIjk) {
-      await _initIjk();
     } else {
       await _initExo();
     }
   }
 
   Future<void> _initExo() async {
-    _exoController = VideoPlayerController.networkUrl(Uri.parse(url));
+    _exoController = VideoPlayerController.networkUrl(
+      Uri.parse(url),
+      httpHeaders: headers ?? {},
+    );
     await _exoController!.initialize();
     _isInitialized = true;
     for (final l in _listeners) {
@@ -171,30 +161,6 @@ class VideoWrapper {
     _notifyAll();
   }
 
-  Future<void> _initIjk() async {
-    debugPrint('IJK: Creating player...');
-    _ijkPlayer = IjkPlayer();
-    final textureId = await _ijkPlayer!.create();
-    debugPrint('IJK: Player created, textureId=$textureId');
-
-    // Listen for position updates from native
-    _ijkPlayer!.onPosition = (posMs, durMs) {
-      _position = Duration(milliseconds: posMs);
-      _duration = Duration(milliseconds: durMs);
-      if (!_isPlaying) {
-        _isPlaying = true;
-        _notifyAll();
-      }
-    };
-    _ijkPlayer!.onCompleted = () {
-      _isPlaying = false;
-      _notifyAll();
-    };
-
-    _isInitialized = true;
-    _notifyAll();
-  }
-
   /// MPV performance tuning
   void _tuneMpvPerformance() {
     try {
@@ -235,10 +201,6 @@ class VideoWrapper {
   Future<void> play() async {
     if (useMpv) {
       await _mpvPlayer?.play();
-    } else if (useIjk) {
-      await _ijkPlayer?.play();
-      _isPlaying = true;
-      _notifyAll();
     } else {
       await _exoController?.play();
     }
@@ -247,10 +209,6 @@ class VideoWrapper {
   Future<void> pause() async {
     if (useMpv) {
       await _mpvPlayer?.pause();
-    } else if (useIjk) {
-      await _ijkPlayer?.pause();
-      _isPlaying = false;
-      _notifyAll();
     } else {
       await _exoController?.pause();
     }
@@ -259,8 +217,6 @@ class VideoWrapper {
   Future<void> seekTo(Duration position) async {
     if (useMpv) {
       await _mpvPlayer?.seek(position);
-    } else if (useIjk) {
-      await _ijkPlayer?.seekTo(position.inMilliseconds);
     } else {
       await _exoController?.seekTo(position);
     }
@@ -269,24 +225,8 @@ class VideoWrapper {
   Future<void> setSpeed(double speed) async {
     if (useMpv) {
       await _mpvPlayer?.setRate(speed);
-    } else if (useIjk) {
-      await _ijkPlayer?.setSpeed(speed);
     } else {
       await _exoController?.setPlaybackSpeed(speed);
-    }
-  }
-
-  /// Start IJK playback (sets source + starts). Called after create.
-  Future<void> startIjkPlayback({int seekMs = 0}) async {
-    if (useIjk && _ijkPlayer != null) {
-      debugPrint('IJK: setDataSource url=${url.substring(0, url.length.clamp(0, 80))}... seekMs=$seekMs');
-      try {
-        await _ijkPlayer!.setDataSource(url, headers: headers, seekMs: seekMs);
-        debugPrint('IJK: setDataSource completed');
-      } catch (e) {
-        debugPrint('IJK: setDataSource ERROR: $e');
-        rethrow;
-      }
     }
   }
 
@@ -350,9 +290,6 @@ class VideoWrapper {
           ),
         ),
       );
-    } else if (useIjk) {
-      // IJK renders via Flutter texture
-      return Texture(textureId: _ijkPlayer!.textureId);
     } else {
       return VideoPlayer(_exoController!);
     }
@@ -365,9 +302,6 @@ class VideoWrapper {
       await _mpvPlayer?.dispose();
       _mpvPlayer = null;
       _mpvVideoController = null;
-    } else if (useIjk) {
-      await _ijkPlayer?.release();
-      _ijkPlayer = null;
     } else {
       for (final l in _listeners) {
         _exoController?.removeListener(l);

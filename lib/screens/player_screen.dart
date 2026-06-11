@@ -276,12 +276,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Future<void> _tryExtractSubtitle() async {
     if (_mediaGuid == null) return;
     try {
-      // 尝试多种可能的字幕 API 路径
       final baseUrl = _app.api.baseUrl;
-      final endpoints = [
-        '$baseUrl/v/api/v1/subtitle/$_mediaGuid',
+      // 优先使用 subtitle_streams 中的 index（全局容器流索引）
+      final endpoints = <String>[
+        if (_subtitleStreams != null)
+          for (final sub in _subtitleStreams!)
+            '$baseUrl/v/api/v1/media/range/$_mediaGuid?stream_index=${sub.index}',
+        // 通用字幕 API fallback
         '$baseUrl/v/api/v1/media/subtitle/$_mediaGuid',
-        '$baseUrl/v/api/v1/media/range/$_mediaGuid?stream=subtitle',
+        '$baseUrl/v/api/v1/subtitle/$_mediaGuid',
       ];
       for (final url in endpoints) {
         try {
@@ -381,28 +384,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
       // 优先使用 widget.seekTs（详情页传入），其次用 _serverSeekTs（play/info 获取）
       final seekTs = widget.seekTs > 0 ? widget.seekTs : _serverSeekTs;
 
-      if (_engine == 'ijk') {
-        // IJK: startIjkPlayback handles setDataSource + play + seek
-        final seekMs = seekTs > 0 ? seekTs * 1000 : 0;
-        _videoCtrl!.startIjkPlayback(seekMs: seekMs).catchError((e) {
-          debugPrint('❌ IJK playback failed: $e');
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('IJK 播放失败: $e'), backgroundColor: Colors.red),
-            );
-          }
-        });
-        _isPlaying = true;
+      _videoCtrl!.play();
+      _isPlaying = true;
+      if (seekTs > 0) {
+        final seekMs = seekTs * 1000;
+        debugPrint('🎯 Will seek to ${seekTs}s (${seekMs}ms) — widget=${widget.seekTs}s, server=${_serverSeekTs}s');
+        _performSeekWithRetry(seekMs, isMpv: _engine == 'mpv');
       } else {
-        _videoCtrl!.play();
-        _isPlaying = true;
-        if (seekTs > 0) {
-          final seekMs = seekTs * 1000;
-          debugPrint('🎯 Will seek to ${seekTs}s (${seekMs}ms) — widget=${widget.seekTs}s, server=${_serverSeekTs}s');
-          _performSeekWithRetry(seekMs, isMpv: _engine == 'mpv');
-        } else {
-          debugPrint('ℹ️ No seek needed: widget.seekTs=${widget.seekTs}s, _serverSeekTs=$_serverSeekTs');
-        }
+        debugPrint('ℹ️ No seek needed: widget.seekTs=${widget.seekTs}s, _serverSeekTs=$_serverSeekTs');
       }
       // 立即上报一次进度（不等5秒定时器）
       Future.delayed(const Duration(seconds: 2), () => _saveProgress());
@@ -1243,7 +1232,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: Text(
-                  _engine == 'mpv' ? 'MPV' : (_engine == 'ijk' ? 'IJK' : 'Exo'),
+                  _engine == 'mpv' ? 'MPV' : 'Exo',
                   style: const TextStyle(color: Colors.white70, fontSize: 10, fontWeight: FontWeight.w600),
                 ),
               ),

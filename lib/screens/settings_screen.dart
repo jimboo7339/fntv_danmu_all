@@ -62,7 +62,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 icon: Icons.play_circle_rounded,
                 color: FnTheme.danmuGreen,
                 title: '播放器设置',
-                subtitle: '${app.playerEngine == 'mpv' ? 'MPV' : app.playerEngine == 'ijk' ? 'IJK' : 'ExoPlayer'} · ${app.decoderMode == 'hardware' ? '硬解' : '软解'}',
+                subtitle: '${app.playerEngine == 'mpv' ? 'MPV' : 'ExoPlayer'} · ${app.decoderMode == 'hardware' ? '硬解' : '软解'}',
                 onTap: () => Navigator.push(context,
                   MaterialPageRoute(builder: (_) => const _PlayerSettingsPage()),
                 ),
@@ -246,7 +246,7 @@ class _PlayerSettingsPage extends StatelessWidget {
             child: ListTile(
               title: const Text('播放内核'),
               subtitle: Text(
-                app.playerEngine == 'mpv' ? 'MPV (libmpv) — 解码能力强' : app.playerEngine == 'ijk' ? 'IJK (ijkplayer) — 字幕/音轨好' : 'ExoPlayer — Android 原生',
+                app.playerEngine == 'mpv' ? 'MPV (libmpv) — 解码能力强' : 'ExoPlayer — Android 原生',
                 style: const TextStyle(fontSize: 12, color: FnTheme.textSecondary),
               ),
               trailing: const Icon(Icons.chevron_right_rounded),
@@ -298,19 +298,13 @@ class _PlayerSettingsPage extends StatelessWidget {
         RadioListTile(
           value: 'mpv', groupValue: app.playerEngine,
           title: const Text('MPV (libmpv)'),
-          subtitle: const Text('解码能力强，支持更多格式'),
-          onChanged: (v) { app.playerEngine = v!; Navigator.pop(ctx); },
-        ),
-        RadioListTile(
-          value: 'ijk', groupValue: app.playerEngine,
-          title: const Text('IJK (GSYVideoPlayer)'),
-          subtitle: const Text('B站开源，字幕/音轨支持好'),
+          subtitle: const Text('解码能力强，支持内嵌字幕/音轨'),
           onChanged: (v) { app.playerEngine = v!; Navigator.pop(ctx); },
         ),
         RadioListTile(
           value: 'exo', groupValue: app.playerEngine,
           title: const Text('ExoPlayer'),
-          subtitle: const Text('Android 原生，兼容性好'),
+          subtitle: const Text('Android 原生，兼容性好，软件字幕'),
           onChanged: (v) { app.playerEngine = v!; Navigator.pop(ctx); },
         ),
       ],

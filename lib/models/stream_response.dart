@@ -76,25 +76,32 @@ class VideoStreamInfo {
 
 class AudioStreamInfo {
   final String? codecName, language, title;
-  final int channels, bitrate;
+  final int channels, bitrate, index;
 
-  AudioStreamInfo({this.codecName, this.language, this.title, this.channels = 0, this.bitrate = 0});
+  AudioStreamInfo({this.codecName, this.language, this.title, this.channels = 0, this.bitrate = 0, this.index = 0});
 
   factory AudioStreamInfo.fromJson(Map<String, dynamic> json) {
     return AudioStreamInfo(
       codecName: json['codec_name'], language: json['language'], title: json['title'],
       channels: json['channels'] ?? 0, bitrate: json['bitrate'] ?? 0,
+      index: json['index'] ?? 0,
     );
   }
 }
 
 class SubtitleStreamInfo {
   final String? codecName, language, title;
+  final int index;
 
-  SubtitleStreamInfo({this.codecName, this.language, this.title});
+  SubtitleStreamInfo({this.codecName, this.language, this.title, this.index = 0});
 
   factory SubtitleStreamInfo.fromJson(Map<String, dynamic> json) {
-    return SubtitleStreamInfo(codecName: json['codec_name'], language: json['language'], title: json['title']);
+    return SubtitleStreamInfo(
+      codecName: json['codec_name'],
+      language: json['language'],
+      title: json['title'],
+      index: json['index'] ?? 0,
+    );
   }
 }
 
