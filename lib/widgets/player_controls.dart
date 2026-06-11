@@ -19,7 +19,7 @@ class PlayerControls extends StatelessWidget {
   final int qualityIndex;
   final VoidCallback onPlayPause;
   final void Function(Duration) onSeek;
-  final VoidCallback onSpeed;
+  final void Function(double) onSpeed;
   final VoidCallback onLock;
   final VoidCallback onDanmu;
   final VoidCallback onBack;
@@ -162,7 +162,7 @@ class PlayerControls extends StatelessWidget {
                       _ctrlBtn('10秒', () => onSeek(const Duration(seconds: 10))),
                       const SizedBox(width: 8),
                       // Speed
-                      _ctrlBtn('${speed}x', onSpeed),
+                      _ctrlBtn('${speed}x', () => _showSpeedPicker(context)),
                       // Quality
                       if (qualityCount > 0)
                         _ctrlBtn(qualityLabels.isNotEmpty ? qualityLabels[qualityIndex] : '画质', () {
@@ -262,6 +262,51 @@ class PlayerControls extends StatelessWidget {
               onQuality(i);
             },
           ),
+        ),
+      ),
+    );
+  }
+
+  void _showSpeedPicker(BuildContext context) {
+    const speeds = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0];
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1E1E1E),
+      builder: (_) => SizedBox(
+        height: 300,
+        child: Column(
+          children: [
+            const Padding(
+              padding: EdgeInsets.all(16),
+              child: Text('播放倍速', style: TextStyle(
+                color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+            ),
+            Expanded(
+              child: ListView.builder(
+                itemCount: speeds.length,
+                itemBuilder: (_, i) {
+                  final s = speeds[i];
+                  final isCurrent = (s - speed).abs() < 0.01;
+                  return ListTile(
+                    title: Text(
+                      s == 1.0 ? '1.0x  正常' : '${s}x',
+                      style: TextStyle(
+                        color: isCurrent ? FnTheme.danmuGreen : Colors.white,
+                        fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
+                      ),
+                    ),
+                    trailing: isCurrent
+                        ? const Icon(Icons.check, color: FnTheme.danmuGreen)
+                        : null,
+                    onTap: () {
+                      Navigator.pop(context);
+                      onSpeed(s);
+                    },
+                  );
+                },
+              ),
+            ),
+          ],
         ),
       ),
     );

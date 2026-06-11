@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../providers/app_state.dart';
 import '../models/play_info.dart';
 import '../models/stream_response.dart';
@@ -88,8 +89,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   // Speed
   double _speed = 1.0;
-  final _speeds = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
-  int _speedIdx = 2;
 
   Timer? _hideTimer;
   Timer? _progressTimer;
@@ -127,6 +126,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   Future<void> _loadPlayInfo() async {
+    // 加载保存的倍速
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final savedSpeed = prefs.getDouble('play_speed') ?? 1.0;
+      if (savedSpeed > 0) _speed = savedSpeed;
+    } catch (_) {}
     try {
       final resp = await _app.api.getPlayInfo(widget.itemGuid);
       if (resp['code'] == 0 && resp['data'] != null) {
@@ -368,8 +373,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
       }
       debugPrint('Danmu: matched episodeId=$episodeId');
 
-      // 4. 获取弹幕评论
-      final commentResp = await _app.api.dio.get('$danmuUrl/api/v2/comment/$episodeId');
+      // 4. 获取弹幕评论（必须加 ?format=json）
+      final commentResp = await _app.api.dio.get('$danmuUrl/api/v2/comment/$episodeId?format=json');
       if (commentResp.statusCode != 200 || commentResp.data == null) {
         debugPrint('Danmu: comment fetch failed');
         return;
@@ -386,9 +391,51 @@ class _PlayerScreenState extends State<PlayerScreen> {
         comments = cData['data'] as List;
       }
 
-      final danmuList = comments.map((c) => DanmuComment.fromJson(c as Map<String, dynamic>)).toList();
-      debugPrint('Danmu: loaded ${danmuList.length} comments');
+      // 解析弹幕格式：m=文本, p="时间,模式,颜色,用户ID"
+      final danmuList = <DanmuComment>[];
+      for (final c in comments) {
+        if (c is! Map) continue;
+        final text = c['m']?.toString() ?? c['text']?.toString() ?? c['content']?.toString() ?? '';
+        if (text.isEmpty) continue;
 
+        double time = 0;
+        int type = 1;
+        int color = 0xFFFFFFFF;
+
+        final p = c['p'];
+        if (p is String && p.contains(',')) {
+          // 标准格式: "12.5,1,16777215,uid123"
+          final parts = p.split(',');
+          if (parts.isNotEmpty) time = double.tryParse(parts[0]) ?? 0;
+          if (parts.length > 1) type = int.tryParse(parts[1]) ?? 1;
+          if (parts.length > 2) color = int.tryParse(parts[2]) ?? 0xFFFFFFFF;
+        } else if (p is num) {
+          time = p.toDouble();
+          // 颜色可能在 c 字段
+          if (c['c'] != null) {
+            final cv = c['c'];
+            if (cv is int) color = cv;
+            else if (cv is String) color = int.tryParse(cv.replaceAll('#', '0x')) ?? 0xFFFFFFFF;
+          }
+        } else {
+          // 回退到通用字段
+          time = (c['time'] ?? c['time_point'] ?? 0).toDouble();
+          type = c['type'] ?? 1;
+          if (c['color'] != null) {
+            final cv = c['color'];
+            if (cv is int) color = cv;
+            else if (cv is String) {
+              final s = cv.replaceAll('#', '');
+              if (s.length == 6) color = int.parse('FF$s', radix: 16);
+              else if (s.length == 8) color = int.parse(s, radix: 16);
+            }
+          }
+        }
+
+        danmuList.add(DanmuComment(text: text, time: time, color: color, type: type));
+      }
+
+      debugPrint('Danmu: loaded ${danmuList.length} comments');
       if (mounted && danmuList.isNotEmpty) {
         setState(() => _danmuItems = danmuList);
       }
@@ -463,11 +510,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _videoCtrl!.seekTo(newPos);
   }
 
-  void _cycleSpeed() {
-    _speedIdx = (_speedIdx + 1) % _speeds.length;
-    _speed = _speeds[_speedIdx];
+  void _setSpeed(double speed) {
+    _speed = speed;
     _videoCtrl?.setSpeed(_speed);
+    _app.decoderMode; // just to access prefs
     setState(() {});
+    // 保存倍速到 SharedPreferences
+    SharedPreferences.getInstance().then((prefs) {
+      prefs.setDouble('play_speed', _speed);
+    });
   }
 
   void _resetHideTimer() {
@@ -563,7 +614,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 qualityIndex: _qualityIndex,
                 onPlayPause: _togglePlay,
                 onSeek: _seek,
-                onSpeed: _cycleSpeed,
+                onSpeed: _setSpeed,
                 onLock: () => setState(() {
                   _isLocked = !_isLocked;
                   if (_isLocked) _showControls = false;
