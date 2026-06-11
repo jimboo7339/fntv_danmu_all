@@ -168,9 +168,9 @@ class _DanmuPainter extends CustomPainter {
       if (diff > densityWindow) continue;
       if (diff < 0) continue;
 
-      // 去重检查（只检查最近的活跃弹幕）
-      final already = activeScroll.any((a) => a.text == c.text && (a.time - c.time).abs() < densityWindow) ||
-                      activeStatic.any((a) => a.text == c.text && (a.time - c.time).abs() < densityWindow);
+      // 去重检查（只按时间去重，文字去重已在加载时处理）
+      final already = activeScroll.any((a) => (a.time - c.time).abs() < 0.05) ||
+                      activeStatic.any((a) => (a.time - c.time).abs() < 0.05);
       if (already) continue;
 
       if (c.type == 4 || c.type == 5) {

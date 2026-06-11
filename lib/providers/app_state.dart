@@ -284,6 +284,9 @@ class AppState extends ChangeNotifier {
   double get subtitleWeight => _prefs.getDouble('subtitle_weight') ?? 600; // FontWeight.w600
   set subtitleWeight(double v) { _prefs.setDouble('subtitle_weight', v); notifyListeners(); }
 
+  double get subtitleBottomMargin => _prefs.getDouble('subtitle_bottom_margin') ?? 0.0;
+  set subtitleBottomMargin(double v) { _prefs.setDouble('subtitle_bottom_margin', v); notifyListeners(); }
+
   // ====== 弹幕服务器（独立于账号，app级存储） ======
 
   String get danmuUrl {

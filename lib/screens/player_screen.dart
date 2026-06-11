@@ -355,10 +355,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
       // 同步上报服务端（用于继续观看列表）
       _app.api.recordPlayStatus({
         'item_guid': widget.itemGuid,
-        'position': pos,
+        'media_guid': _mediaGuid ?? '',
+        'video_guid': '',
+        'audio_guid': '',
+        'subtitle_guid': '',
+        'resolution': '原画',
+        'bitrate': 0,
+        'ts': pos,
         'duration': dur,
-        'progress': dur > 0 ? pos / dur : 0,
-        'is_finished': pos >= dur * 0.9,
       }).catchError((e) {
         debugPrint('recordPlayStatus error: $e');
       });

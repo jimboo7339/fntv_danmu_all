@@ -633,6 +633,7 @@ class _SubtitlePanelState extends State<_SubtitlePanel> {
                   _styleSlider('粗细', app.subtitleWeight, 100, 900, (v) => setState(() => app.subtitleWeight = v), _weightLabel(app.subtitleWeight)),
                   _styleSlider('描边', app.subtitleOutline, 0, 4, (v) => setState(() => app.subtitleOutline = v)),
                   _switchRow('背景', app.subtitleBackground, (v) => setState(() => app.subtitleBackground = v)),
+                  _styleSlider('底部边距', app.subtitleBottomMargin, -100, 200, (v) => setState(() => app.subtitleBottomMargin = v), '${app.subtitleBottomMargin.toInt()}px'),
                   _colorRow(app),
                 ],
               ),
@@ -807,7 +808,7 @@ class _DanmuPanel extends StatelessWidget {
                   // 区域
                   _slider('区域', app.danmuArea.toDouble(), 10, 100, (v) => app.danmuArea = v.toInt(), '${app.danmuArea}%'),
                   // 顶部边距
-                  _slider('顶部边距', app.danmuTopMargin, 0, 200, (v) => app.danmuTopMargin = v, '${app.danmuTopMargin.toInt()}px'),
+                  _slider('顶部边距', app.danmuTopMargin, -100, 200, (v) => app.danmuTopMargin = v, '${app.danmuTopMargin.toInt()}px'),
                   // 密度
                   _slider('密度', app.danmuDensity.toDouble(), 10, 100, (v) => app.danmuDensity = v.toInt(), '${app.danmuDensity}%'),
                   const Divider(color: Colors.white12, height: 16),
@@ -1029,7 +1030,7 @@ class _DanmuSearchDialogState extends State<_DanmuSearchDialog> {
     if (animeId == 0) return;
     setState(() { _selectedAnime = anime; _loadingEpisodes = true; _episodeResults = []; });
     try {
-      final resp = await widget.api.dio.get('${widget.danmuUrl}/api/v2/bangumi/\$animeId');
+      final resp = await widget.api.dio.get('${widget.danmuUrl}/api/v2/bangumi/$animeId');
       if (resp.statusCode != 200 || resp.data == null) {
         setState(() { _loadingEpisodes = false; });
         return;
