@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/services.dart';
 
 /// Minimal ijkplayer bridge via method channel.
@@ -27,6 +28,8 @@ class IjkPlayer {
       'url': url,
       'headers': headers ?? {},
       'seekMs': seekMs,
+    }).timeout(const Duration(seconds: 15), onTimeout: () {
+      throw TimeoutException('IJK setDataSource timed out after 15s');
     });
   }
 

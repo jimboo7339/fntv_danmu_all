@@ -172,15 +172,19 @@ class VideoWrapper {
   }
 
   Future<void> _initIjk() async {
+    debugPrint('IJK: Creating player...');
     _ijkPlayer = IjkPlayer();
-    await _ijkPlayer!.create();
+    final textureId = await _ijkPlayer!.create();
+    debugPrint('IJK: Player created, textureId=$textureId');
 
     // Listen for position updates from native
     _ijkPlayer!.onPosition = (posMs, durMs) {
       _position = Duration(milliseconds: posMs);
       _duration = Duration(milliseconds: durMs);
-      _isPlaying = true;
-      _notifyAll();
+      if (!_isPlaying) {
+        _isPlaying = true;
+        _notifyAll();
+      }
     };
     _ijkPlayer!.onCompleted = () {
       _isPlaying = false;
@@ -275,7 +279,14 @@ class VideoWrapper {
   /// Start IJK playback (sets source + starts). Called after create.
   Future<void> startIjkPlayback({int seekMs = 0}) async {
     if (useIjk && _ijkPlayer != null) {
-      await _ijkPlayer!.setDataSource(url, headers: headers, seekMs: seekMs);
+      debugPrint('IJK: setDataSource url=${url.substring(0, url.length.clamp(0, 80))}... seekMs=$seekMs');
+      try {
+        await _ijkPlayer!.setDataSource(url, headers: headers, seekMs: seekMs);
+        debugPrint('IJK: setDataSource completed');
+      } catch (e) {
+        debugPrint('IJK: setDataSource ERROR: $e');
+        rethrow;
+      }
     }
   }
 

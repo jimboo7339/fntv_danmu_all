@@ -445,7 +445,7 @@ class _DetailScreenState extends State<DetailScreen> {
                 if (_hasOverview(item)) ...[
                   const SizedBox(height: 6),
                   Text(
-                    item!.overview!,
+                    item?.overview ?? widget.item.overview ?? '',
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
