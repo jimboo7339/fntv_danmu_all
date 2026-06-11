@@ -59,6 +59,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   // Stream info
   String? _mediaGuid;
+  String? _episodeGuid;   // play/info 返回的实际 episode GUID
+  String? _videoGuid;
+  String? _audioGuid;
+  String? _subtitleGuid;
   String? _parentGuid;
   String _itemTitle = '';
   String _tvTitle = '';
@@ -353,12 +357,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
         duration: dur,
       ));
       // 同步上报服务端（用于继续观看列表）
+      // 必须用 play/info 返回的实际 episode GUID，不能用 widget.itemGuid（可能是 TV/Season 的）
+      final episodeGuid = _episodeGuid ?? widget.itemGuid;
       _app.api.recordPlayStatus({
-        'item_guid': widget.itemGuid,
+        'item_guid': episodeGuid,
         'media_guid': _mediaGuid ?? '',
-        'video_guid': '',
-        'audio_guid': '',
-        'subtitle_guid': '',
+        'video_guid': _videoGuid ?? '',
+        'audio_guid': _audioGuid ?? '',
+        'subtitle_guid': _subtitleGuid ?? '',
         'resolution': '原画',
         'bitrate': 0,
         'ts': pos,
@@ -737,6 +743,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
       if (resp['code'] == 0 && resp['data'] != null) {
         final info = PlayInfoResponse.fromJson(resp['data']);
         _mediaGuid = info.mediaGuid;
+        _episodeGuid = info.guid;
+        _videoGuid = info.videoGuid;
+        _audioGuid = info.audioGuid;
+        _subtitleGuid = info.subtitleGuid;
         await _fetchStreamInfo();
         _startPlayback();
         _loadDanmu();

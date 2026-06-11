@@ -194,7 +194,7 @@ class _DanmuPainter extends CustomPainter {
           final rowY = topMargin + lnH + r * lnH;
           bool blocked = false;
           for (final a in activeScroll) {
-            if ((a.y - rowY).abs() < lnH * 0.6 && a.x + a.tw > size.width * 0.15) {
+            if ((a.y - rowY).abs() < lnH * 0.6 && a.x + a.tw > 50) {
               blocked = true;
               break;
             }
