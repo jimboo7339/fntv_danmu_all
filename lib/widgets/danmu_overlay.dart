@@ -35,6 +35,7 @@ class _DanmuOverlayState extends State<DanmuOverlay>
   late AnimationController _animCtrl;
   final List<_DanmuItem> _activeScroll = [];
   final List<_DanmuItem> _activeStatic = [];
+  final Map<int, double> _rowLastLaunch = {}; // row index -> last launch time (curSec)
   int _lastCommentCount = 0;
   double _lastRealTime = 0;
 
@@ -68,6 +69,7 @@ class _DanmuOverlayState extends State<DanmuOverlay>
     if (widget.comments.length != _lastCommentCount) {
       _activeScroll.clear();
       _activeStatic.clear();
+      _rowLastLaunch.clear();
       _paragraphCache.clear();
       _lastCommentCount = widget.comments.length;
     }
@@ -87,6 +89,7 @@ class _DanmuOverlayState extends State<DanmuOverlay>
             topMargin: widget.topMargin,
             activeScroll: _activeScroll,
             activeStatic: _activeStatic,
+            rowLastLaunch: _rowLastLaunch,
             lastRealTime: _lastRealTime,
             paragraphCache: _paragraphCache,
             onRealTimeUpdate: (t) => _lastRealTime = t,
@@ -120,6 +123,7 @@ class _DanmuPainter extends CustomPainter {
   final double topMargin;
   final List<_DanmuItem> activeScroll;
   final List<_DanmuItem> activeStatic;
+  final Map<int, double> rowLastLaunch;
   final double lastRealTime;
   final Map<String, ui.Paragraph> paragraphCache;
   final void Function(double) onRealTimeUpdate;
@@ -129,6 +133,7 @@ class _DanmuPainter extends CustomPainter {
     required this.currentTime,
     required this.activeScroll,
     required this.activeStatic,
+    required this.rowLastLaunch,
     required this.lastRealTime,
     required this.paragraphCache,
     required this.onRealTimeUpdate,
@@ -189,22 +194,17 @@ class _DanmuPainter extends CustomPainter {
         item.speed = (size.width / 7.0 + c.text.length * 2.0) * speed;
         item.x = size.width;
 
-        // 找空闲行（反重叠）— 检查新弹幕是否和已有弹幕物理重叠
+        // 找空闲行 — 基于时间间隔，同速弹幕自然不重叠
+        // 计算弹幕通过屏幕的时间，作为同行最小间隔
+        final transitTime = (size.width + item.tw) / item.speed;
+        final minGap = (transitTime * 0.12).clamp(0.3, 1.5); // 12%通过时间，0.3~1.5秒
         for (int r = 0; r < maxRow; r++) {
-          final rowY = topMargin + lnH + r * lnH;
-          bool blocked = false;
-          for (final a in activeScroll) {
-            if ((a.y - rowY).abs() < lnH * 0.6) {
-              // 新弹幕右边缘 = size.width + item.tw
-              // 已有弹幕左边缘 = a.x
-              // 重叠条件: 已有弹幕还没滚出新弹幕的起始区域
-              if (a.x + a.tw > size.width - item.tw - 20) {
-                blocked = true;
-                break;
-              }
-            }
+          final lastT = rowLastLaunch[r] ?? -999;
+          if (curSec - lastT >= minGap) {
+            item.y = topMargin + lnH + r * lnH;
+            rowLastLaunch[r] = curSec;
+            break;
           }
-          if (!blocked) { item.y = rowY; break; }
           if (r == maxRow - 1) item.y = -100;
         }
         if (item.y > 0) activeScroll.add(item);

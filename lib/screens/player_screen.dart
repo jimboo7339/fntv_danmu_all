@@ -289,12 +289,24 @@ class _PlayerScreenState extends State<PlayerScreen> {
       if (!mounted) return;
       setState(() => _isInitialized = true);
       _videoCtrl!.setSpeed(_speed);
-      if (widget.seekTs > 0) {
-        debugPrint('Seeking to ${widget.seekTs}s');
-        _videoCtrl!.seekTo(Duration(seconds: widget.seekTs));
-      }
       _videoCtrl!.play();
       _isPlaying = true;
+      // Seek 必须在 play() 之后，且对 MPV 需要延迟等视频加载完成
+      if (widget.seekTs > 0) {
+        final seekMs = widget.seekTs * 1000;
+        if (_useMpv) {
+          // MPV: 延迟 seek，等视频真正开始播放
+          Future.delayed(const Duration(milliseconds: 800), () {
+            if (mounted) {
+              debugPrint('Seeking to ${widget.seekTs}s (delayed for MPV)');
+              _videoCtrl?.seekTo(Duration(milliseconds: seekMs));
+            }
+          });
+        } else {
+          debugPrint('Seeking to ${widget.seekTs}s');
+          _videoCtrl!.seekTo(Duration(milliseconds: seekMs));
+        }
+      }
       // 立即上报一次进度（不等5秒定时器）
       Future.delayed(const Duration(seconds: 2), () => _saveProgress());
       _startProgressTimer();
