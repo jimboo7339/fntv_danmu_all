@@ -69,6 +69,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   int _episodeNumber = 0;
   int _seasonNumber = 1;
   String _actualVideoDecoder = '';
+  int _serverSeekTs = 0; // 从 play/info 服务端获取的续播位置（秒）
 
   // Stream details
   String _streamVCodec = '';
@@ -177,6 +178,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
         final info = PlayInfoResponse.fromJson(resp['data']);
         _mediaGuid = info.mediaGuid;
         _parentGuid = info.parentGuid ?? _parentGuid;
+        _serverSeekTs = info.ts; // 存储服务端续播进度
+        _episodeGuid = info.guid; // 存储实际 episode GUID
+        _videoGuid = info.videoGuid;
+        _audioGuid = info.audioGuid;
+        _subtitleGuid = info.subtitleGuid;
         if (info.item != null) {
           if (info.item!.tvTitle != null) _tvTitle = info.item!.tvTitle!;
           _itemTitle = info.item!.title ?? _itemTitle;
@@ -292,20 +298,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _videoCtrl!.play();
       _isPlaying = true;
       // Seek 必须在 play() 之后，且对 MPV 需要延迟等视频加载完成
-      if (widget.seekTs > 0) {
-        final seekMs = widget.seekTs * 1000;
-        if (_useMpv) {
-          // MPV: 延迟 seek，等视频真正开始播放
-          Future.delayed(const Duration(milliseconds: 800), () {
-            if (mounted) {
-              debugPrint('Seeking to ${widget.seekTs}s (delayed for MPV)');
-              _videoCtrl?.seekTo(Duration(milliseconds: seekMs));
-            }
-          });
-        } else {
-          debugPrint('Seeking to ${widget.seekTs}s');
-          _videoCtrl!.seekTo(Duration(milliseconds: seekMs));
-        }
+      // 优先使用 widget.seekTs（详情页传入），其次用 _serverSeekTs（play/info 获取）
+      final seekTs = widget.seekTs > 0 ? widget.seekTs : _serverSeekTs;
+      if (seekTs > 0) {
+        final seekMs = seekTs * 1000;
+        debugPrint('🎯 Will seek to ${seekTs}s (${seekMs}ms) — widget=${widget.seekTs}s, server=${_serverSeekTs}s');
+        // MPV 需要多次尝试 seek，因为首次可能被忽略
+        _performSeekWithRetry(seekMs, isMpv: _useMpv);
+      } else {
+        debugPrint('ℹ️ No seek needed: widget.seekTs=${widget.seekTs}s, _serverSeekTs=${_serverSeekTs}s');
       }
       // 立即上报一次进度（不等5秒定时器）
       Future.delayed(const Duration(seconds: 2), () => _saveProgress());
@@ -330,6 +331,45 @@ class _PlayerScreenState extends State<PlayerScreen> {
         _videoCtrl!.duration.inSeconds > 0) {
       _onPlaybackComplete();
     }
+  }
+
+  /// 带重试的 seek — 解决 MPV 首次 seek 被忽略的问题
+  void _performSeekWithRetry(int seekMs, {required bool isMpv, int attempt = 0}) {
+    if (!mounted || _videoCtrl == null) return;
+    const maxAttempts = 4;
+    // MPV: 800ms / 2000ms / 4000ms / 6000ms
+    // Exo: 200ms / 500ms / 1000ms
+    final delays = isMpv ? [800, 2000, 4000, 6000] : [200, 500, 1000, 1500];
+    if (attempt >= maxAttempts) {
+      debugPrint('❌ Seek failed after $maxAttempts attempts (${seekMs}ms)');
+      return;
+    }
+
+    Future.delayed(Duration(milliseconds: delays[attempt]), () {
+      if (!mounted || _videoCtrl == null) return;
+      final currentPosMs = _videoCtrl!.position.inMilliseconds;
+      final durMs = _videoCtrl!.duration.inMilliseconds;
+      final targetMs = durMs > 0 ? (seekMs.clamp(0, durMs - 1000)).toInt() : seekMs;
+
+      debugPrint('🎯 Seek attempt #${attempt + 1}: target=${targetMs}ms, current=${currentPosMs}ms, dur=${durMs}ms');
+
+      _videoCtrl!.seekTo(Duration(milliseconds: targetMs));
+
+      // 验证 seek 是否生效（仅对 MPV 和后续重试）
+      if (isMpv && attempt < maxAttempts - 1) {
+        Future.delayed(const Duration(milliseconds: 1500), () {
+          if (!mounted || _videoCtrl == null) return;
+          final posAfterSeek = _videoCtrl!.position.inMilliseconds;
+          final tolerance = (seekMs * 0.1).round().clamp(3000, 10000).toInt(); // 10% tolerance, 3~10s
+          final seekWorked = (posAfterSeek - seekMs).abs() < tolerance;
+          debugPrint('🎯 Seek verify: posAfter=${posAfterSeek}ms, expected≈${seekMs}ms, worked=$seekWorked');
+          if (!seekWorked && posAfterSeek < 5000) {
+            // Seek 没生效（位置还在开头），重试
+            _performSeekWithRetry(seekMs, isMpv: isMpv, attempt: attempt + 1);
+          }
+        });
+      }
+    });
   }
 
   void _onPlaybackComplete() {

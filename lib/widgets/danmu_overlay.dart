@@ -35,7 +35,10 @@ class _DanmuOverlayState extends State<DanmuOverlay>
   late AnimationController _animCtrl;
   final List<_DanmuItem> _activeScroll = [];
   final List<_DanmuItem> _activeStatic = [];
-  final Map<int, double> _rowLastLaunch = {}; // row index -> last launch time (curSec)
+  // 每行的"弹幕完全移出屏幕的时间"（wall clock seconds）
+  final Map<int, double> _rowBusyUntil = {};
+  // 弹幕去重：danmu.time -> 上次尝试发射的 wall clock 时间
+  final Map<double, double> _lastAttemptTime = {};
   int _lastCommentCount = 0;
   double _lastRealTime = 0;
 
@@ -69,7 +72,8 @@ class _DanmuOverlayState extends State<DanmuOverlay>
     if (widget.comments.length != _lastCommentCount) {
       _activeScroll.clear();
       _activeStatic.clear();
-      _rowLastLaunch.clear();
+      _rowBusyUntil.clear();
+      _lastAttemptTime.clear();
       _paragraphCache.clear();
       _lastCommentCount = widget.comments.length;
     }
@@ -89,7 +93,8 @@ class _DanmuOverlayState extends State<DanmuOverlay>
             topMargin: widget.topMargin,
             activeScroll: _activeScroll,
             activeStatic: _activeStatic,
-            rowLastLaunch: _rowLastLaunch,
+            rowBusyUntil: _rowBusyUntil,
+            lastAttemptTime: _lastAttemptTime,
             lastRealTime: _lastRealTime,
             paragraphCache: _paragraphCache,
             onRealTimeUpdate: (t) => _lastRealTime = t,
@@ -123,7 +128,8 @@ class _DanmuPainter extends CustomPainter {
   final double topMargin;
   final List<_DanmuItem> activeScroll;
   final List<_DanmuItem> activeStatic;
-  final Map<int, double> rowLastLaunch;
+  final Map<int, double> rowBusyUntil;
+  final Map<double, double> lastAttemptTime;
   final double lastRealTime;
   final Map<String, ui.Paragraph> paragraphCache;
   final void Function(double) onRealTimeUpdate;
@@ -133,7 +139,8 @@ class _DanmuPainter extends CustomPainter {
     required this.currentTime,
     required this.activeScroll,
     required this.activeStatic,
-    required this.rowLastLaunch,
+    required this.rowBusyUntil,
+    required this.lastAttemptTime,
     required this.lastRealTime,
     required this.paragraphCache,
     required this.onRealTimeUpdate,
@@ -160,6 +167,11 @@ class _DanmuPainter extends CustomPainter {
     final curSec = currentTime / 1000.0;
     final densityWindow = 0.5 * danmuDensity.clamp(0.1, 1.0);
 
+    // 统一速度：所有弹幕同一速度（px/second）
+    final uniformSpeed = (size.width / 6.0) * speed;
+    // 弹幕完全通过屏幕的时间
+    final baseTransitTime = (size.width * 2.0) / uniformSpeed; // 留双倍屏幕宽度余量
+
     // 清除过期弹幕
     activeScroll.removeWhere((a) => a.x + a.tw < -100);
     activeStatic.removeWhere((a) => a.ttl <= 0);
@@ -173,10 +185,14 @@ class _DanmuPainter extends CustomPainter {
       if (diff > densityWindow) continue;
       if (diff < 0) continue;
 
-      // 去重检查（只按时间去重，文字去重已在加载时处理）
-      final already = activeScroll.any((a) => (a.time - c.time).abs() < 0.05) ||
-                      activeStatic.any((a) => (a.time - c.time).abs() < 0.05);
-      if (already) continue;
+      // 去重检查 — 先检查是否已成功发射到屏幕上（严格去重）
+      final isDisplayed = activeScroll.any((a) => (a.time - c.time).abs() < 0.05) ||
+                          activeStatic.any((a) => (a.time - c.time).abs() < 0.05);
+      if (isDisplayed) continue;
+      // 再检查最近是否尝试过（0.3s 内不重复尝试，给行调度器时间）
+      final lastAttempt = lastAttemptTime[c.time];
+      if (lastAttempt != null && (now - lastAttempt) < 0.3) continue;
+      lastAttemptTime[c.time] = now;
 
       if (c.type == 4 || c.type == 5) {
         final item = _DanmuItem(text: c.text, time: c.time, color: c.color, type: c.type);
@@ -191,23 +207,30 @@ class _DanmuPainter extends CustomPainter {
       } else {
         final item = _DanmuItem(text: c.text, time: c.time, color: c.color, type: c.type);
         item.tw = _measureText(c.text);
-        item.speed = (size.width / 6.0) * speed; // 统一速度，不随文字长度变化
+        item.speed = uniformSpeed;
         item.x = size.width;
 
-        // 找空闲行 — 基于时间间隔，同速弹幕自然不重叠
-        // 计算弹幕通过屏幕的时间，作为同行最小间隔
-        final transitTime = (size.width + item.tw) / item.speed;
-        final minGap = (transitTime * 0.35).clamp(0.5, 2.5); // 35%通过时间，确保不重叠
+        // 找空闲行：用 wall clock 时间（now）来判断行是否可用
+        // rowBusyUntil[row] = 该行上一条弹幕完全移出屏幕的 wall clock 时间
+        int? selectedRow;
         for (int r = 0; r < maxRow; r++) {
-          final lastT = rowLastLaunch[r] ?? -999;
-          if (curSec - lastT >= minGap) {
-            item.y = topMargin + lnH + r * lnH;
-            rowLastLaunch[r] = curSec;
+          final busyUntil = rowBusyUntil[r] ?? 0.0;
+          if (now >= busyUntil) {
+            selectedRow = r;
             break;
           }
-          if (r == maxRow - 1) item.y = -100;
         }
-        if (item.y > 0) activeScroll.add(item);
+
+        if (selectedRow != null) {
+          // 计算弹幕从右侧完全通过屏幕左侧需要的时间
+          final transitTime = (size.width + item.tw) / item.speed;
+          // 更新该行的忙碌时间 = 当前 wall clock + 通过时间
+          rowBusyUntil[selectedRow] = now + transitTime;
+
+          item.y = topMargin + lnH + selectedRow * lnH;
+          activeScroll.add(item);
+        }
+        // 没有空闲行则跳过此弹幕，下次 tick 会重新尝试
       }
     }
 
@@ -240,9 +263,6 @@ class _DanmuPainter extends CustomPainter {
   void _drawDanmu(Canvas canvas, _DanmuItem a, Size size) {
     if (a.x < -a.tw - 50 || a.x > size.width + 50) return;
 
-    final key = '${fontSize}_${a.text}';
-    final cachedP = paragraphCache[key];
-
     if (showOutline) {
       // 描边：用 Paint 的 foreground
       final outlineBuilder = ui.ParagraphBuilder(
@@ -263,33 +283,17 @@ class _DanmuPainter extends CustomPainter {
     }
 
     // 正文
-    if (cachedP != null) {
-      // 复用缓存但需要重新着色
-      final c = Color(a.color);
-      final alpha = (c.alpha * opacity).toInt().clamp(0, 255);
-      final drawColor = c.withAlpha(alpha);
-      final builder = ui.ParagraphBuilder(
-        ui.ParagraphStyle(fontSize: fontSize, fontWeight: FontWeight.bold),
-      )
-        ..pushStyle(ui.TextStyle(color: drawColor, fontSize: fontSize))
-        ..addText(a.text);
-      final p = builder.build()
-        ..layout(ui.ParagraphConstraints(width: double.infinity));
-      canvas.drawParagraph(p, Offset(a.x, a.y));
-    } else {
-      final c = Color(a.color);
-      final alpha = (c.alpha * opacity).toInt().clamp(0, 255);
-      final drawColor = c.withAlpha(alpha);
-      final builder = ui.ParagraphBuilder(
-        ui.ParagraphStyle(fontSize: fontSize, fontWeight: FontWeight.bold),
-      )
-        ..pushStyle(ui.TextStyle(color: drawColor, fontSize: fontSize))
-        ..addText(a.text);
-      final p = builder.build()
-        ..layout(ui.ParagraphConstraints(width: double.infinity));
-      paragraphCache[key] = p;
-      canvas.drawParagraph(p, Offset(a.x, a.y));
-    }
+    final c = Color(a.color);
+    final alpha = (c.alpha * opacity).toInt().clamp(0, 255);
+    final drawColor = c.withAlpha(alpha);
+    final builder = ui.ParagraphBuilder(
+      ui.ParagraphStyle(fontSize: fontSize, fontWeight: FontWeight.bold),
+    )
+      ..pushStyle(ui.TextStyle(color: drawColor, fontSize: fontSize))
+      ..addText(a.text);
+    final p = builder.build()
+      ..layout(ui.ParagraphConstraints(width: double.infinity));
+    canvas.drawParagraph(p, Offset(a.x, a.y));
   }
 
   int _lowerBound(double target) {
