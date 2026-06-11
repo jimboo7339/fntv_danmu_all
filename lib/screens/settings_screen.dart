@@ -98,7 +98,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 icon: Icons.info_outline_rounded,
                 color: FnTheme.textMuted,
                 title: '关于',
-                subtitle: _version.isNotEmpty ? '飞牛TV v$_version' : '飞牛TV',
+                subtitle: _version.isNotEmpty ? '飞牛TV ${_version.startsWith('v') ? _version : 'v$_version'}' : '飞牛TV',
                 onTap: () => Navigator.push(context,
                   MaterialPageRoute(builder: (_) => _AboutPage(version: _version)),
                 ),
@@ -474,7 +474,7 @@ class _AboutPage extends StatelessWidget {
           ),
           Center(
             child: Text(
-              version.isNotEmpty ? 'v$version' : 'v--',
+              version.isNotEmpty ? (version.startsWith('v') ? version : 'v$version') : 'v--',
               style: const TextStyle(color: FnTheme.textSecondary, fontSize: 14),
             ),
           ),

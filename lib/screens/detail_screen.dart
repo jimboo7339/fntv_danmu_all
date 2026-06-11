@@ -28,6 +28,7 @@ class _DetailScreenState extends State<DetailScreen> {
   bool _loadingEpisodes = false;
   String? _error;
   Color _dominantColor = const Color(0xFF1A1A2E);
+  int _episodeViewMode = 0; // 0=详细列表 1=封面九宫格 2=数字按钮
 
   @override
   void initState() {
@@ -624,12 +625,39 @@ class _DetailScreenState extends State<DetailScreen> {
             fontWeight: FontWeight.bold,
             color: FnTheme.textPrimary,
           )),
-          const Spacer(),
+          const SizedBox(width: 12),
           if (_episodes.isNotEmpty)
             Text('${_episodes.length} 集', style: const TextStyle(
               color: FnTheme.textMuted, fontSize: 13,
             )),
+          const Spacer(),
+          // 视图切换按钮
+          if (_episodes.isNotEmpty) ...[
+            _viewModeBtn(0, Icons.view_list_rounded, '详细'),
+            _viewModeBtn(1, Icons.grid_view_rounded, '封面'),
+            _viewModeBtn(2, Icons.apps_rounded, '按钮'),
+          ],
         ],
+      ),
+    );
+  }
+
+  Widget _viewModeBtn(int mode, IconData icon, String tip) {
+    final active = _episodeViewMode == mode;
+    return Tooltip(
+      message: tip,
+      child: InkWell(
+        onTap: () => setState(() => _episodeViewMode = mode),
+        borderRadius: BorderRadius.circular(6),
+        child: Container(
+          padding: const EdgeInsets.all(6),
+          margin: const EdgeInsets.only(left: 4),
+          decoration: active ? BoxDecoration(
+            color: FnTheme.danmuGreen.withAlpha(30),
+            borderRadius: BorderRadius.circular(6),
+          ) : null,
+          child: Icon(icon, size: 18, color: active ? FnTheme.danmuGreen : FnTheme.textMuted),
+        ),
       ),
     );
   }
@@ -644,9 +672,182 @@ class _DetailScreenState extends State<DetailScreen> {
     if (_episodes.isEmpty) {
       return const SizedBox.shrink();
     }
+    switch (_episodeViewMode) {
+      case 1: return _buildEpisodeGrid();
+      case 2: return _buildEpisodeButtons();
+      default: return _buildEpisodeDetailList();
+    }
+  }
+
+  /// 详细列表视图（原有）
+  Widget _buildEpisodeDetailList() {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: List.generate(_episodes.length, (i) => _buildEpisodeTile(_episodes[i], i)),
+    );
+  }
+
+  /// 封面九宫格视图
+  Widget _buildEpisodeGrid() {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final crossCount = constraints.maxWidth > 900 ? 6 : constraints.maxWidth > 600 ? 4 : 3;
+        final itemW = (constraints.maxWidth - 20 * 2 - (crossCount - 1) * 8) / crossCount;
+        final itemH = itemW * 9 / 16; // 16:9 比例
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: List.generate(_episodes.length, (i) {
+              final ep = _episodes[i];
+              final epNum = ep.episodeNumber > 0 ? ep.episodeNumber : i + 1;
+              final epPoster = ep.poster ?? _bestPoster;
+              final posterUrl = epPoster.isNotEmpty ? _app.api.getImageUrl(epPoster, width: 300) : '';
+              final hasProgress = ep.ts > 0 && ep.duration > 0;
+              final progress = hasProgress ? ep.ts / ep.duration : 0.0;
+
+              return GestureDetector(
+                onTap: () => _playItem(ep),
+                child: SizedBox(
+                  width: itemW.toDouble(),
+                  height: (itemH + 28).toDouble(),
+                  child: Column(
+                    children: [
+                      Expanded(
+                        child: Container(
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(6),
+                            color: const Color(0xFF2A2A2A),
+                          ),
+                          clipBehavior: Clip.antiAlias,
+                          child: Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              if (posterUrl.isNotEmpty)
+                                CachedNetworkImage(
+                                  imageUrl: posterUrl,
+                                  httpHeaders: _app.api.imageHeaders,
+                                  fit: BoxFit.cover,
+                                  errorWidget: (_, __, ___) => Center(
+                                    child: Text('$epNum', style: const TextStyle(color: FnTheme.textMuted, fontSize: 20, fontWeight: FontWeight.bold)),
+                                  ),
+                                )
+                              else
+                                Center(
+                                  child: Text('$epNum', style: const TextStyle(color: FnTheme.textMuted, fontSize: 20, fontWeight: FontWeight.bold)),
+                                ),
+                              const Center(
+                                child: Icon(Icons.play_circle_fill_rounded, color: Colors.white60, size: 32),
+                              ),
+                              // 集数角标
+                              Positioned(
+                                top: 4, left: 4,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: Colors.black.withAlpha(180),
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: Text('$epNum', style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
+                                ),
+                              ),
+                              if (hasProgress)
+                                Positioned(
+                                  bottom: 0, left: 0, right: 0,
+                                  child: LinearProgressIndicator(
+                                    value: progress.clamp(0.0, 1.0),
+                                    backgroundColor: Colors.black54,
+                                    valueColor: const AlwaysStoppedAnimation(FnTheme.danmuGreen),
+                                    minHeight: 3,
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '第$epNum集',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 12, color: FnTheme.textSecondary),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }),
+          ),
+        );
+      },
+    );
+  }
+
+  /// 数字按钮视图
+  Widget _buildEpisodeButtons() {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final crossCount = constraints.maxWidth > 900 ? 12 : constraints.maxWidth > 600 ? 8 : 6;
+        final btnSize = (constraints.maxWidth - 20 * 2 - (crossCount - 1) * 8) / crossCount;
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: List.generate(_episodes.length, (i) {
+              final ep = _episodes[i];
+              final epNum = ep.episodeNumber > 0 ? ep.episodeNumber : i + 1;
+              final hasProgress = ep.ts > 0 && ep.duration > 0;
+              final isWatched = ep.watched > 0;
+
+              return GestureDetector(
+                onTap: () => _playItem(ep),
+                child: Container(
+                  width: btnSize.clamp(40, 64).toDouble(),
+                  height: btnSize.clamp(40, 64).toDouble(),
+                  decoration: BoxDecoration(
+                    color: hasProgress ? FnTheme.danmuGreen.withAlpha(40) : const Color(0xFF2A2A2A),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: hasProgress ? FnTheme.danmuGreen.withAlpha(100) : const Color(0xFF3A3A3A),
+                      width: 1,
+                    ),
+                  ),
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      Text(
+                        '$epNum',
+                        style: TextStyle(
+                          fontSize: btnSize > 50 ? 16 : 14,
+                          fontWeight: FontWeight.bold,
+                          color: hasProgress ? FnTheme.danmuGreen : FnTheme.textPrimary,
+                        ),
+                      ),
+                      if (isWatched)
+                        Positioned(
+                          top: 3, right: 3,
+                          child: Icon(Icons.check_circle, size: 12, color: FnTheme.danmuGreen),
+                        ),
+                      if (hasProgress)
+                        Positioned(
+                          bottom: 3, left: 6, right: 6,
+                          child: LinearProgressIndicator(
+                            value: (ep.ts / ep.duration).clamp(0.0, 1.0),
+                            backgroundColor: Colors.white12,
+                            valueColor: const AlwaysStoppedAnimation(FnTheme.danmuGreen),
+                            minHeight: 2,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              );
+            }),
+          ),
+        );
+      },
     );
   }
 

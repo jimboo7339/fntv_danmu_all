@@ -208,14 +208,12 @@ class _DanmuPainter extends CustomPainter {
         for (int r = 0; r < maxRow; r++) {
           final lastInRow = rowLastItem[r];
           if (lastInRow == null) {
-            // 该行没有任何弹幕，可以直接用
             selectedRow = r;
             break;
           }
-          // 关键判断：上一条弹幕的尾部是否已经移出屏幕右边缘
-          // 如果 lastItem 的 x + tw < size.width，说明它的尾部已经进入屏幕
-          // 此时新弹幕可以紧跟其后（从右侧开始），不会重叠
-          if (lastInRow.x + lastInRow.tw < size.width + 20) {
+          // 上一条尾部进入屏幕后留点间隙再塞新弹幕
+          final gapWidth = size.width * 0.15; // 15% 屏幕宽的间隙
+          if (lastInRow.x + lastInRow.tw < size.width - gapWidth) {
             selectedRow = r;
             break;
           }
