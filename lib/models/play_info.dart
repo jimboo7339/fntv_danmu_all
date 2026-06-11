@@ -50,6 +50,7 @@ class ItemInfo {
   final String? backdrops;
   final String? stillPath;
   final String? logo;
+  final String? logos;
   final String? voteAverage;
   final int runtime;
   final int duration;
@@ -75,6 +76,7 @@ class ItemInfo {
     this.backdrops,
     this.stillPath,
     this.logo,
+    this.logos,
     this.voteAverage,
     this.runtime = 0,
     this.duration = 0,
@@ -101,7 +103,8 @@ class ItemInfo {
       poster: json['poster'],
       backdrops: json['backdrops'],
       stillPath: json['still_path'],
-      logo: json['logo'],
+      logo: json['logo'] ?? json['logos'],
+      logos: json['logos'] ?? json['logo'],
       voteAverage: json['vote_average']?.toString(),
       runtime: json['runtime'] ?? 0,
       duration: (json['duration'] ?? 0).toInt(),

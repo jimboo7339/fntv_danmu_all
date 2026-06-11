@@ -21,6 +21,8 @@ class DetailScreen extends StatefulWidget {
 
 class _DetailScreenState extends State<DetailScreen> {
   PlayInfoResponse? _playInfo;
+  Map<String, dynamic>? _itemDetail; // 来自 /v/api/v1/item/{guid}
+  List<Map<String, dynamic>> _persons = []; // 演员/导演
   List<PlayListItem> _episodes = [];
   bool _loadingInfo = true;
   bool _loadingEpisodes = false;
@@ -48,6 +50,9 @@ class _DetailScreenState extends State<DetailScreen> {
             _loadingInfo = false;
           });
           _extractPalette();
+          // 获取 item 详情（logos/backdrops）和演员信息
+          _loadItemDetail(widget.item.guid);
+          _loadPersons(widget.item.guid);
           // 判断是否需要加载剧集列表
           final type = info.type ?? widget.item.type;
           if (type == 'TV' || type == 'Episode') {
@@ -90,6 +95,29 @@ class _DetailScreenState extends State<DetailScreen> {
     } catch (e) {
       debugPrint('loadEpisodes error: $e');
       if (mounted) setState(() => _loadingEpisodes = false);
+    }
+  }
+
+  Future<void> _loadItemDetail(String guid) async {
+    try {
+      final resp = await _app.api.getItemDetail(guid);
+      if (resp['code'] == 0 && resp['data'] != null && mounted) {
+        setState(() => _itemDetail = resp['data'] as Map<String, dynamic>);
+      }
+    } catch (e) {
+      debugPrint('loadItemDetail error: $e');
+    }
+  }
+
+  Future<void> _loadPersons(String guid) async {
+    try {
+      final resp = await _app.api.getPersonList(guid);
+      if (resp['code'] == 0 && resp['data'] != null) {
+        final list = (resp['data']['list'] as List?) ?? [];
+        if (mounted) setState(() => _persons = list.whereType<Map<String, dynamic>>().toList());
+      }
+    } catch (e) {
+      debugPrint('loadPersons error: $e');
     }
   }
 
@@ -178,7 +206,8 @@ class _DetailScreenState extends State<DetailScreen> {
   }
 
   String get _backdropUrl {
-    final bd = _playInfo?.item?.backdrops;
+    final bd = _playInfo?.item?.backdrops
+        ?? _itemDetail?['backdrops']?.toString();
     if (bd != null && bd.isNotEmpty) {
       return _app.api.getImageUrl(bd, width: 1200);
     }
@@ -186,7 +215,11 @@ class _DetailScreenState extends State<DetailScreen> {
   }
 
   String get _logoUrl {
-    final logo = _playInfo?.item?.logo;
+    // play/info 可能没有 logo，从 item 详情获取
+    final logo = _playInfo?.item?.logos
+        ?? _playInfo?.item?.logo
+        ?? _itemDetail?['logos']?.toString()
+        ?? _itemDetail?['logo']?.toString();
     if (logo != null && logo.isNotEmpty) {
       return _app.api.getImageUrl(logo, width: 500);
     }
@@ -256,6 +289,7 @@ class _DetailScreenState extends State<DetailScreen> {
             child: Column(
               children: [
                 _buildInfoSection(item),
+                if (_persons.isNotEmpty) _buildActorsSection(),
                 if (_showEpisodes) ...[
                   _buildPlayButton(),
                   _buildEpisodeHeader(),
@@ -483,6 +517,60 @@ class _DetailScreenState extends State<DetailScreen> {
         borderRadius: BorderRadius.circular(6),
       ),
       child: Text(text, style: TextStyle(fontSize: 12, color: color)),
+    );
+  }
+
+  Widget _buildActorsSection() {
+    // 只显示演员（Actor），导演在标签区已体现
+    final actors = _persons.where((p) => p['job'] == 'Actor').toList();
+    if (actors.isEmpty) return const SizedBox.shrink();
+    return SizedBox(
+      height: 140,
+      child: ListView.builder(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+        itemCount: actors.length,
+        itemBuilder: (_, i) {
+          final actor = actors[i];
+          final name = actor['name']?.toString() ?? '';
+          final role = actor['role']?.toString() ?? '';
+          final profilePath = actor['profile_path']?.toString() ?? '';
+          final imgUrl = profilePath.isNotEmpty ? _app.api.getImageUrl(profilePath, width: 200) : '';
+          return Container(
+            width: 80,
+            margin: const EdgeInsets.only(right: 12),
+            child: Column(
+              children: [
+                ClipOval(
+                  child: SizedBox(
+                    width: 60, height: 60,
+                    child: imgUrl.isNotEmpty
+                      ? CachedNetworkImage(
+                          imageUrl: imgUrl,
+                          httpHeaders: _app.api.imageHeaders,
+                          fit: BoxFit.cover,
+                          errorWidget: (_, __, ___) => Container(
+                            color: const Color(0xFF2A2A2A),
+                            child: const Icon(Icons.person, color: Colors.grey, size: 30),
+                          ),
+                        )
+                      : Container(
+                          color: const Color(0xFF2A2A2A),
+                          child: const Icon(Icons.person, color: Colors.grey, size: 30),
+                        ),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(name, style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600),
+                  maxLines: 1, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center),
+                if (role.isNotEmpty)
+                  Text(role, style: const TextStyle(color: Colors.white54, fontSize: 10),
+                    maxLines: 1, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center),
+              ],
+            ),
+          );
+        },
+      ),
     );
   }
 

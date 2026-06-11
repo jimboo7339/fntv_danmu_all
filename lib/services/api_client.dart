@@ -83,6 +83,16 @@ class ApiClient {
     return resp.data;
   }
 
+  Future<Map<String, dynamic>> getItemDetail(String guid) async {
+    final resp = await _dio.get('api/v1/item/$guid');
+    return resp.data;
+  }
+
+  Future<Map<String, dynamic>> getPersonList(String itemGuid, {int page = 1, int pageSize = 200}) async {
+    final resp = await _dio.post('api/v1/person/list/$itemGuid', data: {'page': page, 'page_size': pageSize});
+    return resp.data;
+  }
+
   Future<Map<String, dynamic>> getStream(Map<String, dynamic> body) async {
     final resp = await _dio.post('api/v1/stream', data: body);
     return resp.data;
