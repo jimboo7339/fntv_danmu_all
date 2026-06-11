@@ -3,12 +3,19 @@ import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
+import 'package:gsy_video_player/gsy_video_player.dart';
 
-/// Unified video controller wrapper supporting both ExoPlayer (video_player)
-/// and MPV (media_kit) engines at runtime.
+/// Unified video controller wrapper supporting ExoPlayer, MPV, and IJK engines.
 class VideoWrapper {
-  final bool useMpv;
+  /// Engine type: 'mpv', 'exo', or 'ijk'
+  final String engine;
   final String url;
+  final Map<String, String>? headers;
+
+  /// Convenience getter for backward compatibility
+  bool get useMpv => engine == 'mpv';
+  bool get useIjk => engine == 'ijk';
+  bool get useExo => engine == 'exo';
 
   // video_player (ExoPlayer) controller
   VideoPlayerController? _exoController;
@@ -17,10 +24,13 @@ class VideoWrapper {
   Player? _mpvPlayer;
   VideoController? _mpvVideoController;
 
-  // Polling timer for media_kit state → listener pattern
+  // GSY IJK controller
+  GsyVideoPlayerController? _ijkController;
+
+  // Polling timer for media_kit / IJK state → listener pattern
   Timer? _pollTimer;
 
-  // Cached state for media_kit polling
+  // Cached state for polling engines
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
   double _aspectRatio = 16 / 9;
@@ -28,47 +38,72 @@ class VideoWrapper {
   bool _isBuffering = false;
   bool _isInitialized = false;
 
-  // Listener list (mirrors video_player's addListener/removeListener)
+  // Listener list
   final List<VoidCallback> _listeners = [];
 
   VideoWrapper({
-    required this.useMpv,
+    required this.engine,
     required this.url,
+    this.headers,
   });
+
+  // Backward compat constructor
+  VideoWrapper.legacy({
+    required bool useMpv,
+    required this.url,
+    this.headers,
+  }) : engine = useMpv ? 'mpv' : 'exo';
 
   // ── Public state getters ──────────────────────────────────────────────
 
-  Duration get position =>
-      useMpv ? _position : (_exoController?.value.position ?? Duration.zero);
+  Duration get position {
+    if (useMpv) return _position;
+    if (useIjk) return _position;
+    return _exoController?.value.position ?? Duration.zero;
+  }
 
-  Duration get duration =>
-      useMpv ? _duration : (_exoController?.value.duration ?? Duration.zero);
+  Duration get duration {
+    if (useMpv) return _duration;
+    if (useIjk) return _duration;
+    return _exoController?.value.duration ?? Duration.zero;
+  }
 
-  double get aspectRatio =>
-      useMpv ? _aspectRatio : (_exoController?.value.aspectRatio ?? 16 / 9);
+  double get aspectRatio {
+    if (useMpv) return _aspectRatio;
+    if (useIjk) return _aspectRatio;
+    return _exoController?.value.aspectRatio ?? 16 / 9;
+  }
 
-  bool get isPlaying =>
-      useMpv ? _isPlaying : (_exoController?.value.isPlaying ?? false);
+  bool get isPlaying {
+    if (useMpv) return _isPlaying;
+    if (useIjk) return _isPlaying;
+    return _exoController?.value.isPlaying ?? false;
+  }
 
-  bool get isBuffering =>
-      useMpv ? _isBuffering : (_exoController?.value.isBuffering ?? false);
+  bool get isBuffering {
+    if (useMpv) return _isBuffering;
+    if (useIjk) return _isBuffering;
+    return _exoController?.value.isBuffering ?? false;
+  }
 
-  bool get isInitialized =>
-      useMpv ? _isInitialized : (_exoController?.value.isInitialized ?? false);
+  bool get isInitialized {
+    if (useMpv) return _isInitialized;
+    if (useIjk) return _isInitialized;
+    return _exoController?.value.isInitialized ?? false;
+  }
 
   // ── Listener management ───────────────────────────────────────────────
 
   void addListener(VoidCallback listener) {
     _listeners.add(listener);
-    // For exo, also register directly so we get immediate notifications
-    if (!useMpv && _exoController != null) {
+    if (useExo && _exoController != null) {
       _exoController!.addListener(listener);
     }
   }
 
   void removeListener(VoidCallback listener) {
     _listeners.remove(listener);
-    if (!useMpv && _exoController != null) {
+    if (useExo && _exoController != null) {
       _exoController!.removeListener(listener);
     }
   }
@@ -84,6 +119,8 @@ class VideoWrapper {
   Future<void> initialize() async {
     if (useMpv) {
       await _initMpv();
+    } else if (useIjk) {
+      await _initIjk();
     } else {
       await _initExo();
     }
@@ -93,7 +130,6 @@ class VideoWrapper {
     _exoController = VideoPlayerController.networkUrl(Uri.parse(url));
     await _exoController!.initialize();
     _isInitialized = true;
-    // Register existing listeners on the exo controller
     for (final l in _listeners) {
       _exoController!.addListener(l);
     }
@@ -103,15 +139,12 @@ class VideoWrapper {
   Future<void> _initMpv() async {
     _mpvPlayer = Player(
       configuration: const PlayerConfiguration(
-        // 增大demux缓存到128MB，减少倍速播放卡顿
         bufferSize: 128 * 1024 * 1024,
-        // GPU硬件加速输出
         vo: 'gpu',
       ),
     );
     _mpvVideoController = VideoController(_mpvPlayer!);
 
-    // Listen to streams and update cached state
     _mpvPlayer!.stream.playing.listen((playing) {
       _isPlaying = playing;
       _notifyAll();
@@ -128,7 +161,6 @@ class VideoWrapper {
       _isBuffering = buf;
       _notifyAll();
     });
-    // 监听视频宽高，动态更新比例
     _mpvPlayer!.stream.width.listen((w) {
       final h = _mpvPlayer?.state.height ?? 0;
       if (w != null && w > 0 && h > 0) {
@@ -144,33 +176,93 @@ class VideoWrapper {
       }
     });
 
-    // Open without auto-play so we can seek to resume position first
     await _mpvPlayer!.open(Media(url), play: false);
     _isInitialized = true;
-
-    // MPV 性能优化：设置解码参数
     _tuneMpvPerformance();
-
-    // 主动读取视频宽高（不等stream异步回调）
     _readVideoDimensions();
-
     _notifyAll();
   }
 
-  /// MPV 性能优化：framedrop + 解码线程 + 音频同步
+  Future<void> _initIjk() async {
+    _ijkController = GsyVideoPlayerController(
+      player: GsyVideoPlayerType.ijk,
+    );
+
+    // Wait for controller to be ready
+    await Future.delayed(const Duration(milliseconds: 200));
+
+    // Set up network source with headers
+    await _ijkController!.setNetWorkBuilder(
+      url,
+      autoPlay: false,
+      mapHeadData: headers ?? {},
+      sounchTouch: true,
+      cacheWithPlay: false,
+    );
+
+    // Listen to GSY events for state updates
+    _ijkController!.addEventsListener((eventType) {
+      switch (eventType) {
+        case VideoEventType.initialized:
+        case VideoEventType.onVideoPlayerInitialized:
+          _isInitialized = true;
+          _duration = _ijkController!.value.duration;
+          final size = _ijkController!.value.size;
+          if (size != null && size.width > 0 && size.height > 0) {
+            _aspectRatio = size.width / size.height;
+          }
+          _notifyAll();
+          break;
+        case VideoEventType.onPrepared:
+          _isBuffering = false;
+          _notifyAll();
+          break;
+        case VideoEventType.onBufferingUpdate:
+          _isBuffering = _ijkController!.value.isBuffering;
+          _notifyAll();
+          break;
+        case VideoEventType.onBufferingEnd:
+          _isBuffering = false;
+          _notifyAll();
+          break;
+        case VideoEventType.onAutoCompletion:
+        case VideoEventType.onCompletion:
+          _isPlaying = false;
+          _notifyAll();
+          break;
+        case VideoEventType.onError:
+          debugPrint('IJK error: ${_ijkController!.value.errorDescription}');
+          _notifyAll();
+          break;
+        default:
+          break;
+      }
+    });
+
+    // Start position polling
+    _pollTimer = Timer.periodic(const Duration(milliseconds: 500), (_) async {
+      if (_ijkController == null) return;
+      try {
+        final pos = await _ijkController!.position;
+        if (pos != null) {
+          _position = pos;
+        }
+        _isPlaying = _ijkController!.value.isPlaying;
+        _duration = _ijkController!.value.duration;
+        _notifyAll();
+      } catch (_) {}
+    });
+  }
+
+  /// MPV performance tuning
   void _tuneMpvPerformance() {
     try {
       final native = _mpvPlayer!.platform;
       if (native != null && native is NativePlayer) {
-        // 允许解码器丢帧（网络不好时跳过卡住的帧）
         native.setProperty('framedrop', 'decoder');
-        // 视频解码线程数
         native.setProperty('vd-lavc-threads', '4');
-        // 音频同步校正
         native.setProperty('audio-sync', 'yes');
-        // 显示同步模式
         native.setProperty('video-sync', 'audio');
-        // 硬件解码
         native.setProperty('hwdec', 'auto');
         debugPrint('MPV performance tuning applied');
       }
@@ -179,9 +271,7 @@ class VideoWrapper {
     }
   }
 
-  /// 主动读取视频宽高，避免初始1秒黑边
   void _readVideoDimensions() {
-    // 多次尝试读取，MPV需要时间解码头帧
     Future.doWhile(() async {
       await Future.delayed(const Duration(milliseconds: 100));
       if (_mpvPlayer == null) return false;
@@ -193,11 +283,10 @@ class VideoWrapper {
           _aspectRatio = newRatio;
           _notifyAll();
         }
-        return false; // got dimensions, stop
+        return false;
       }
-      return true; // keep trying
+      return true;
     });
-    // 超时保护：最多试20次（2秒）
   }
 
   // ── Playback controls ─────────────────────────────────────────────────
@@ -205,6 +294,8 @@ class VideoWrapper {
   Future<void> play() async {
     if (useMpv) {
       await _mpvPlayer?.play();
+    } else if (useIjk) {
+      await _ijkController?.resume();
     } else {
       await _exoController?.play();
     }
@@ -213,6 +304,8 @@ class VideoWrapper {
   Future<void> pause() async {
     if (useMpv) {
       await _mpvPlayer?.pause();
+    } else if (useIjk) {
+      await _ijkController?.pause();
     } else {
       await _exoController?.pause();
     }
@@ -221,6 +314,8 @@ class VideoWrapper {
   Future<void> seekTo(Duration position) async {
     if (useMpv) {
       await _mpvPlayer?.seek(position);
+    } else if (useIjk) {
+      await _ijkController?.seekTo(position);
     } else {
       await _exoController?.seekTo(position);
     }
@@ -229,16 +324,17 @@ class VideoWrapper {
   Future<void> setSpeed(double speed) async {
     if (useMpv) {
       await _mpvPlayer?.setRate(speed);
+    } else if (useIjk) {
+      await _ijkController?.setSpeed(speed);
     } else {
       await _exoController?.setPlaybackSpeed(speed);
     }
   }
 
-  /// Switch audio track by index (0-based). Only works with mpv engine.
+  /// Switch audio track (MPV only)
   Future<void> setAudioTrack(int index) async {
     if (useMpv && _mpvPlayer != null) {
       try {
-        // mpv uses 1-based track IDs for embedded tracks
         final trackId = '${index + 1}';
         await _mpvPlayer!.setAudioTrack(AudioTrack(trackId, null, null));
       } catch (e) {
@@ -247,14 +343,13 @@ class VideoWrapper {
     }
   }
 
-  /// Switch subtitle track by index (0-based). Pass -1 to disable. Only works with mpv engine.
+  /// Switch subtitle track (MPV only). Pass -1 to disable.
   Future<void> setSubtitleTrack(int index) async {
     if (useMpv && _mpvPlayer != null) {
       try {
         if (index < 0) {
           await _mpvPlayer!.setSubtitleTrack(SubtitleTrack.no());
         } else {
-          // mpv uses 1-based track IDs for embedded tracks
           final trackId = '${index + 1}';
           await _mpvPlayer!.setSubtitleTrack(SubtitleTrack(trackId, null, null));
         }
@@ -273,7 +368,6 @@ class VideoWrapper {
     Color subtitleColor = Colors.white,
     double subtitleWeight = 600,
   }) {
-    // 将数值转为 FontWeight
     final fontWeight = FontWeight.values[
       ((subtitleWeight.clamp(100, 900) - 100) / 100).round().clamp(0, 8)
     ];
@@ -297,6 +391,8 @@ class VideoWrapper {
           ),
         ),
       );
+    } else if (useIjk) {
+      return GsyVideoPlayer(controller: _ijkController!);
     } else {
       return VideoPlayer(_exoController!);
     }
@@ -312,8 +408,11 @@ class VideoWrapper {
       await _mpvPlayer?.dispose();
       _mpvPlayer = null;
       _mpvVideoController = null;
+    } else if (useIjk) {
+      _ijkController?.removeEventsListener((_) {});
+      await _ijkController?.dispose();
+      _ijkController = null;
     } else {
-      // Remove registered listeners before disposing exo controller
       for (final l in _listeners) {
         _exoController?.removeListener(l);
       }

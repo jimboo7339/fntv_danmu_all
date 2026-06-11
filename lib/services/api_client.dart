@@ -112,6 +112,18 @@ class ApiClient {
     return '$_baseUrl/v/api/v1/sys/img$p?w=$width';
   }
 
+  /// 返回视频/图片请求所需的通用认证头
+  Map<String, String> get headers {
+    final h = <String, String>{
+      'Content-Type': 'application/json',
+      'Cookie': 'mode=relay',
+    };
+    if (_token != null) {
+      h['Authorization'] = _token!;
+    }
+    return h;
+  }
+
   /// 返回图片请求所需的认证头，供 CachedNetworkImage 使用
   Map<String, String> get imageHeaders {
     final headers = <String, String>{

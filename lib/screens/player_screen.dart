@@ -55,7 +55,7 @@ class PlayerScreen extends StatefulWidget {
 
 class _PlayerScreenState extends State<PlayerScreen> {
   VideoWrapper? _videoCtrl;
-  bool _useMpv = true;
+  String _engine = 'mpv';
   bool _isPlaying = false;
   bool _showControls = true;
   bool _isLocked = false;
@@ -141,7 +141,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _episodeNumber = widget.episodeNumber;
     _parentGuid = widget.parentGuid;
     _danmuOn = _appState!.danmuOn;
-    _useMpv = _appState!.playerEngine == 'mpv';
+    _engine = _appState!.playerEngine;
     // Initialize brightness and volume from system
     try {
       ScreenBrightness().current.then((v) { _currentBrightness = v; }).catchError((_) {});
@@ -262,7 +262,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
           _subtitleStreams = sd.subtitleStreams;
           _selectedSubtitleIndex = -1; // default off
           // ExoPlayer: 尝试自动提取字幕
-          if (!_useMpv && mounted) {
+          if (_engine != 'mpv' && mounted) {
             _tryExtractSubtitle();
           }
         }
@@ -362,13 +362,17 @@ class _PlayerScreenState extends State<PlayerScreen> {
     } else {
       url = _app.api.getMediaUrl(_mediaGuid!);
     }
-    debugPrint('Playing (${_useMpv ? 'mpv' : 'exo'}): $url');
+    debugPrint('Playing ($_engine): $url');
     _initVideo(url);
   }
 
   void _initVideo(String url) {
     _videoCtrl?.dispose();
-    _videoCtrl = VideoWrapper(useMpv: _useMpv, url: url);
+    _videoCtrl = VideoWrapper(
+      engine: _engine,
+      url: url,
+      headers: _app!.api.headers,
+    );
     _videoCtrl!.addListener(_videoListener);
     _videoCtrl!.initialize().then((_) {
       if (!mounted) return;
@@ -382,7 +386,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
         final seekMs = seekTs * 1000;
         debugPrint('🎯 Will seek to ${seekTs}s (${seekMs}ms) — widget=${widget.seekTs}s, server=${_serverSeekTs}s');
         // MPV 需要等视频真正加载完再 seek，用重试机制保障
-        _performSeekWithRetry(seekMs, isMpv: _useMpv);
+        _performSeekWithRetry(seekMs, isMpv: _engine == 'mpv');
       } else {
         debugPrint('ℹ️ No seek needed: widget.seekTs=${widget.seekTs}s, _serverSeekTs=${_serverSeekTs}s');
       }
@@ -1185,7 +1189,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   }
                 },
                 onLoadExternalSubtitle: _loadExternalSubtitle,
-                useMpv: _useMpv,
+                useMpv: _engine == 'mpv',
               ),
 
             // Lock button (always visible)
@@ -1225,7 +1229,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: Text(
-                  _useMpv ? 'MPV' : 'Exo',
+                  _engine == 'mpv' ? 'MPV' : (_engine == 'ijk' ? 'IJK' : 'Exo'),
                   style: const TextStyle(color: Colors.white70, fontSize: 10, fontWeight: FontWeight.w600),
                 ),
               ),
