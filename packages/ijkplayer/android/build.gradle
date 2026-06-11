@@ -32,6 +32,7 @@ repositories {
 }
 
 dependencies {
-    // ijkplayer prebuilt with all codecs
-    implementation 'tv.danmaku.ijk.media:ijkplayer-arm64:0.8.8'
+    // ijkplayer prebuilt from Maven Central (jdpxiaoming fork)
+    implementation 'io.github.jdpxiaoming:ijkplayer-java:0.0.26'
+    implementation 'io.github.jdpxiaoming:ijkplayer-arm64:0.0.26'
 }
