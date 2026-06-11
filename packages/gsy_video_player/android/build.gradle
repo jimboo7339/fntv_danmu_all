@@ -1,27 +1,11 @@
 group 'com.alizda.gsy_video_player'
 version '1.0-SNAPSHOT'
 
-buildscript {
-    ext.gsyVideoVersion  = '11.0.0'
-    ext.danmakuFlameMasterSoVersion  = '0.9.25'
-    repositories {
-        google()
-        mavenCentral()
-        maven { url 'https://jitpack.io' }
-    }
-}
-
-allprojects {
-    repositories {
-        maven { url 'https://jitpack.io' }
-        maven { url "https://maven.aliyun.com/repository/public" }
-        google()
-        mavenCentral()
-    }
-}
-
 apply plugin: 'com.android.library'
 apply plugin: 'kotlin-android'
+
+def gsyVideoVersion = '11.0.0'
+def danmakuFlameMasterSoVersion = '0.9.25'
 
 android {
     if (project.android.hasProperty("namespace")) {
@@ -47,17 +31,19 @@ android {
     defaultConfig {
         minSdkVersion 21
     }
+}
 
-    dependencies {
-        testImplementation 'org.jetbrains.kotlin:kotlin-test'
-        testImplementation 'org.mockito:mockito-core:5.0.0'
+repositories {
+    google()
+    mavenCentral()
+    maven { url 'https://jitpack.io' }
+}
 
-        implementation "com.github.CarGuo.GSYVideoPlayer:gsyvideoplayer-java:${gsyVideoVersion}"
+dependencies {
+    testImplementation 'org.jetbrains.kotlin:kotlin-test'
+    testImplementation 'org.mockito:mockito-core:5.0.0'
 
-        // ExoPlayer模式
-        implementation "com.github.CarGuo.GSYVideoPlayer:GSYVideoPlayer-exo2:${gsyVideoVersion}"
-
-        // 弹幕框架
-        implementation "com.github.CarGuo.GSYVideoPlayer:DanmakuFlameMaster:${danmakuFlameMasterSoVersion}"
-    }
+    implementation "com.github.CarGuo.GSYVideoPlayer:gsyvideoplayer-java:${gsyVideoVersion}"
+    implementation "com.github.CarGuo.GSYVideoPlayer:GSYVideoPlayer-exo2:${gsyVideoVersion}"
+    implementation "com.github.CarGuo.GSYVideoPlayer:DanmakuFlameMaster:${danmakuFlameMasterSoVersion}"
 }
