@@ -2,12 +2,15 @@ package com.fntv.ijkplayer
 
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.view.Surface
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.view.TextureRegistry
 import tv.danmaku.ijk.media.player.IjkMediaPlayer
+
+private const val TAG = "FntvIjk"
 
 class FntvIjkplayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     private lateinit var channel: MethodChannel
@@ -22,6 +25,7 @@ class FntvIjkplayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         this.binding = binding
         channel = MethodChannel(binding.binaryMessenger, "fntv_ijkplayer")
         channel.setMethodCallHandler(this)
+        Log.i(TAG, "Plugin attached")
     }
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
@@ -59,48 +63,47 @@ class FntvIjkplayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                 else -> result.notImplemented()
             }
         } catch (e: Exception) {
-            android.util.Log.e("FntvIjk", "Method call error: ${call.method}", e)
-            result.error("IJK_ERROR", "${call.method}: ${e.message}", e.stackTraceToString())
+            Log.e(TAG, "Method call error: ${call.method}", e)
+            result.error("IJK_ERROR", "${call.method}: ${e.message}", null)
         }
     }
 
     private fun create(result: MethodChannel.Result) {
         try {
             val b = binding ?: return result.error("NO_BINDING", "Plugin not attached", null)
+            
+            Log.i(TAG, "Creating texture...")
             textureEntry = b.textureRegistry.createSurfaceTexture()
             val st = textureEntry!!.surfaceTexture()
             surface = Surface(st)
+            Log.i(TAG, "Texture created, id=${textureEntry!!.id()}")
 
-            // Load native library first
-            try {
-                IjkMediaPlayer.loadLibrariesOnce(null)
-            } catch (e: UnsatisfiedLinkError) {
-                android.util.Log.e("FntvIjk", "Native library load failed", e)
-                release()
-                return result.error("NATIVE_LIB_ERROR", "Failed to load ijkplayer native libraries: ${e.message}", null)
-            }
-
-            player = IjkMediaPlayer().apply {
-                // Conservative options to avoid crashes
+            Log.i(TAG, "Creating IjkMediaPlayer...")
+            player = IjkMediaPlayer(b.applicationContext)
+            player!!.apply {
                 setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec", 1)
-                setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "opensles", 0) // disable opensles to avoid audio issues
+                setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "opensles", 0)
                 setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "protocol_whitelist", "concat,file,http,https,tcp,tls,crypto")
                 setOption(IjkMediaPlayer.OPT_CATEGORY_CODEC, "skip_loop_filter", 48)
-                setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "start-on-prepared", 0) // don't auto-start
+                setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "start-on-prepared", 0)
                 setSurface(this@FntvIjkplayerPlugin.surface)
             }
-
-            android.util.Log.i("FntvIjk", "Player created, textureId=${textureEntry!!.id()}")
+            
+            Log.i(TAG, "Player created successfully, textureId=${textureEntry!!.id()}")
             result.success(mapOf("textureId" to textureEntry!!.id()))
+        } catch (e: UnsatisfiedLinkError) {
+            Log.e(TAG, "Native library load failed!", e)
+            result.error("NATIVE_LIB_ERROR", "Failed to load ijkplayer native libs: ${e.message}", null)
         } catch (e: Exception) {
-            android.util.Log.e("FntvIjk", "Create error", e)
-            result.error("CREATE_ERROR", e.message, e.stackTraceToString())
+            Log.e(TAG, "Create error", e)
+            result.error("CREATE_ERROR", e.message, null)
         }
     }
 
     private fun setDataSource(url: String, headers: Map<String, String>, seekMs: Int, result: MethodChannel.Result) {
         try {
             val p = player ?: return result.error("NO_PLAYER", "Player not created", null)
+            Log.i(TAG, "setDataSource: url=${url.take(80)}... seekMs=$seekMs")
 
             // Set HTTP headers
             val hdr = StringBuilder()
@@ -110,26 +113,32 @@ class FntvIjkplayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             }
 
             p.dataSource = url
+            Log.i(TAG, "prepareAsync...")
             p.prepareAsync()
 
             p.setOnPreparedListener {
-                android.util.Log.i("FntvIjk", "Prepared, seekMs=$seekMs")
+                Log.i(TAG, "Prepared! seekMs=$seekMs")
                 if (seekMs > 0) p.seekTo(seekMs.toLong())
                 p.start()
                 startPolling()
-                try { result.success(null) } catch (_: IllegalStateException) {}
+                try { result.success(null) } catch (_: Exception) {}
             }
             p.setOnErrorListener { _, what, extra ->
-                android.util.Log.e("FntvIjk", "Player error: what=$what extra=$extra")
-                try { result.error("IJK_ERROR", "what=$what extra=$extra", null) } catch (_: IllegalStateException) {}
+                Log.e(TAG, "Player error: what=$what extra=$extra")
+                try { result.error("IJK_ERROR", "what=$what extra=$extra", null) } catch (_: Exception) {}
                 true
             }
             p.setOnCompletionListener {
+                Log.i(TAG, "Playback completed")
                 handler.post { channel.invokeMethod("onCompleted", null) }
             }
+            p.setOnInfoListener { _, what, extra ->
+                Log.d(TAG, "Info: what=$what extra=$extra")
+                false
+            }
         } catch (e: Exception) {
-            android.util.Log.e("FntvIjk", "setDataSource error", e)
-            result.error("SET_DATA_ERROR", e.message, e.stackTraceToString())
+            Log.e(TAG, "setDataSource error", e)
+            result.error("SET_DATA_ERROR", e.message, null)
         }
     }
 
@@ -165,5 +174,6 @@ class FntvIjkplayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         surface = null
         textureEntry?.release()
         textureEntry = null
+        Log.i(TAG, "Released")
     }
 }
