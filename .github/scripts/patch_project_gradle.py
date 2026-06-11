@@ -6,6 +6,7 @@ BUILD_GRADLE = '''allprojects {
     repositories {
         google()
         mavenCentral()
+        maven { url 'https://jitpack.io' }
     }
 
     // Force kotlin-stdlib to match the Kotlin plugin version

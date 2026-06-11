@@ -48,6 +48,10 @@ jobs:
       - name: Write signed build.gradle
         run: python3 .github/scripts/patch_signing.py
 
+      - name: Install Android SDK 35 (for gsy_video_player)
+        run: |
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-35" "platforms;android-36" 2>/dev/null || true
+
       - name: Build APK with auto version
         run: |
           flutter pub get
