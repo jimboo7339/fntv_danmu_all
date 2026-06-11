@@ -297,9 +297,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   void _startDanmuTimer() {
     _danmuTimer?.cancel();
-    // 每100ms刷新一次弹幕位置（60fps不够，因为setState有开销）
+    int tickCount = 0;
+    // 每100ms刷新一次弹幕位置
     _danmuTimer = Timer.periodic(const Duration(milliseconds: 100), (_) {
-      if (mounted && _isPlaying && _danmuOn) {
+      if (!mounted) return;
+      tickCount++;
+      if (tickCount <= 5 || tickCount % 30 == 0) {
+        debugPrint('DanmuTimer: tick=$tickCount playing=$_isPlaying danmuOn=$_danmuOn items=${_danmuItems.length} pos=${_videoCtrl?.position.inMilliseconds ?? 0}ms');
+      }
+      if (_isPlaying && _danmuOn) {
         setState(() {}); // 触发rebuild更新弹幕currentTime
       }
     });
