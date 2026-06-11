@@ -69,7 +69,6 @@ class AppState extends ChangeNotifier {
         _isLoggedIn = true;
       }
     }
-    _loadWatchHistory();
   }
 
   // ====== Accounts ======
@@ -102,7 +101,6 @@ class AppState extends ChangeNotifier {
     await _prefs.setString('active_account_id', account.id);
     // Clear watch history on account switch
     _watchHistory.clear();
-    await _prefs.remove('watch_history');
     _isLoggedIn = true;
     notifyListeners();
     return true;
@@ -150,7 +148,6 @@ class AppState extends ChangeNotifier {
         // Clear watch history on account switch
         final lastHost = _prefs.getString('last_host') ?? '';
         if (lastHost != host && lastHost.isNotEmpty) {
-          await _prefs.remove('watch_history');
           _watchHistory.clear();
         }
         await _prefs.setString('last_host', host);
@@ -178,27 +175,15 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  // ====== Watch History ======
+  // ====== Watch History (服务端驱动) ======
 
-  void _loadWatchHistory() {
-    final json = _prefs.getString('watch_history');
-    if (json != null) {
-      try {
-        final list = jsonDecode(json) as List;
-        _watchHistory = list.map((e) => WatchRecord.fromJson(e)).toList();
-        _watchHistory.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
-      } catch (_) {
-        _watchHistory = [];
-      }
-    }
-  }
-
-  /// 从服务端获取继续观看列表并合并到本地历史
+  /// 从服务端获取继续观看列表（替换本地缓存）
   Future<void> fetchServerPlayList() async {
     try {
       final resp = await api.getPlayList();
       if (resp['code'] == 0 && resp['data'] != null) {
         final serverList = resp['data'] as List;
+        final newList = <WatchRecord>[];
         for (final item in serverList) {
           final guid = item['itemId'] ?? item['guid'] ?? '';
           if (guid.isEmpty) continue;
@@ -208,29 +193,17 @@ class AppState extends ChangeNotifier {
           final duration = ((item['duration'] ?? 0) as num).toInt();
           final lastPlayTime = ((item['lastPlayTime'] ?? 0) as num).toInt();
           if (duration <= 0) continue;
-          // 用服务端数据构建 WatchRecord
-          final record = WatchRecord(
+          newList.add(WatchRecord(
             guid: guid,
             title: name,
             poster: poster,
             ts: position,
             duration: duration,
             updatedAt: lastPlayTime > 0 ? lastPlayTime * 1000 : DateTime.now().millisecondsSinceEpoch,
-          );
-          // 合并：如果本地已有同 guid 且更新，保留本地；否则用服务端
-          final existingIdx = _watchHistory.indexWhere((r) => r.guid == guid);
-          if (existingIdx >= 0) {
-            final existing = _watchHistory[existingIdx];
-            if (existing.updatedAt < record.updatedAt) {
-              _watchHistory[existingIdx] = record;
-            }
-          } else {
-            _watchHistory.add(record);
-          }
-          debugPrint('ServerRecord: $name pos=$position dur=$duration ts=${record.ts}');
+          ));
         }
-        _watchHistory.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
-        if (_watchHistory.length > 100) _watchHistory = _watchHistory.sublist(0, 100);
+        newList.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+        _watchHistory = newList;
         notifyListeners();
       }
     } catch (e) {
@@ -238,18 +211,13 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// 更新内存中的观看记录（用于UI即时刷新，不持久化）
   void addWatchRecord(WatchRecord record) {
     record.updatedAt = DateTime.now().millisecondsSinceEpoch;
     _watchHistory.removeWhere((r) => r.dedupKey == record.dedupKey);
     _watchHistory.insert(0, record);
     if (_watchHistory.length > 100) _watchHistory = _watchHistory.sublist(0, 100);
-    _saveWatchHistory();
     notifyListeners();
-  }
-
-  void _saveWatchHistory() {
-    final json = jsonEncode(_watchHistory.map((r) => r.toJson()).toList());
-    _prefs.setString('watch_history', json);
   }
 
   // ====== Settings ======
@@ -290,11 +258,32 @@ class AppState extends ChangeNotifier {
   bool get danmuBottom => _prefs.getBool('danmu_bottom') ?? true;
   set danmuBottom(bool v) { _prefs.setBool('danmu_bottom', v); notifyListeners(); }
 
+  bool get danmuAntiOverlap => _prefs.getBool('danmu_anti_overlap') ?? false;
+  set danmuAntiOverlap(bool v) { _prefs.setBool('danmu_anti_overlap', v); notifyListeners(); }
+
+  bool get danmuMergeDuplicates => _prefs.getBool('danmu_merge_dup') ?? false;
+  set danmuMergeDuplicates(bool v) { _prefs.setBool('danmu_merge_dup', v); notifyListeners(); }
+
+  // ====== 字幕样式 (MPV) ======
+
+  double get subtitleSize => _prefs.getDouble('subtitle_size') ?? 22.0;
+  set subtitleSize(double v) { _prefs.setDouble('subtitle_size', v); notifyListeners(); }
+
+  double get subtitleOutline => _prefs.getDouble('subtitle_outline') ?? 1.5;
+  set subtitleOutline(double v) { _prefs.setDouble('subtitle_outline', v); notifyListeners(); }
+
+  bool get subtitleBackground => _prefs.getBool('subtitle_background') ?? false;
+  set subtitleBackground(bool v) { _prefs.setBool('subtitle_background', v); notifyListeners(); }
+
+  int get subtitleColorValue => _prefs.getInt('subtitle_color') ?? 0xFFFFFFFF;
+  set subtitleColorValue(int v) { _prefs.setInt('subtitle_color', v); notifyListeners(); }
+
+  // ====== 弹幕服务器（独立于账号，app级存储） ======
+
   String get danmuUrl {
     final saved = _prefs.getString('danmu_url') ?? '';
     if (saved.isNotEmpty) return saved;
-    final host = serverHost.replaceAll(RegExp(r'^https?://'), '').replaceAll(RegExp(r'/.*$'), '').replaceAll(RegExp(r':\d+$'), '');
-    return 'http://$host:9321';
+    return ''; // 不再自动派生，让用户自己设置
   }
 
   set danmuUrl(String v) { _prefs.setString('danmu_url', v); notifyListeners(); }

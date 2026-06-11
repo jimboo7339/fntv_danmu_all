@@ -147,18 +147,6 @@ class SettingsScreen extends StatelessWidget {
               ),
               const SizedBox(height: 16),
 
-              // 弹幕服务器
-              _sectionTitle('弹幕服务器'),
-              Card(
-                child: ListTile(
-                  title: const Text('弹幕 API 地址'),
-                  subtitle: Text(app.danmuUrl),
-                  trailing: const Icon(Icons.edit_rounded),
-                  onTap: () => _editDanmuUrl(context, app),
-                ),
-              ),
-              const SizedBox(height: 16),
-
               // 账号管理
               _sectionTitle('账号管理'),
               Card(
@@ -316,18 +304,6 @@ class SettingsScreen extends StatelessWidget {
         title: Text('$s 秒'),
         onChanged: (v) { app.seekStep = v!; Navigator.pop(ctx); },
       )).toList(),
-    ));
-  }
-
-  void _editDanmuUrl(BuildContext ctx, AppState app) {
-    final ctrl = TextEditingController(text: app.danmuUrl);
-    showDialog(context: ctx, builder: (_) => AlertDialog(
-      title: const Text('弹幕 API 地址'),
-      content: TextField(controller: ctrl, decoration: const InputDecoration(hintText: 'http://host:9321')),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
-        ElevatedButton(onPressed: () { app.danmuUrl = ctrl.text.trim(); Navigator.pop(ctx); }, child: const Text('保存')),
-      ],
     ));
   }
 

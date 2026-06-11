@@ -121,6 +121,21 @@ class VideoWrapper {
       _isBuffering = buf;
       _notifyAll();
     });
+    // 监听视频宽高，动态更新比例
+    _mpvPlayer!.stream.width.listen((w) {
+      final h = _mpvPlayer?.state.height ?? 0;
+      if (w != null && w > 0 && h > 0) {
+        _aspectRatio = w / h;
+        _notifyAll();
+      }
+    });
+    _mpvPlayer!.stream.height.listen((h) {
+      final w = _mpvPlayer?.state.width ?? 0;
+      if (h != null && h > 0 && w > 0) {
+        _aspectRatio = w / h;
+        _notifyAll();
+      }
+    });
 
     // Open without auto-play so we can seek to resume position first
     await _mpvPlayer!.open(Media(url), play: false);
@@ -194,20 +209,29 @@ class VideoWrapper {
 
   // ── Widget builder ────────────────────────────────────────────────────
 
-  Widget buildVideo() {
+  Widget buildVideo({
+    double subtitleSize = 18,
+    double subtitleOutline = 1.5,
+    bool subtitleBackground = false,
+    Color subtitleColor = Colors.white,
+  }) {
     if (useMpv) {
       return Video(
         controller: _mpvVideoController!,
-        controls: (state) => const SizedBox.shrink(), // 禁用media_kit内置controls
-        subtitleViewConfiguration: const SubtitleViewConfiguration(
+        controls: (state) => const SizedBox.shrink(),
+        subtitleViewConfiguration: SubtitleViewConfiguration(
           visible: true,
+          textScaleFactor: subtitleSize / 18.0,
           style: TextStyle(
-            color: Colors.white,
-            fontSize: 18,
+            color: subtitleColor,
+            fontSize: subtitleSize,
+            fontWeight: FontWeight.bold,
             shadows: [
-              Shadow(blurRadius: 4, color: Colors.black),
-              Shadow(blurRadius: 4, color: Colors.black),
+              Shadow(blurRadius: subtitleOutline, color: Colors.black),
+              Shadow(blurRadius: subtitleOutline, color: Colors.black),
+              Shadow(blurRadius: subtitleOutline, color: Colors.black),
             ],
+            backgroundColor: subtitleBackground ? Colors.black54 : Colors.transparent,
           ),
         ),
       );

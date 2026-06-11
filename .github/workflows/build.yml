@@ -84,25 +84,24 @@ jobs:
         with:
           path: artifacts
 
-      - name: Create Release with Chinese Notes
+      - name: Get tag message
+        id: tag_msg
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          # Get annotated tag message, fallback to commit message
+          MSG=$(git tag -l --format='%(contents)' "$TAG" 2>/dev/null || true)
+          if [ -z "$MSG" ]; then
+            MSG=$(git log -1 --pretty=%B)
+          fi
+          # Write to file for multi-line content
+          echo "$MSG" > /tmp/release_notes.md
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+
+      - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           files: artifacts/android-apk/*.apk
-          body: |
-            ## 飞牛TV v${{ github.ref_name }} 更新
-
-            ### 本次更新
-            - 🎬 新增 MPV (libmpv) 播放内核，解码能力大幅提升
-            - ⚙️ 设置页可切换播放内核 (MPV / ExoPlayer)
-            - 📝 弹幕设置独立为二级子菜单
-            - 👤 多账号管理，支持不同服务器账号切换
-            - 🔧 修复退出登录自动重登问题
-            - 🎨 底部导航栏 + SafeArea 全面优化
-            - 🔏 固定签名，支持覆盖安装
-
-            ### 下载说明
-            下载 APK 文件直接安装即可。首次安装需要卸载旧版本（签名变更）。
-            后续版本可直接覆盖安装。
+          body_path: /tmp/release_notes.md
           draft: false
           prerelease: false

@@ -446,7 +446,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       }
 
       // 解析弹幕格式：m=文本, p="时间,模式,颜色,用户ID"
-      final danmuList = <DanmuComment>[];
+      var danmuList = <DanmuComment>[];
       for (final c in comments) {
         if (c is! Map) continue;
         final text = c['m']?.toString() ?? c['text']?.toString() ?? c['content']?.toString() ?? '';
@@ -492,6 +492,32 @@ class _PlayerScreenState extends State<PlayerScreen> {
       debugPrint('Danmu: loaded ${danmuList.length} comments');
       // 必须按时间排序，渲染器假设已排序（遇到未来时间会break）
       danmuList.sort((a, b) => a.time.compareTo(b.time));
+      // 合并重复弹幕
+      if (_app.danmuMergeDuplicates && danmuList.length > 1) {
+        final merged = <DanmuComment>[];
+        final Map<String, int> recentTexts = {}; // text -> index in merged
+        for (final c in danmuList) {
+          final key = c.text;
+          final existing = recentTexts[key];
+          if (existing != null && (c.time - merged[existing].time).abs() < 2.0) {
+            // 合并：替换文本加上计数
+            final count = (merged[existing].text.contains(' x ') 
+                ? int.tryParse(merged[existing].text.split(' x ').last) ?? 1 
+                : 1) + 1;
+            merged[existing] = DanmuComment(
+              text: '$key x $count',
+              time: merged[existing].time,
+              color: merged[existing].color,
+              type: merged[existing].type,
+            );
+          } else {
+            recentTexts[key] = merged.length;
+            merged.add(c);
+          }
+        }
+        debugPrint('Danmu: merged ${danmuList.length} -> ${merged.length}');
+        danmuList = merged;
+      }
       if (mounted && danmuList.isNotEmpty) {
         setState(() => _danmuItems = danmuList);
       }
@@ -635,7 +661,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
               child: _isInitialized && _videoCtrl != null
                   ? AspectRatio(
                       aspectRatio: _videoCtrl!.aspectRatio,
-                      child: _videoCtrl!.buildVideo(),
+                      child: _videoCtrl!.buildVideo(
+                        subtitleSize: _app.subtitleSize,
+                        subtitleOutline: _app.subtitleOutline,
+                        subtitleBackground: _app.subtitleBackground,
+                        subtitleColor: Color(_app.subtitleColorValue),
+                      ),
                     )
                   : const Center(child: CircularProgressIndicator(color: FnTheme.danmuGreen)),
             ),
