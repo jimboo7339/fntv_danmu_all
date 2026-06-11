@@ -149,15 +149,23 @@ class _DetailScreenState extends State<DetailScreen> {
 
   String get _posterUrl {
     final p = _bestPoster;
-    if (p.isNotEmpty) return _app.api.getImageUrl(p, width: 600);
+    if (p.isNotEmpty) {
+      final url = _app.api.getImageUrl(p, width: 600);
+      debugPrint('PosterUrl: poster=$p -> $url');
+      return url;
+    }
+    debugPrint('PosterUrl: no poster found (playInfo.poster=${_playInfo?.item?.poster}, playInfo.posterPath=${_playInfo?.posterPath}, item.poster=${widget.item.poster})');
     return '';
   }
 
   String get _backdropUrl {
     final bd = _playInfo?.item?.backdrops;
     if (bd != null && bd.isNotEmpty) {
-      return _app.api.getImageUrl(bd, width: 1200);
+      final url = _app.api.getImageUrl(bd, width: 1200);
+      debugPrint('BackdropUrl: backdrops=$bd -> $url');
+      return url;
     }
+    debugPrint('BackdropUrl: no backdrops found');
     return '';
   }
 
@@ -423,10 +431,21 @@ class _DetailScreenState extends State<DetailScreen> {
         width: double.infinity,
         height: 52,
         child: ElevatedButton.icon(
-          onPressed: () => _playItem(widget.item),
+          onPressed: () {
+            if (_isTvShow && _episodes.isNotEmpty) {
+              // TV show: play first unwatched or first episode
+              final firstUnwatched = _episodes.firstWhere(
+                (e) => e.watched == 0,
+                orElse: () => _episodes.first,
+              );
+              _playItem(firstUnwatched);
+            } else {
+              _playItem(widget.item);
+            }
+          },
           icon: const Icon(Icons.play_arrow_rounded, size: 28),
           label: Text(
-            _isTvShow ? '播放第一集' : '播放',
+            _isTvShow && _episodes.isNotEmpty ? '播放' : '播放',
             style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
           ),
           style: ElevatedButton.styleFrom(
@@ -490,6 +509,7 @@ class _DetailScreenState extends State<DetailScreen> {
         : '';
     final hasProgress = ep.ts > 0 && ep.duration > 0;
     final progress = hasProgress ? ep.ts / ep.duration : 0.0;
+    final epNum = ep.episodeNumber > 0 ? ep.episodeNumber : index + 1;
 
     return InkWell(
       onTap: () => _playItem(ep),
@@ -514,13 +534,13 @@ class _DetailScreenState extends State<DetailScreen> {
                       imageUrl: posterUrl,
                       fit: BoxFit.cover,
                       errorWidget: (_, __, ___) => Center(
-                        child: Text('${ep.episodeNumber > 0 ? ep.episodeNumber : index + 1}',
+                        child: Text('$epNum',
                           style: const TextStyle(color: FnTheme.textMuted, fontSize: 18, fontWeight: FontWeight.bold)),
                       ),
                     )
                   else
                     Center(
-                      child: Text('${ep.episodeNumber > 0 ? ep.episodeNumber : index + 1}',
+                      child: Text('$epNum',
                         style: const TextStyle(color: FnTheme.textMuted, fontSize: 18, fontWeight: FontWeight.bold)),
                     ),
                   // Play icon overlay
@@ -542,46 +562,52 @@ class _DetailScreenState extends State<DetailScreen> {
               ),
             ),
             const SizedBox(width: 14),
-            // Episode info
+            // Episode info — 集数 + 标题 + 描述一起显示
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // 集数 + 标题
                   Text(
-                    ep.title ?? '第 ${ep.episodeNumber > 0 ? ep.episodeNumber : index + 1} 集',
+                    '第$epNum集${ep.title != null && ep.title!.isNotEmpty ? '  ${ep.title}' : ''}',
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                       fontSize: 14,
-                      fontWeight: FontWeight.w500,
+                      fontWeight: FontWeight.w600,
                       color: FnTheme.textPrimary,
                     ),
                   ),
+                  // 描述
                   if (ep.overview != null && ep.overview!.isNotEmpty) ...[
                     const SizedBox(height: 4),
                     Text(
                       ep.overview!,
-                      maxLines: 1,
+                      maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 12, color: FnTheme.textMuted),
+                      style: const TextStyle(fontSize: 12, color: FnTheme.textMuted, height: 1.4),
                     ),
                   ],
-                  if (ep.duration > 0) ...[
+                  // 时长 + 已看标记
+                  if (ep.duration > 0 || ep.watched > 0) ...[
                     const SizedBox(height: 4),
-                    Text(
-                      _formatDuration(ep.duration),
-                      style: const TextStyle(fontSize: 11, color: FnTheme.textMuted),
+                    Row(
+                      children: [
+                        if (ep.duration > 0)
+                          Text(
+                            _formatDuration(ep.duration),
+                            style: const TextStyle(fontSize: 11, color: FnTheme.textMuted),
+                          ),
+                        if (ep.watched > 0) ...[
+                          const SizedBox(width: 8),
+                          const Icon(Icons.check_circle_rounded, color: FnTheme.danmuGreen, size: 14),
+                        ],
+                      ],
                     ),
                   ],
                 ],
               ),
             ),
-            // Watched indicator
-            if (ep.watched > 0)
-              const Padding(
-                padding: EdgeInsets.only(left: 8),
-                child: Icon(Icons.check_circle_rounded, color: FnTheme.danmuGreen, size: 20),
-              ),
           ],
         ),
       ),

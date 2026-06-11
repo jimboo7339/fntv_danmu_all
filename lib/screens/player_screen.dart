@@ -10,6 +10,8 @@ import '../models/play_list_item.dart';
 import '../models/danmu_comment.dart';
 import '../models/watch_record.dart';
 import '../utils/format.dart';
+import 'package:crypto/crypto.dart';
+import 'dart:convert';
 import '../utils/theme.dart';
 import '../widgets/danmu_overlay.dart';
 import '../widgets/player_controls.dart';
@@ -152,12 +154,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Future<void> _fetchStreamInfo() async {
     if (_mediaGuid == null) return;
     try {
+      // ip = 账号的 MD5 哈希（32位十六进制），和原版 app 一致
+      final account = _app.currentAccount?.user ?? 'video';
+      final ipHash = _md5Hex(account);
       final body = <String, dynamic>{
         'header': {
           'User-Agent': ['Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36']
         },
         'level': 1,
         'media_guid': _mediaGuid,
+        'ip': ipHash,
         'nonce': (100000 + (DateTime.now().millisecondsSinceEpoch % 900000)).toString(),
       };
       final resp = await _app.api.getStream(body);
@@ -519,5 +525,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
         ),
       ),
     );
+  }
+
+  String _md5Hex(String input) {
+    return md5.convert(utf8.encode(input)).toString();
   }
 }
