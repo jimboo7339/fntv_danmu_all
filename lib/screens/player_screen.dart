@@ -9,16 +9,20 @@ import '../models/play_info.dart';
 import '../models/stream_response.dart';
 import '../models/play_list_item.dart';
 import '../models/danmu_comment.dart';
+import '../models/subtitle_data.dart';
 import '../models/watch_record.dart';
 import '../utils/format.dart';
 import 'package:crypto/crypto.dart';
 import 'dart:convert';
 import '../utils/theme.dart';
 import '../widgets/danmu_overlay.dart';
+import '../widgets/subtitle_overlay.dart';
 import '../widgets/player_controls.dart';
 import '../services/video_wrapper.dart';
 import 'package:screen_brightness/screen_brightness.dart';
 import 'package:flutter_volume_controller/flutter_volume_controller.dart';
+import 'package:file_picker/file_picker.dart';
+import 'dart:io';
 
 class PlayerScreen extends StatefulWidget {
   final String itemGuid;
@@ -82,6 +86,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
   List<SubtitleStreamInfo>? _subtitleStreams;
   int _selectedAudioIndex = 0;
   int _selectedSubtitleIndex = -1; // -1 = off
+
+  // 软件字幕（ExoPlayer 用）
+  SubtitleData? _softwareSubtitle;
 
   // Direct link
   String _cloudDirectUrl = '';
@@ -253,23 +260,94 @@ class _PlayerScreenState extends State<PlayerScreen> {
         if (sd.subtitleStreams != null && sd.subtitleStreams!.isNotEmpty) {
           _subtitleStreams = sd.subtitleStreams;
           _selectedSubtitleIndex = -1; // default off
-          // ExoPlayer 不支持内嵌字幕提取，提示切换 MPV
+          // ExoPlayer: 尝试自动提取字幕
           if (!_useMpv && mounted) {
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('检测到字幕，建议在设置中切换到 MPV 内核以显示字幕'),
-                    duration: Duration(seconds: 4),
-                  ),
-                );
-              }
-            });
+            _tryExtractSubtitle();
           }
         }
       }
     } catch (e) {
       debugPrint('fetchStreamInfo error: $e');
+    }
+  }
+
+  /// ExoPlayer: 尝试从服务器自动提取字幕
+  Future<void> _tryExtractSubtitle() async {
+    if (_mediaGuid == null) return;
+    try {
+      // 尝试多种可能的字幕 API 路径
+      final baseUrl = _app.api.baseUrl;
+      final endpoints = [
+        '$baseUrl/v/api/v1/subtitle/$_mediaGuid',
+        '$baseUrl/v/api/v1/media/subtitle/$_mediaGuid',
+        '$baseUrl/v/api/v1/media/range/$_mediaGuid?stream=subtitle',
+      ];
+      for (final url in endpoints) {
+        try {
+          final resp = await _app.api.dio.get(url,
+            options: Options(responseType: ResponseType.plain, validateStatus: (s) => s != null && s < 500),
+          );
+          if (resp.statusCode == 200 && resp.data is String && resp.data.toString().isNotEmpty) {
+            final content = resp.data.toString();
+            // 检测格式并解析
+            SubtitleData? data;
+            if (content.contains('-->')) {
+              if (content.trimLeft().startsWith('WEBVTT')) {
+                data = SubtitleData.parseVtt(content);
+              } else {
+                data = SubtitleData.parseSrt(content);
+              }
+            }
+            if (data != null && data.entries.isNotEmpty && mounted) {
+              setState(() => _softwareSubtitle = data);
+              debugPrint('✅ Auto-loaded ${data.entries.length} subtitle entries from $url');
+              return;
+            }
+          }
+        } catch (_) {}
+      }
+      debugPrint('ℹ️ No server subtitle endpoint found, user can load external SRT');
+    } catch (e) {
+      debugPrint('Subtitle extraction error: $e');
+    }
+  }
+
+  /// 加载外部 SRT/VTT 字幕文件
+  Future<void> _loadExternalSubtitle() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['srt', 'vtt', 'ass', 'txt'],
+      );
+      if (result == null || result.files.isEmpty) return;
+      final file = result.files.first;
+      String? content;
+      if (file.path != null) {
+        content = await File(file.path!).readAsString();
+      } else if (file.bytes != null) {
+        content = String.fromCharCodes(file.bytes!);
+      }
+      if (content == null || content.isEmpty) return;
+
+      SubtitleData? data;
+      final lower = file.name.toLowerCase();
+      if (lower.endsWith('.vtt')) {
+        data = SubtitleData.parseVtt(content);
+      } else {
+        data = SubtitleData.parseSrt(content);
+      }
+
+      if (data.entries.isNotEmpty && mounted) {
+        setState(() => _softwareSubtitle = data);
+        debugPrint('✅ Loaded ${data.entries.length} subtitle entries from ${file.name}');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('已加载 ${data.entries.length} 条字幕'), duration: const Duration(seconds: 2)),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('Load subtitle error: $e');
     }
   }
 
@@ -1012,6 +1090,18 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 topMargin: _app.danmuTopMargin,
               ),
 
+            // 软件字幕覆盖层（ExoPlayer 用）
+            if (_softwareSubtitle != null && _softwareSubtitle!.isNotEmpty)
+              SubtitleOverlay(
+                subtitleData: _softwareSubtitle,
+                currentPosition: _videoCtrl?.position ?? Duration.zero,
+                fontSize: appState.subtitleSize,
+                outline: appState.subtitleOutline,
+                showBackground: appState.subtitleBackground,
+                color: Color(appState.subtitleColorValue),
+                bottomMargin: appState.subtitleBottomMargin,
+              ),
+
             // Controls
             if (_showControls)
               PlayerControls(
@@ -1093,6 +1183,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     _loadDanmuFromSource(data);
                   }
                 },
+                onLoadExternalSubtitle: _loadExternalSubtitle,
+                useMpv: _useMpv,
               ),
 
             // Lock button (always visible)

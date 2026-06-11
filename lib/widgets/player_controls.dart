@@ -38,6 +38,8 @@ class PlayerControls extends StatelessWidget {
   final String showName;
   final Map<String, dynamic>? currentDanmuSource;
   final void Function(Map<String, dynamic>) onDanmuSourceSelected;
+  final VoidCallback? onLoadExternalSubtitle;
+  final bool useMpv;
 
   const PlayerControls({
     super.key,
@@ -71,6 +73,8 @@ class PlayerControls extends StatelessWidget {
     this.showName = '',
     this.currentDanmuSource,
     required this.onDanmuSourceSelected,
+    this.onLoadExternalSubtitle,
+    this.useMpv = true,
   });
 
   @override
@@ -180,6 +184,8 @@ class PlayerControls extends StatelessWidget {
                       if (audioStreams != null && audioStreams!.length > 1)
                         _ctrlBtn('音频', () => _showAudioMenu(context)),
                       if (subtitleStreams != null && subtitleStreams!.isNotEmpty)
+                        _ctrlBtn('字幕', () => _showSubtitlePanel(context))
+                      else if (!useMpv && onLoadExternalSubtitle != null)
                         _ctrlBtn('字幕', () => _showSubtitlePanel(context)),
                     ],
                   ),
@@ -328,7 +334,6 @@ class PlayerControls extends StatelessWidget {
   // ── 字幕：右侧滑入面板（选择+样式） ─────────────────────
 
   void _showSubtitlePanel(BuildContext context) {
-    if (subtitleStreams == null) return;
     showGeneralDialog(
       context: context,
       barrierDismissible: true,
@@ -343,12 +348,17 @@ class PlayerControls extends StatelessWidget {
             position: Tween<Offset>(begin: const Offset(1, 0), end: Offset.zero)
                 .animate(CurvedAnimation(parent: anim, curve: Curves.easeOut)),
             child: _SubtitlePanel(
-              subtitleStreams: subtitleStreams!,
+              subtitleStreams: subtitleStreams ?? [],
               selectedIndex: selectedSubtitleIndex,
               onSelect: (idx) {
                 Navigator.pop(ctx);
                 onSubtitleSelected(idx);
               },
+              onLoadExternal: onLoadExternalSubtitle != null ? () {
+                Navigator.pop(ctx);
+                onLoadExternalSubtitle!();
+              } : null,
+              useMpv: useMpv,
             ),
           ),
         );
@@ -543,11 +553,15 @@ class _SubtitlePanel extends StatefulWidget {
   final List<SubtitleStreamInfo> subtitleStreams;
   final int selectedIndex;
   final void Function(int) onSelect;
+  final VoidCallback? onLoadExternal;
+  final bool useMpv;
 
   const _SubtitlePanel({
     required this.subtitleStreams,
     required this.selectedIndex,
     required this.onSelect,
+    this.onLoadExternal,
+    this.useMpv = true,
   });
 
   @override
@@ -624,6 +638,36 @@ class _SubtitlePanelState extends State<_SubtitlePanel> {
                       ),
                     );
                   }),
+                  // ExoPlayer: 加载外部字幕按钮
+                  if (widget.onLoadExternal != null) ...[
+                    const SizedBox(height: 8),
+                    GestureDetector(
+                      onTap: widget.onLoadExternal,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.08),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.white24),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.file_open_rounded, color: FnTheme.danmuGreen, size: 18),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                widget.subtitleStreams.isEmpty
+                                    ? '加载外部字幕 (SRT/VTT)'
+                                    : '加载外部字幕',
+                                style: const TextStyle(color: Colors.white, fontSize: 13),
+                              ),
+                            ),
+                            const Icon(Icons.chevron_right, color: Colors.white38, size: 18),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
                   const Divider(color: Colors.white12, height: 24),
                   // 字幕样式
                   const Text('字幕样式', style: TextStyle(
