@@ -95,14 +95,8 @@ class _DanmuPainter extends CustomPainter {
     this.showOutline = true,
   });
 
-  static int _debugFrameCount = 0;
-
   @override
   void paint(Canvas canvas, Size size) {
-    _debugFrameCount++;
-    if (_debugFrameCount <= 5 || _debugFrameCount % 50 == 0) {
-      debugPrint('DanmuPaint: comments=${comments.isEmpty ? 0 : comments.length} size=${size.width}x${size.height} curMs=${currentTime.toStringAsFixed(0)} active=${activeScroll.length}');
-    }
     if (comments.isEmpty || size.width <= 0) return;
 
     final now = DateTime.now().millisecondsSinceEpoch / 1000.0;

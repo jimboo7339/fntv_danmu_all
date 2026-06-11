@@ -297,16 +297,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   void _startDanmuTimer() {
     _danmuTimer?.cancel();
-    int tickCount = 0;
-    // 每100ms刷新一次弹幕位置
     _danmuTimer = Timer.periodic(const Duration(milliseconds: 100), (_) {
-      if (!mounted) return;
-      tickCount++;
-      if (tickCount <= 5 || tickCount % 30 == 0) {
-        debugPrint('DanmuTimer: tick=$tickCount playing=$_isPlaying danmuOn=$_danmuOn items=${_danmuItems.length} pos=${_videoCtrl?.position.inMilliseconds ?? 0}ms');
-      }
-      if (_isPlaying && _danmuOn) {
-        setState(() {}); // 触发rebuild更新弹幕currentTime
+      if (mounted && _isPlaying && _danmuOn) {
+        setState(() {});
       }
     });
   }
@@ -503,6 +496,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
             }
           }
         }
+
+        // 确保颜色有alpha通道（API返回的0xFFFFFF实际是0x00FFFFFF=透明）
+        if (color <= 0xFFFFFF) color |= 0xFF000000;
 
         danmuList.add(DanmuComment(text: text, time: time, color: color, type: type));
       }
