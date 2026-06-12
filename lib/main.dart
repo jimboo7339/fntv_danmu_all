@@ -36,7 +36,14 @@ class FnTvApp extends StatelessWidget {
             title: '飞牛TV',
             debugShowCheckedModeBanner: false,
             theme: FnTheme.dark,
-            home: app.isLoggedIn ? const MainShell() : const LoginScreen(),
+            home: !app.initDone
+                ? const Scaffold(
+                    backgroundColor: Color(0xFF0D0D0D),
+                    body: Center(
+                      child: CircularProgressIndicator(color: FnTheme.danmuGreen),
+                    ),
+                  )
+                : (app.isLoggedIn ? const MainShell() : const LoginScreen()),
           );
         },
       ),

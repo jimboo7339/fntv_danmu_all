@@ -76,7 +76,8 @@ class _DanmuOverlayState extends State<DanmuOverlay>
     if (widget.comments.length != oldWidget.comments.length ||
         widget.fontSize != oldWidget.fontSize ||
         widget.showOutline != oldWidget.showOutline ||
-        widget.opacity != oldWidget.opacity) {
+        widget.opacity != oldWidget.opacity ||
+        widget.speed != oldWidget.speed) {
       _activeScroll.clear();
       _activeStatic.clear();
       _paragraphCache.clear();
@@ -204,7 +205,7 @@ class _DanmuPainter extends CustomPainter {
     final maxRow = max(1, (areaH / lnH).floor());
     final curSec = getCurrentTime().inMilliseconds / 1000.0;
     final densityWindow = 0.5 * danmuDensity.clamp(0.1, 1.0);
-    final uniformSpeed = (size.width / 6.0) * speed;
+    final uniformSpeed = (size.width / 10.0) * speed;
 
     activeScroll.removeWhere((a) => a.x + a.tw < -50);
     activeStatic.removeWhere((a) => a.ttl <= 0);

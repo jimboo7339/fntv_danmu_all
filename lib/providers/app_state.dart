@@ -50,6 +50,7 @@ class AppState extends ChangeNotifier {
   late SharedPreferences _prefs;
   bool _isLoggedIn = false;
   bool _loading = false;
+  bool _initDone = false;
   List<WatchRecord> _watchHistory = [];
   List<SavedAccount> _accounts = [];
   SavedAccount? _currentAccount;
@@ -57,6 +58,7 @@ class AppState extends ChangeNotifier {
 
   bool get isLoggedIn => _isLoggedIn;
   bool get loading => _loading;
+  bool get initDone => _initDone;
   List<WatchRecord> get watchHistory => _watchHistory;
   List<SavedAccount> get accounts => _accounts;
   SavedAccount? get currentAccount => _currentAccount;
@@ -66,14 +68,33 @@ class AppState extends ChangeNotifier {
     _prefs = await SharedPreferences.getInstance();
     await _migrateLegacySecrets();
     await _loadAccountsWithSecrets();
+    await _tryRestoreSession();
+    _initDone = true;
+    notifyListeners();
+  }
+
+  Future<void> _tryRestoreSession() async {
     final activeId = _prefs.getString('active_account_id') ?? '';
-    if (activeId.isNotEmpty) {
-      final acc = _accounts.where((a) => a.id == activeId).toList();
-      if (acc.isNotEmpty && acc.first.token.isNotEmpty) {
-        _currentAccount = acc.first;
-        api.updateBaseUrl(acc.first.host);
-        api.setToken(acc.first.token);
-        _isLoggedIn = true;
+    if (activeId.isEmpty) return;
+
+    final matches = _accounts.where((a) => a.id == activeId).toList();
+    if (matches.isEmpty) return;
+    final acc = matches.first;
+
+    if (acc.token.isNotEmpty) {
+      _currentAccount = acc;
+      api.updateBaseUrl(acc.host);
+      api.setToken(acc.token);
+      _isLoggedIn = true;
+      return;
+    }
+
+    // Token 丢失时尝试用已保存密码自动登录
+    if (acc.pass.isNotEmpty) {
+      final ok = await login(acc.host, acc.user, acc.pass, true);
+      if (!ok) {
+        _isLoggedIn = false;
+        _currentAccount = null;
       }
     }
   }
@@ -109,8 +130,11 @@ class AppState extends ChangeNotifier {
       for (final item in list) {
         if (item is! Map) continue;
         var acc = SavedAccount.fromJson(Map<String, dynamic>.from(item));
-        final token = await secure.readToken(acc.id) ?? '';
-        final pass = await secure.readPass(acc.id) ?? '';
+        var token = await secure.readToken(acc.id) ?? '';
+        var pass = await secure.readPass(acc.id) ?? '';
+        // secure storage 读失败时回退旧版明文字段
+        if (token.isEmpty) token = item['token']?.toString() ?? '';
+        if (pass.isEmpty) pass = item['pass']?.toString() ?? '';
         acc = acc.copyWith(token: token, pass: pass);
         loaded.add(acc);
       }
@@ -138,7 +162,12 @@ class AppState extends ChangeNotifier {
     final acc = _accounts.where((a) => a.id == accountId).toList();
     if (acc.isEmpty) return false;
     final account = acc.first;
-    if (account.token.isEmpty) return false;
+    if (account.token.isEmpty) {
+      if (account.pass.isNotEmpty) {
+        return login(account.host, account.user, account.pass, true);
+      }
+      return false;
+    }
     _currentAccount = account;
     api.updateBaseUrl(account.host);
     api.setToken(account.token);

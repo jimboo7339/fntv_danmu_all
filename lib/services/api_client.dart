@@ -24,7 +24,11 @@ class ApiClient {
         }
         final authx = FnAuthUtils.genAuthx(urlPath, bodyStr);
         options.headers['Authx'] = authx;
-        options.headers['Content-Type'] = 'application/json';
+        if (options.extra['noContentType'] == true) {
+          options.headers.remove('Content-Type');
+        } else {
+          options.headers['Content-Type'] = 'application/json';
+        }
         options.headers['Cookie'] = 'mode=relay';
         if (_token != null) {
           options.headers['Authorization'] = _token;
@@ -101,6 +105,11 @@ class ApiClient {
 
   Future<Map<String, dynamic>> getStream(Map<String, dynamic> body) async {
     final resp = await _dio.post('api/v1/stream', data: body);
+    return resp.data;
+  }
+
+  Future<Map<String, dynamic>> getStreamList(String mediaGuid) async {
+    final resp = await _dio.get('api/v1/stream/list/$mediaGuid');
     return resp.data;
   }
 

@@ -281,6 +281,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final data = await _subtitleService.loadDefault(
       mediaGuid: _mediaGuid!,
       subtitleGuid: _subtitleGuid,
+      videoGuid: _videoGuid,
       streams: _subtitleStreams,
     );
     if (mounted && data != null && data.isNotEmpty) {
@@ -311,11 +312,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
       mediaGuid: _mediaGuid!,
       streamIndex: index,
       stream: stream,
+      subtitleGuid: _subtitleGuid,
+      videoGuid: _videoGuid,
     );
     if (data == null) {
       data = await _subtitleService.loadDefault(
         mediaGuid: _mediaGuid!,
         subtitleGuid: stream?.guid ?? _subtitleGuid,
+        videoGuid: _videoGuid,
         streams: streams,
       );
     }
@@ -328,7 +332,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
       });
       debugPrint('✅ Exo subtitle ready: ${data.entries.length} entries, index=$index');
     } else {
-      setState(() => _selectedSubtitleIndex = index);
+      setState(() {
+        _selectedSubtitleIndex = -1;
+        _softwareSubtitle = null;
+      });
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('字幕加载失败，可尝试加载外部 SRT/VTT 文件'),
@@ -824,23 +831,38 @@ class _PlayerScreenState extends State<PlayerScreen> {
             if (_isBuffering)
               const Center(child: CircularProgressIndicator(color: FnTheme.danmuGreen, strokeWidth: 3)),
 
-            // Danmu overlay
+            // Danmu overlay（监听弹幕设置变化，调速实时生效）
             if (_danmuOn && _videoCtrl != null && _danmuItems.isNotEmpty)
-              DanmuOverlay(
-                comments: _danmuItems,
-                getCurrentTime: () => _videoCtrl!.position,
-                positionListenable: _videoCtrl!.positionNotifier,
-                opacity: _app.danmuOpacity,
-                fontSize: _app.danmuFontSize,
-                areaPercent: _app.danmuArea,
-                showOutline: _app.danmuOutline,
-                speed: _app.danmuSpeed,
-                danmuDensity: _app.danmuDensity / 100.0,
-                topMargin: _app.danmuTopMargin,
-                showScroll: _app.danmuScroll,
-                showTop: _app.danmuTop,
-                showBottom: _app.danmuBottom,
-                antiOverlap: _app.danmuAntiOverlap,
+              Selector<AppState, _DanmuStyle>(
+                selector: (_, app) => _DanmuStyle(
+                  opacity: app.danmuOpacity,
+                  fontSize: app.danmuFontSize,
+                  areaPercent: app.danmuArea,
+                  showOutline: app.danmuOutline,
+                  speed: app.danmuSpeed,
+                  danmuDensity: app.danmuDensity / 100.0,
+                  topMargin: app.danmuTopMargin,
+                  showScroll: app.danmuScroll,
+                  showTop: app.danmuTop,
+                  showBottom: app.danmuBottom,
+                  antiOverlap: app.danmuAntiOverlap,
+                ),
+                builder: (context, style, _) => DanmuOverlay(
+                  comments: _danmuItems,
+                  getCurrentTime: () => _videoCtrl!.position,
+                  positionListenable: _videoCtrl!.positionNotifier,
+                  opacity: style.opacity,
+                  fontSize: style.fontSize,
+                  areaPercent: style.areaPercent,
+                  showOutline: style.showOutline,
+                  speed: style.speed,
+                  danmuDensity: style.danmuDensity,
+                  topMargin: style.topMargin,
+                  showScroll: style.showScroll,
+                  showTop: style.showTop,
+                  showBottom: style.showBottom,
+                  antiOverlap: style.antiOverlap,
+                ),
               ),
 
             // 软件字幕覆盖层（ExoPlayer 用）
@@ -1068,4 +1090,53 @@ class _SubtitleStyle {
 
   @override
   int get hashCode => Object.hash(size, outline, background, color, weight, bottomMargin);
+}
+
+class _DanmuStyle {
+  final double opacity;
+  final double fontSize;
+  final int areaPercent;
+  final bool showOutline;
+  final double speed;
+  final double danmuDensity;
+  final double topMargin;
+  final bool showScroll;
+  final bool showTop;
+  final bool showBottom;
+  final bool antiOverlap;
+
+  const _DanmuStyle({
+    required this.opacity,
+    required this.fontSize,
+    required this.areaPercent,
+    required this.showOutline,
+    required this.speed,
+    required this.danmuDensity,
+    required this.topMargin,
+    required this.showScroll,
+    required this.showTop,
+    required this.showBottom,
+    required this.antiOverlap,
+  });
+
+  @override
+  bool operator ==(Object other) =>
+      other is _DanmuStyle &&
+      other.opacity == opacity &&
+      other.fontSize == fontSize &&
+      other.areaPercent == areaPercent &&
+      other.showOutline == showOutline &&
+      other.speed == speed &&
+      other.danmuDensity == danmuDensity &&
+      other.topMargin == topMargin &&
+      other.showScroll == showScroll &&
+      other.showTop == showTop &&
+      other.showBottom == showBottom &&
+      other.antiOverlap == antiOverlap;
+
+  @override
+  int get hashCode => Object.hash(
+    opacity, fontSize, areaPercent, showOutline, speed,
+    danmuDensity, topMargin, showScroll, showTop, showBottom, antiOverlap,
+  );
 }

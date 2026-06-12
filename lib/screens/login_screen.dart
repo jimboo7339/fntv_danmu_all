@@ -22,13 +22,33 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   void initState() {
     super.initState();
-    _loadDefaults();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadDefaults());
   }
 
   Future<void> _loadDefaults() async {
+    final app = context.read<AppState>();
+    while (!app.initDone && mounted) {
+      await Future.delayed(const Duration(milliseconds: 30));
+    }
+    if (!mounted) return;
+
     final sp = await SharedPreferences.getInstance();
-    _hostCtrl.text = sp.getString('host') ?? 'http://192.168.10.158:5666';
-    _userCtrl.text = sp.getString('user') ?? '';
+    final activeId = sp.getString('active_account_id') ?? '';
+    SavedAccount? acc;
+    if (activeId.isNotEmpty) {
+      final matches = app.accounts.where((a) => a.id == activeId);
+      if (matches.isNotEmpty) acc = matches.first;
+    }
+    acc ??= app.accounts.isNotEmpty ? app.accounts.first : null;
+
+    if (acc != null) {
+      _hostCtrl.text = acc.host;
+      _userCtrl.text = acc.user;
+      if (acc.pass.isNotEmpty) _passCtrl.text = acc.pass;
+    } else {
+      _hostCtrl.text = sp.getString('last_host') ?? sp.getString('host') ?? 'http://192.168.10.158:5666';
+      _userCtrl.text = sp.getString('user') ?? '';
+    }
     if (mounted) setState(() {});
   }
 
