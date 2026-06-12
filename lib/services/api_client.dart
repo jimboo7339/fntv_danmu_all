@@ -88,6 +88,16 @@ class ApiClient {
     return resp.data;
   }
 
+  Future<Map<String, dynamic>> getSeasonList(String parentGuid) async {
+    final resp = await _dio.get('api/v1/season/list/$parentGuid');
+    return resp.data;
+  }
+
+  Future<Map<String, dynamic>> getGenres({String lan = 'zh-CN'}) async {
+    final resp = await _dio.get('api/v1/tag/genres', queryParameters: {'lan': lan});
+    return resp.data;
+  }
+
   Future<Map<String, dynamic>> getPlayInfo(String itemGuid) async {
     final resp = await _dio.post('api/v1/play/info', data: {'item_guid': itemGuid});
     return resp.data;

@@ -58,7 +58,7 @@ class DanmuSettingsScreen extends StatelessWidget {
                     (v) => app.danmuFontSize = v, (v) => '${v.toInt()}'),
                 _sliderTile('显示区域', app.danmuArea.toDouble(), 10, 100,
                     (v) => app.danmuArea = v.toInt(), (v) => '${v.toInt()}%'),
-                _sliderTile('弹幕速度', app.danmuSpeed, 0.5, 2.0,
+                _sliderTile('弹幕速度', app.danmuSpeed, 0.1, 2.0,
                     (v) => app.danmuSpeed = v, (v) => '${v.toStringAsFixed(1)}x'),
                 _sliderTile('顶部边距', app.danmuTopMargin, -100, 200,
                     (v) => app.danmuTopMargin = v, (v) => '${v.toInt()}px'),

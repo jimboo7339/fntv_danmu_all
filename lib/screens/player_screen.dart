@@ -14,6 +14,7 @@ import '../models/watch_record.dart';
 import 'package:crypto/crypto.dart';
 import 'dart:convert';
 import '../utils/theme.dart';
+import '../utils/toast.dart';
 import '../widgets/danmu_overlay.dart';
 import '../widgets/subtitle_overlay.dart';
 import '../widgets/player_controls.dart';
@@ -109,6 +110,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
   bool _danmuOn = true;
   Map<String, dynamic>? _danmuSource; // 当前弹幕源信息
 
+  // 画面比例 / 屏幕方向
+  String _aspectMode = 'fit';
+  bool _preferPortrait = false;
+
   // Speed
   double _speed = 1.0;
   double _preLongPressSpeed = 1.0; // speed before long press
@@ -183,6 +188,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       final prefs = await SharedPreferences.getInstance();
       final savedSpeed = prefs.getDouble('play_speed') ?? 1.0;
       if (savedSpeed > 0) _speed = savedSpeed;
+      _aspectMode = prefs.getString('aspect_mode') ?? 'fit';
     } catch (_) {}
     try {
       final resp = await _app.api.getPlayInfo(widget.itemGuid);
@@ -265,7 +271,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
         if (sd.subtitleStreams != null && sd.subtitleStreams!.isNotEmpty) {
           _subtitleStreams = sd.subtitleStreams;
           _selectedSubtitleIndex = -1;
-          if (_engine != 'mpv') {
+          if (_isStrmFile && _engine != 'mpv' && _app.autoMpvForStrm) {
+            debugPrint('Strm+subtitle: auto switch to MPV');
+            _engine = 'mpv';
+          } else if (_engine == 'mpv') {
+            // MPV 在 initialize 完成后加载字幕轨
+          } else if (!_isStrmFile) {
             _autoLoadExoSubtitle();
           }
         }
@@ -336,23 +347,64 @@ class _PlayerScreenState extends State<PlayerScreen> {
         _selectedSubtitleIndex = -1;
         _softwareSubtitle = null;
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('字幕加载失败，可尝试加载外部 SRT/VTT 文件'),
-          duration: Duration(seconds: 3),
-        ),
-      );
+      FnToast.show(context, '字幕加载失败，可尝试加载外部 SRT/VTT 文件', type: FnToastType.warning, duration: const Duration(seconds: 3));
       debugPrint('❌ Exo subtitle load failed for index=$index');
     }
   }
 
   Future<void> _onExoSubtitleSelected(int idx) async {
-    setState(() => _selectedSubtitleIndex = idx);
     if (idx < 0) {
-      setState(() => _softwareSubtitle = null);
+      setState(() {
+        _selectedSubtitleIndex = -1;
+        _softwareSubtitle = null;
+      });
       return;
     }
+    if (_isStrmFile) {
+      await _switchToMpvForSubtitle(subtitleIndex: idx);
+      return;
+    }
+    setState(() => _selectedSubtitleIndex = idx);
     await _loadExoSubtitle(index: idx);
+  }
+
+  /// strm / 内嵌字幕：切换 MPV 由本地 demux 字幕（API 无法提取）
+  Future<void> _switchToMpvForSubtitle({int subtitleIndex = 0, bool silent = false}) async {
+    final pos = _videoCtrl?.position ?? Duration.zero;
+    final seekTs = pos.inSeconds > 0 ? pos.inSeconds : (widget.seekTs > 0 ? widget.seekTs : _serverSeekTs);
+
+    setState(() {
+      _engine = 'mpv';
+      _softwareSubtitle = null;
+      _selectedSubtitleIndex = subtitleIndex;
+      _isInitialized = false;
+      _serverSeekTs = seekTs;
+    });
+    _videoCtrl?.dispose();
+    _videoCtrl = null;
+    _startPlayback();
+
+    if (!silent && mounted) {
+      FnToast.show(context, '已切换 MPV 内核，正在加载内嵌字幕…', type: FnToastType.success);
+    }
+  }
+
+  void _applyMpvSubtitleTrack(int index) {
+    if (_engine != 'mpv' || _videoCtrl == null) return;
+    if (index < 0) {
+      _videoCtrl!.setSubtitleTrack(-1);
+      return;
+    }
+    _videoCtrl!.setSubtitleTrack(index);
+    if (mounted) setState(() => _selectedSubtitleIndex = index);
+    debugPrint('✅ MPV subtitle track index=$index');
+  }
+
+  Future<void> _autoLoadMpvSubtitle() async {
+    if (_engine != 'mpv' || _subtitleStreams == null || _subtitleStreams!.isEmpty) return;
+    await Future.delayed(const Duration(milliseconds: 1800));
+    if (!mounted || _videoCtrl == null) return;
+    _applyMpvSubtitleTrack(_selectedSubtitleIndex >= 0 ? _selectedSubtitleIndex : 0);
   }
 
   /// 加载外部 SRT/VTT 字幕文件
@@ -379,9 +431,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
         setState(() => _softwareSubtitle = data);
         debugPrint('✅ Loaded ${data.entries.length} subtitle entries from ${file.name}');
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('已加载 ${data.entries.length} 条字幕'), duration: const Duration(seconds: 2)),
-          );
+          FnToast.show(context, '已加载 ${data.entries.length} 条字幕', type: FnToastType.success);
         }
       }
     } catch (e) {
@@ -421,6 +471,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
       _videoCtrl!.play();
       _isPlaying = true;
+      if (_engine == 'mpv' && _subtitleStreams != null && _subtitleStreams!.isNotEmpty) {
+        _autoLoadMpvSubtitle();
+      }
       if (seekTs > 0) {
         final seekMs = seekTs * 1000;
         debugPrint('🎯 Will seek to ${seekTs}s (${seekMs}ms) — widget=${widget.seekTs}s, server=${_serverSeekTs}s');
@@ -581,6 +634,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
       final resp = await _app.api.getEpisodeList(_parentGuid!);
       if (resp['code'] == 0 && resp['data'] != null) {
         final list = (resp['data'] as List).map((e) => PlayListItem.fromJson(e)).toList();
+        list.sort((a, b) {
+          final an = a.episodeNumber > 0 ? a.episodeNumber : 9999;
+          final bn = b.episodeNumber > 0 ? b.episodeNumber : 9999;
+          return an.compareTo(bn);
+        });
         setState(() {
           _episodeList = list;
           _currentEpIndex = list.indexWhere((e) => e.guid == widget.itemGuid);
@@ -648,6 +706,93 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (_videoCtrl == null) return;
     final newPos = _videoCtrl!.position + offset;
     _videoCtrl!.seekTo(newPos);
+  }
+
+  void _setAspectMode(String mode) {
+    setState(() => _aspectMode = mode);
+    SharedPreferences.getInstance().then((p) => p.setString('aspect_mode', mode));
+  }
+
+  Future<void> _switchEngine(String engine) async {
+    if (engine == _engine) return;
+    final pos = _videoCtrl?.position ?? Duration.zero;
+    final seekTs = pos.inSeconds > 0 ? pos.inSeconds : _serverSeekTs;
+    setState(() {
+      _engine = engine;
+      _app.playerEngine = engine;
+      _isInitialized = false;
+      _softwareSubtitle = null;
+      _serverSeekTs = seekTs;
+    });
+    _videoCtrl?.dispose();
+    _videoCtrl = null;
+    await _fetchStreamInfo();
+    _startPlayback();
+    if (mounted) {
+      FnToast.show(context, '已切换 ${engine == 'mpv' ? 'MPV' : 'Exo'} 内核', type: FnToastType.success);
+    }
+  }
+
+  void _toggleOrientation() {
+    setState(() => _preferPortrait = !_preferPortrait);
+    SystemChrome.setPreferredOrientations(_preferPortrait
+        ? [DeviceOrientation.portraitUp, DeviceOrientation.portraitDown]
+        : [DeviceOrientation.landscapeLeft, DeviceOrientation.landscapeRight]);
+    FnToast.show(context, _preferPortrait ? '已切换竖屏' : '已切换横屏');
+  }
+
+  Widget _buildVideoArea(_SubtitleStyle style) {
+    if (!_isInitialized || _videoCtrl == null) {
+      return const Center(child: CircularProgressIndicator(color: FnTheme.danmuGreen));
+    }
+    final video = _videoCtrl!.buildVideo(
+      subtitleSize: style.size,
+      subtitleOutline: style.outline,
+      subtitleBackground: style.background,
+      subtitleColor: Color(style.color),
+      subtitleWeight: style.weight,
+    );
+    switch (_aspectMode) {
+      case 'fill':
+        return SizedBox.expand(
+          child: FittedBox(
+            fit: BoxFit.cover,
+            child: SizedBox(
+              width: _videoCtrl!.aspectRatio * 1000,
+              height: 1000,
+              child: video,
+            ),
+          ),
+        );
+      case '16:9':
+        return Center(
+          child: AspectRatio(
+            aspectRatio: 16 / 9,
+            child: ClipRect(child: FittedBox(fit: BoxFit.contain, child: video)),
+          ),
+        );
+      case '4:3':
+        return Center(
+          child: AspectRatio(
+            aspectRatio: 4 / 3,
+            child: ClipRect(child: FittedBox(fit: BoxFit.contain, child: video)),
+          ),
+        );
+      default:
+        return Center(
+          child: AspectRatio(
+            aspectRatio: _videoCtrl!.aspectRatio,
+            child: video,
+          ),
+        );
+    }
+  }
+
+  String get _engineLabel {
+    final buf = StringBuffer(_engine == 'mpv' ? 'MPV' : 'Exo');
+    if (_isStrmFile && _cloudDirectUrl.isNotEmpty) buf.write(' · 直链');
+    if (_streamVWidth > 0 && _streamVHeight > 0) buf.write(' · ${_streamVWidth}x$_streamVHeight');
+    return buf.toString();
   }
 
   void _setSpeed(double speed) {
@@ -811,20 +956,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 weight: app.subtitleWeight,
                 bottomMargin: app.subtitleBottomMargin,
               ),
-              builder: (context, style, _) => Center(
-                child: _isInitialized && _videoCtrl != null
-                    ? AspectRatio(
-                        aspectRatio: _videoCtrl!.aspectRatio,
-                        child: _videoCtrl!.buildVideo(
-                          subtitleSize: style.size,
-                          subtitleOutline: style.outline,
-                          subtitleBackground: style.background,
-                          subtitleColor: Color(style.color),
-                          subtitleWeight: style.weight,
-                        ),
-                      )
-                    : const Center(child: CircularProgressIndicator(color: FnTheme.danmuGreen)),
-              ),
+              builder: (context, style, _) => _buildVideoArea(style),
             ),
 
             // Buffering indicator
@@ -917,7 +1049,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   _isLocked = !_isLocked;
                   if (_isLocked) _showControls = false;
                 }),
-                onDanmu: () => setState(() => _danmuOn = !_danmuOn),
+                onDanmuToggle: (v) => setState(() {
+                  _danmuOn = v;
+                  _app.danmuOn = v;
+                }),
                 onBack: () {
                   // 返回前强制恢复竖屏
                   SystemChrome.setPreferredOrientations([
@@ -947,8 +1082,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 seekStep: seekStep,
                 onSubtitleSelected: (idx) {
                   if (_engine == 'mpv') {
-                    setState(() => _selectedSubtitleIndex = idx);
-                    _videoCtrl?.setSubtitleTrack(idx);
+                    if (idx < 0) {
+                      setState(() => _selectedSubtitleIndex = -1);
+                      _videoCtrl?.setSubtitleTrack(-1);
+                    } else {
+                      _applyMpvSubtitleTrack(idx);
+                    }
                   } else {
                     _onExoSubtitleSelected(idx);
                   }
@@ -972,6 +1111,26 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 },
                 onLoadExternalSubtitle: _loadExternalSubtitle,
                 useMpv: _engine == 'mpv',
+                isStrmFile: _isStrmFile,
+                onSwitchToMpv: (_isStrmFile && _engine != 'mpv')
+                    ? () => _switchToMpvForSubtitle(subtitleIndex: 0)
+                    : null,
+                engineLabel: _engineLabel,
+                onEngineSelect: _switchEngine,
+                aspectMode: _aspectMode,
+                onAspectMode: _setAspectMode,
+                hasPrevEpisode: _currentEpIndex > 0,
+                hasNextEpisode: _episodeList != null &&
+                    _currentEpIndex >= 0 &&
+                    _currentEpIndex < _episodeList!.length - 1,
+                onPrevEpisode: _currentEpIndex > 0 ? () => _playEpisode(_currentEpIndex - 1) : null,
+                onNextEpisode: (_episodeList != null &&
+                        _currentEpIndex >= 0 &&
+                        _currentEpIndex < _episodeList!.length - 1)
+                    ? () => _playEpisode(_currentEpIndex + 1)
+                    : null,
+                onRotate: _toggleOrientation,
+                danmuComments: _danmuItems,
               ),
 
             // Lock button (always visible)
@@ -996,23 +1155,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
                       size: 20,
                     ),
                   ),
-                ),
-              ),
-            ),
-
-            // Engine indicator (only show when controls visible)
-            if (_showControls)
-            Positioned(
-              left: 16, top: 12,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                  color: Colors.black54,
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Text(
-                  _engine == 'mpv' ? 'MPV' : 'Exo',
-                  style: const TextStyle(color: Colors.white70, fontSize: 10, fontWeight: FontWeight.w600),
                 ),
               ),
             ),

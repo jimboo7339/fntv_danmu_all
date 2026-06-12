@@ -1,0 +1,169 @@
+{
+  "server": "http://192.168.100.10:8005",
+  "probed_at": "2026-06-12 09:29:05",
+  "count": 27,
+  "endpoints": [
+    {
+      "method": "GET",
+      "path": "/v/api/v1/sys/config",
+      "status": 200,
+      "response": "{\"msg\": \"\", \"code\": 0, \"data\": {\"default_img\": {\"bg_all\": \"/sys_type_all.png\", \"bg_movie\": \"/sys_type_movie.png\", \"bg_others\": \"/sys_type_others.png\", \"bg_tv\": \"/sys_type_tv.png\"}, \"nas_oauth\": {\"app_id\": \"U1G8OGDF3Y\", \"url\": \"://\"}, \"initialized\": true, \"region\": \"\", \"server_name\": \"飞牛影视\", \"server_guid\": \"914fade841244397a264ba6d64046e67\", \"supported_languages\": [\"zh-CN\", \"en\"], \"default_language\": \"zh-CN\"}}"
+    },
+    {
+      "method": "GET",
+      "path": "/v/api/v1/sys/version",
+      "status": 200,
+      "response": "{\"msg\": \"\", \"code\": 0, \"data\": {\"version\": \"0.9.7\", \"mediasrvVersion\": \"0.8.35\"}}"
+    },
+    {
+      "method": "GET",
+      "path": "/v/api/v1/server/info",
+      "status": 200,
+      "response": "{\"msg\": \"\", \"code\": 0, \"data\": {\"guid\": \"914fade841244397a264ba6d64046e67\", \"name\": \"飞牛影视\", \"lan\": \"zh-CN\", \"file_monitor\": 1, \"region\": \"\", \"gpu_acc\": 1, \"gpu_prefer\": 1, \"cpu_allow_decoding\": 1, \"meta_dir\": \"/vol1/@appmeta/trim.media\", \"meta_dir_vol_index\": 1, \"mediasrv_cache_dir\": \"/vol1/mediasrv.transcode\", \"mediasrv_cache_vol_index\": 1, \"direct_link_enable\": 1, \"direct_link_allowed_level\": 1, \"supported_languages\": [\"zh-CN\", \"en\"], \"default_language\": \"zh-CN\"}}"
+    },
+    {
+      "method": "GET",
+      "path": "/v/api/v1/server/oauthStatus",
+      "status": 200,
+      "response": "{\"msg\": \"\", \"code\": 0, \"data\": {\"canUse\": false}}"
+    },
+    {
+      "method": "GET",
+      "path": "/v/api/v1/server/getAppAuthorizedDir",
+      "status": 200,
+      "response": "{\"msg\": \"\", \"code\": 0, \"data\": {\"isFnOS\": true, \"authDirList\": [{\"path\": \"/vol02/1000-1-370d7bd7\", \"storageType\": 2, \"uname\": \"\", \"address\": \"192.168.100.10\", \"comment\": \"openlist\", \"type\": 1, \"proto\": \"http\", \"username\": \"jimboo\", \"cloudStorageType\": 0}, {\"path\": \"/vol1/1000/download/bt-downloads/video\", \"storageType\": 3, \"uname\": \"jimboo\", \"address\": \"\", \"comment\": \"\", \"type\": 0, \"proto\": \"\", \"username\": \"\", \"cloudStorageType\": 0}, {\"path\": \"/vol1/1000/video\", \"storageType\": 3, \"uname\": \"jimboo\", \"address\": \"\", \"comment\": \"\", \"type\": 0, \"proto\": \"\", \"username\": \"\", \"cloudStorageType\": 0}, {\"..."
+    },
+    {
+      "method": "GET",
+      "path": "/v/api/v1/user/info",
+      "status": 200,
+      "response": "{\"msg\": \"\", \"code\": 0, \"data\": {\"guid\": \"ec1e40fbc14145bc833b6c5104315403\", \"username\": \"home\", \"lan\": \"zh-CN\", \"audio_lan\": \"\", \"is_admin\": 0, \"last_login_time\": 0, \"sources\": []}}"
+    },
+    {
+      "method": "GET",
+      "path": "/v/api/v1/mediadb/list",
+      "status": 200,
+      "response": "{\"msg\": \"\", \"code\": 0, \"data\": [{\"guid\": \"07c93b9a26354903bdef0ae7620b990e\", \"title\": \"电视节目\", \"poster\": \"\", \"posters\": [\"/94/09/RXFg9YOlYYTNwMynBkZifbn3VpVnzd401lk1CjS099E0CKLrxmoQwXyvExeI4KOSqmaa4L3Gq8SKL2NNRR24rrU7pn.webp\", \"/1d/15/RXFg9YOlYYTNwMynBkZifbn3VpVnzd401lk1CjS099E0CKLrximQIp38EteDUgThDl5CINotjMEalbDdQ6i8ZxMwBr.webp\", \"/63/17/RXFg9YOlYYTNwMynBkZifbn3VpVnzd401lk1CjS099E0CKLry0Vtiq6Ne15LUJh5xCoafUKmzJ7uMhZQn9cqpndaxL.webp\", \"/b5/07/RXFg9YOlYYTNwMynBkZifbn3VpVnzd401lk1CjS099E0CKLrxK7YwzVAy0LBQzO1dUiYc0Yxl46EA0sJJkc1K6otCJ.webp\"], \"category\": \"TV\", \"view_type\": 0, \"poster_type\": 0, \"re..."
+    },
+    {
+      "method": "GET",
+      "path": "/v/api/v1/mediadb/sum",
+      "status": 200,
+      "response": "{\"msg\": \"\", \"code\": 0, \"data\": {\"07c93b9a26354903bdef0ae7620b990e\": 45, \"33af14cec8eb4d77a2774510174d7267\": 1, \"83af0be5107646be9d7fea30ab9288cf\": 1, \"94fbf10d361a47798604ccc0f5b28569\": 6, \"favorite\": 0, \"live\": 0, \"movie\": 6, \"total\": 53, \"tv\": 47, \"video\": 0}}"
+    },
+    {
+      "method": "GET",
+      "path": "/v/api/v1/play/list",
+      "status": 200,
+      "response": "{\"msg\": \"\", \"code\": 0, \"data\": [{\"guid\": \"156f65ae151c4aeca09fda58819e60e7\", \"lan\": \"\", \"imdb_id\": \"\", \"tv_title\": \"翘楚\", \"parent_guid\": \"92db96e90dc14402a114891f470eb8f2\", \"parent_title\": \"\", \"title\": \"楚朝遭灭门傅九舍命\", \"type\": \"Episode\", \"poster\": \"/35/15/RXFg9YOlYYTNwMynBkZifbn3VpVnzd401lk1CjS099E0CKLrxg4PsK7J1fuZMNNjgquRyKRC9SAAzYTrHrwjOasbX5.webp\", \"poster_width\": 1920, \"poster_height\": 1080, \"is_favorite\": 0, \"watched\": 0, \"watched_ts\": 0, \"media_stream\": {\"resolutions\": null, \"audio_type\": null, \"color_range_type\": null}, \"season_number\": 1, \"episode_number\": 1, \"number_of_seasons\": 0, \"number..."
+    },
+    {
+      "method": "GET",
+      "path": "/v/api/v1/tag/list",
+      "status": 200,
+      "response": "{\"msg\": \"\", \"code\": 0, \"data\": {\"genres\": [2, 7, 1, 3, 4, 8, 13, 5, 9, 18, 10, 11, 17, 14, 33, 30, 90001], \"resolutions\": [\"4k\"], \"color_range\": [\"HDR10\", \"SDR\"], \"audio_type\": [\"Stereo\"], \"locate\": [\"CN\", \"KR\", \"US\", \"MD\", \"HK\", \"GB\", \"CL\"], \"decades\": [\"Recent\", \"2020s\", \"2010s\", \"Others\"], \"recognition_status\": [1, 2, 3]}}"
+    },
+    {
+      "method": "GET",
+      "path": "/v/api/v1/tag/genres",
+      "status": 200,
+      "response": "{\"code\": 5000, \"msg\": \"invalid sign\", \"data\": null}"
+    },
+    {
+      "method": "GET",
+      "path": "/v/api/v1/tag/iso3166",
+      "status": 200,
+      "response": "{\"code\": 5000, \"msg\": \"invalid sign\", \"data\": null}"
+    },
+    {
+      "method": "GET",
+      "path": "/v/api/v1/tag/iso6391",
+      "status": 200,
+      "response": "{\"code\": 5000, \"msg\": \"invalid sign\", \"data\": null}"
+    },
+    {
+      "method": "GET",
+      "path": "/v/api/v1/tag/iso6392",
+      "status": 200,
+      "response": "{\"code\": 5000, \"msg\": \"invalid sign\", \"data\": null}"
+    },
+    {
+      "method": "POST",
+      "path": "/v/api/v1/user/getData",
+      "status": 200,
+      "response": "{\"code\": 5000, \"msg\": \"invalid sign\", \"data\": null}"
+    },
+    {
+      "method": "POST",
+      "path": "/v/api/v1/item/list",
+      "status": 200,
+      "response": "{\"code\": 5000, \"msg\": \"invalid sign\", \"data\": null}"
+    },
+    {
+      "method": "GET",
+      "path": "/v/api/v1/search",
+      "status": 501,
+      "response": "{\"message\": \"Not Implemented, please update.\"}"
+    },
+    {
+      "method": "POST",
+      "path": "/v/api/v1/search",
+      "status": 501,
+      "response": "{\"message\": \"Not Implemented, please update.\"}"
+    },
+    {
+      "method": "GET",
+      "path": "/v/api/v1/item/search",
+      "status": 200,
+      "response": "{\"msg\": \"Not Found\", \"code\": -6, \"data\": null}"
+    },
+    {
+      "method": "POST",
+      "path": "/v/api/v1/item/search",
+      "status": 501,
+      "response": "{\"message\": \"Not Implemented, please update.\"}"
+    },
+    {
+      "method": "GET",
+      "path": "/v/api/v1/favorite/list",
+      "status": 501,
+      "response": "{\"message\": \"Not Implemented, please update.\"}"
+    },
+    {
+      "method": "POST",
+      "path": "/v/api/v1/item/watched",
+      "status": 200,
+      "response": "{\"code\": 5000, \"msg\": \"invalid sign\", \"data\": null}"
+    },
+    {
+      "method": "GET",
+      "path": "/v/api/v1/transcode/status",
+      "status": 501,
+      "response": "{\"message\": \"Not Implemented, please update.\"}"
+    },
+    {
+      "method": "POST",
+      "path": "/v/api/v1/media/subtitle/extract",
+      "status": 501,
+      "response": "{\"message\": \"Not Implemented, please update.\"}"
+    },
+    {
+      "method": "GET",
+      "path": "/v/api/v1/subtitle/list",
+      "status": 501,
+      "response": "{\"message\": \"Not Implemented, please update.\"}"
+    },
+    {
+      "method": "GET",
+      "path": "/v/api/v2/user/info",
+      "status": 501,
+      "response": "{\"message\": \"Not Implemented, please update.\"}"
+    },
+    {
+      "method": "POST",
+      "path": "/v/api/v1/play/record",
+      "status": 200,
+      "response": "{\"msg\": \"Invalid Params\", \"code\": -1, \"data\": null}"
+    }
+  ]
+}

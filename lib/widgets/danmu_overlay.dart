@@ -3,6 +3,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import '../models/danmu_comment.dart';
 
+/// 弹幕覆盖层：滚动弹幕按**视频时间**定位，与播放进度/倍速同步。
 class DanmuOverlay extends StatefulWidget {
   final List<DanmuComment> comments;
   final Duration Function() getCurrentTime;
@@ -11,6 +12,7 @@ class DanmuOverlay extends StatefulWidget {
   final double fontSize;
   final int areaPercent;
   final bool showOutline;
+  /// 速度倍率：1.0 ≈ 14 秒视频时间横穿屏幕
   final double speed;
   final double danmuDensity;
   final double topMargin;
@@ -28,7 +30,7 @@ class DanmuOverlay extends StatefulWidget {
     this.fontSize = 22,
     this.areaPercent = 35,
     this.showOutline = true,
-    this.speed = 1.0,
+    this.speed = 0.6,
     this.danmuDensity = 1.0,
     this.topMargin = 0,
     this.showScroll = true,
@@ -47,7 +49,7 @@ class _DanmuOverlayState extends State<DanmuOverlay>
   final List<_DanmuItem> _activeScroll = [];
   final List<_DanmuItem> _activeStatic = [];
   int _lastCommentCount = 0;
-  double _lastRealTime = 0;
+  double _lastStaticTick = 0;
   final Map<String, _DanmuParagraphs> _paragraphCache = {};
 
   @override
@@ -55,12 +57,18 @@ class _DanmuOverlayState extends State<DanmuOverlay>
     super.initState();
     _animCtrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 50),
+      duration: const Duration(milliseconds: 33),
     )..repeat();
+    widget.positionListenable?.addListener(_onPositionTick);
+  }
+
+  void _onPositionTick() {
+    if (mounted) _animCtrl.value = _animCtrl.value;
   }
 
   @override
   void dispose() {
+    widget.positionListenable?.removeListener(_onPositionTick);
     _animCtrl.dispose();
     _paragraphCache.clear();
     super.dispose();
@@ -73,6 +81,10 @@ class _DanmuOverlayState extends State<DanmuOverlay>
   @override
   void didUpdateWidget(covariant DanmuOverlay oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (widget.positionListenable != oldWidget.positionListenable) {
+      oldWidget.positionListenable?.removeListener(_onPositionTick);
+      widget.positionListenable?.addListener(_onPositionTick);
+    }
     if (widget.comments.length != oldWidget.comments.length ||
         widget.fontSize != oldWidget.fontSize ||
         widget.showOutline != oldWidget.showOutline ||
@@ -113,9 +125,9 @@ class _DanmuOverlayState extends State<DanmuOverlay>
             antiOverlap: widget.antiOverlap,
             activeScroll: _activeScroll,
             activeStatic: _activeStatic,
-            lastRealTime: _lastRealTime,
+            lastStaticTick: _lastStaticTick,
             paragraphCache: _paragraphCache,
-            onRealTimeUpdate: (t) => _lastRealTime = t,
+            onStaticTickUpdate: (t) => _lastStaticTick = t,
             repaint: _repaintListenable,
           ),
           size: Size.infinite,
@@ -138,13 +150,14 @@ class _DanmuItem {
   double time;
   int color;
   int type;
-  double x = 0, y = 0, speed = 0, tw = 0;
+  double x = 0, y = 0, tw = 0;
   double ttl = 6.0;
-  double launchedAt = 0;
   _DanmuItem({required this.text, required this.time, this.color = 0xFFFFFFFF, this.type = 1});
 }
 
 class _DanmuPainter extends CustomPainter {
+  static const _crossBaseSeconds = 14.0;
+
   final List<DanmuComment> comments;
   final Duration Function() getCurrentTime;
   final double opacity;
@@ -160,24 +173,24 @@ class _DanmuPainter extends CustomPainter {
   final bool antiOverlap;
   final List<_DanmuItem> activeScroll;
   final List<_DanmuItem> activeStatic;
-  final double lastRealTime;
+  final double lastStaticTick;
   final Map<String, _DanmuParagraphs> paragraphCache;
-  final void Function(double) onRealTimeUpdate;
+  final void Function(double) onStaticTickUpdate;
 
   _DanmuPainter({
     required this.comments,
     required this.getCurrentTime,
     required this.activeScroll,
     required this.activeStatic,
-    required this.lastRealTime,
+    required this.lastStaticTick,
     required this.paragraphCache,
-    required this.onRealTimeUpdate,
+    required this.onStaticTickUpdate,
     Listenable? repaint,
     this.opacity = 0.85,
     this.fontSize = 22,
     this.areaPercent = 35,
     this.showOutline = true,
-    this.speed = 1.0,
+    this.speed = 0.6,
     this.danmuDensity = 1.0,
     this.topMargin = 0,
     this.showScroll = true,
@@ -185,6 +198,11 @@ class _DanmuPainter extends CustomPainter {
     this.showBottom = true,
     this.antiOverlap = false,
   }) : super(repaint: repaint);
+
+  double _pixelsPerVideoSecond(double screenWidth) {
+    final rate = speed.clamp(0.08, 3.0);
+    return (screenWidth / _crossBaseSeconds) * rate;
+  }
 
   bool _typeVisible(int type) {
     if (type == 4) return showBottom;
@@ -197,41 +215,38 @@ class _DanmuPainter extends CustomPainter {
     if (comments.isEmpty || size.width <= 0) return;
 
     final now = DateTime.now().millisecondsSinceEpoch / 1000.0;
-    final dt = lastRealTime > 0 ? (now - lastRealTime).clamp(0.001, 0.2) : 0.05;
-    onRealTimeUpdate(now);
+    final staticDt = lastStaticTick > 0 ? (now - lastStaticTick).clamp(0.001, 0.2) : 0.033;
+    onStaticTickUpdate(now);
 
     final areaH = size.height * areaPercent / 100;
     final lnH = fontSize * 1.5;
     final maxRow = max(1, (areaH / lnH).floor());
     final curSec = getCurrentTime().inMilliseconds / 1000.0;
-    final densityWindow = 0.5 * danmuDensity.clamp(0.1, 1.0);
-    final uniformSpeed = (size.width / 10.0) * speed;
+    final densityWindow = 0.35 * danmuDensity.clamp(0.1, 1.0);
+    final pxPerSec = _pixelsPerVideoSecond(size.width);
 
-    activeScroll.removeWhere((a) => a.x + a.tw < -50);
+    // 滚动弹幕：按视频时间计算位置，移除已离屏
+    activeScroll.removeWhere((a) {
+      final elapsed = curSec - a.time;
+      if (elapsed < 0) return true;
+      final x = size.width - elapsed * pxPerSec;
+      return x + a.tw < -80;
+    });
+
     activeStatic.removeWhere((a) => a.ttl <= 0);
 
-    final rowLastItem = <int, _DanmuItem?>{};
-    for (final a in activeScroll) {
-      if (a.launchedAt <= 0) continue;
-      final row = ((a.y - topMargin - lnH) / lnH).round();
-      if (row < 0 || row >= maxRow) continue;
-      final existing = rowLastItem[row];
-      if (existing == null || a.launchedAt > existing.launchedAt) {
-        rowLastItem[row] = a;
-      }
-    }
-
+    // 发射新弹幕
     int startIdx = _lowerBound(curSec - densityWindow);
     for (int i = startIdx; i < comments.length; i++) {
       final c = comments[i];
       if (!_typeVisible(c.type)) continue;
 
       final diff = curSec - c.time;
-      if (diff < -0.1) break;
+      if (diff < -0.05) break;
       if (diff > densityWindow || diff < 0) continue;
 
-      final isDisplayed = activeScroll.any((a) => (a.time - c.time).abs() < 0.05) ||
-          activeStatic.any((a) => (a.time - c.time).abs() < 0.05);
+      final isDisplayed = activeScroll.any((a) => (a.time - c.time).abs() < 0.03) ||
+          activeStatic.any((a) => (a.time - c.time).abs() < 0.03);
       if (isDisplayed) continue;
 
       if (c.type == 4 || c.type == 5) {
@@ -247,49 +262,44 @@ class _DanmuPainter extends CustomPainter {
       } else {
         final item = _DanmuItem(text: c.text, time: c.time, color: c.color, type: c.type);
         item.tw = _measureText(c.text);
-        item.speed = uniformSpeed;
 
         int? selectedRow;
         for (int r = 0; r < maxRow; r++) {
-          if (_rowHasOverlap(r, lnH, size.width, item.tw)) continue;
-          final lastInRow = rowLastItem[r];
-          if (lastInRow == null) {
-            selectedRow = r;
-            break;
-          }
-          final gapWidth = size.width * 0.15;
-          if (lastInRow.x + lastInRow.tw < size.width - gapWidth) {
-            selectedRow = r;
-            break;
-          }
+          if (_rowHasOverlap(r, lnH, size.width, item.tw, curSec, pxPerSec)) continue;
+          selectedRow = r;
+          break;
         }
 
         if (selectedRow != null) {
-          item.x = size.width;
           item.y = topMargin + lnH + selectedRow * lnH;
-          item.launchedAt = now;
           activeScroll.add(item);
-          rowLastItem[selectedRow] = item;
         }
       }
     }
 
+    // 绘制滚动弹幕（视频时间驱动）
     for (final a in activeScroll) {
-      a.x -= a.speed * dt;
+      final elapsed = curSec - a.time;
+      if (elapsed < 0) continue;
+      a.x = size.width - elapsed * pxPerSec;
       _drawDanmu(canvas, a, size);
     }
+
     for (final a in activeStatic) {
-      a.ttl -= dt;
+      a.ttl -= staticDt;
       _drawDanmu(canvas, a, size);
     }
   }
 
-  bool _rowHasOverlap(int row, double lnH, double screenW, double tw) {
+  bool _rowHasOverlap(int row, double lnH, double screenW, double tw, double curSec, double pxPerSec) {
     if (!antiOverlap) return false;
     final y = topMargin + lnH + row * lnH;
     for (final a in activeScroll) {
       if ((a.y - y).abs() > lnH * 0.5) continue;
-      if (a.x < screenW && a.x + a.tw > screenW - tw * 0.5) return true;
+      final elapsed = curSec - a.time;
+      if (elapsed < 0) continue;
+      final x = screenW - elapsed * pxPerSec;
+      if (x < screenW && x + a.tw > screenW - tw * 0.4) return true;
     }
     return false;
   }
@@ -308,7 +318,6 @@ class _DanmuPainter extends CustomPainter {
         ui.ParagraphStyle(fontSize: fontSize, fontWeight: FontWeight.bold),
       )
         ..pushStyle(ui.TextStyle(
-          color: const Color(0xFF000000),
           fontSize: fontSize,
           foreground: Paint()
             ..style = PaintingStyle.stroke
@@ -340,7 +349,7 @@ class _DanmuPainter extends CustomPainter {
   }
 
   void _drawDanmu(Canvas canvas, _DanmuItem a, Size size) {
-    if (a.x < -a.tw - 50 || a.x > size.width + 50) return;
+    if (a.x < -a.tw - 80 || a.x > size.width + 80) return;
     final paras = _getParagraphs(a.text, a.color);
     if (paras.outline != null) {
       canvas.drawParagraph(paras.outline!, Offset(a.x, a.y));
@@ -363,7 +372,6 @@ class _DanmuPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _DanmuPainter oldDelegate) {
-    // 动画帧由 repaint: _animCtrl 驱动；此处仅比较静态属性
     return oldDelegate.comments != comments ||
         oldDelegate.opacity != opacity ||
         oldDelegate.fontSize != fontSize ||

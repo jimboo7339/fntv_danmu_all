@@ -126,9 +126,15 @@ class VideoWrapper {
   void _onExoTick() {
     if (_exoController == null) return;
     final v = _exoController!.value;
-    positionNotifier.value = v.position;
     _duration = v.duration;
-    _throttledNotify(v.position);
+    final now = DateTime.now();
+    if (now.difference(_lastPositionNotify).inMilliseconds >= 100 ||
+        v.position.inSeconds != _lastNotifiedPosition.inSeconds) {
+      _lastPositionNotify = now;
+      _lastNotifiedPosition = v.position;
+      positionNotifier.value = v.position;
+      _notifyAll();
+    }
   }
 
   Future<void> _initMpv() async {
@@ -270,16 +276,18 @@ class VideoWrapper {
     }
   }
 
-  /// Switch subtitle track (MPV only). Pass -1 to disable.
-  Future<void> setSubtitleTrack(int index) async {
+  /// Switch subtitle track (MPV only). [listIndex] 为字幕列表序号，-1 关闭。
+  Future<void> setSubtitleTrack(int listIndex) async {
     if (useMpv && _mpvPlayer != null) {
       try {
-        if (index < 0) {
+        if (listIndex < 0) {
           await _mpvPlayer!.setSubtitleTrack(SubtitleTrack.no());
-        } else {
-          final trackId = '${index + 1}';
-          await _mpvPlayer!.setSubtitleTrack(SubtitleTrack(trackId, null, null));
+          return;
         }
+        // 先 auto 再指定 sid，兼容 mov_text 等内嵌轨
+        await _mpvPlayer!.setSubtitleTrack(SubtitleTrack.auto());
+        await Future.delayed(const Duration(milliseconds: 400));
+        await _mpvPlayer!.setSubtitleTrack(SubtitleTrack('${listIndex + 1}', null, null));
       } catch (e) {
         debugPrint('setSubtitleTrack error: $e');
       }

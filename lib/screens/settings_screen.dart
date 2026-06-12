@@ -4,6 +4,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 import '../providers/app_state.dart';
 import '../utils/theme.dart';
+import '../utils/toast.dart';
 import '../utils/log_buffer.dart';
 import 'danmu_settings_screen.dart';
 
@@ -266,6 +267,17 @@ class _PlayerSettingsPage extends StatelessWidget {
           ),
           const SizedBox(height: 10),
 
+          Card(
+            child: SwitchListTile(
+              title: const Text('strm 自动切 MPV'),
+              subtitle: const Text('网盘串流检测到内嵌字幕时，自动用 MPV 播放'),
+              value: app.autoMpvForStrm,
+              activeColor: FnTheme.danmuGreen,
+              onChanged: (v) => app.autoMpvForStrm = v,
+            ),
+          ),
+          const SizedBox(height: 10),
+
           // 快进步长
           Card(
             child: Column(
@@ -304,7 +316,7 @@ class _PlayerSettingsPage extends StatelessWidget {
         RadioListTile(
           value: 'exo', groupValue: app.playerEngine,
           title: const Text('ExoPlayer'),
-          subtitle: const Text('Android 原生，兼容性好，软件字幕'),
+          subtitle: const Text('Android 原生；strm 网盘串流请用 MPV 加载内嵌字幕'),
           onChanged: (v) { app.playerEngine = v!; Navigator.pop(ctx); },
         ),
       ],
@@ -394,9 +406,7 @@ class _AccountManagePage extends StatelessWidget {
                   onTap: acc.id == app.currentAccount?.id ? null : () async {
                     final ok = await app.switchAccount(acc.id);
                     if (ok && context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('已切换到 ${acc.label}')),
-                      );
+                      FnToast.show(context, '已切换到 ${acc.label}', type: FnToastType.success);
                     }
                   },
                 )),
@@ -541,9 +551,7 @@ class _LogViewerScreenState extends State<LogViewerScreen> {
             onPressed: () {
               final text = LogBuffer.instance.dump();
               Clipboard.setData(ClipboardData(text: text));
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('日志已复制到剪贴板')),
-              );
+              FnToast.show(context, '日志已复制到剪贴板', type: FnToastType.success);
             },
           ),
           IconButton(

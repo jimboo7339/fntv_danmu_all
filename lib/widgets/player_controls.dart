@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/play_list_item.dart';
+import '../models/danmu_comment.dart';
 import '../utils/format.dart';
 import '../utils/theme.dart';
 import '../models/stream_response.dart';
 import '../providers/app_state.dart';
 import '../services/api_client.dart';
-
+import 'danmu_heatmap.dart';
 class PlayerControls extends StatelessWidget {
   final String title;
   final bool isPlaying;
@@ -28,7 +29,7 @@ class PlayerControls extends StatelessWidget {
   final void Function(Duration) onSeek;
   final void Function(double) onSpeed;
   final VoidCallback onLock;
-  final VoidCallback onDanmu;
+  final void Function(bool) onDanmuToggle;
   final VoidCallback onBack;
   final void Function(int) onEpisode;
   final void Function(int) onQuality;
@@ -40,7 +41,19 @@ class PlayerControls extends StatelessWidget {
   final void Function(Map<String, dynamic>) onDanmuSourceSelected;
   final VoidCallback? onLoadExternalSubtitle;
   final bool useMpv;
+  final bool isStrmFile;
+  final VoidCallback? onSwitchToMpv;
   final int seekStep;
+  final String engineLabel;
+  final void Function(String engine) onEngineSelect;
+  final String aspectMode;
+  final void Function(String) onAspectMode;
+  final VoidCallback? onPrevEpisode;
+  final VoidCallback? onNextEpisode;
+  final bool hasPrevEpisode;
+  final bool hasNextEpisode;
+  final VoidCallback onRotate;
+  final List<DanmuComment> danmuComments;
 
   const PlayerControls({
     super.key,
@@ -64,7 +77,7 @@ class PlayerControls extends StatelessWidget {
     required this.onSeek,
     required this.onSpeed,
     required this.onLock,
-    required this.onDanmu,
+    required this.onDanmuToggle,
     required this.onBack,
     required this.onEpisode,
     required this.onQuality,
@@ -76,7 +89,19 @@ class PlayerControls extends StatelessWidget {
     required this.onDanmuSourceSelected,
     this.onLoadExternalSubtitle,
     this.useMpv = true,
+    this.isStrmFile = false,
+    this.onSwitchToMpv,
     this.seekStep = 10,
+    this.engineLabel = '',
+    required this.onEngineSelect,
+    this.aspectMode = 'fit',
+    required this.onAspectMode,
+    this.onPrevEpisode,
+    this.onNextEpisode,
+    this.hasPrevEpisode = false,
+    this.hasNextEpisode = false,
+    required this.onRotate,
+    this.danmuComments = const [],
   });
 
   @override
@@ -97,35 +122,45 @@ class PlayerControls extends StatelessWidget {
       ),
       child: Column(
         children: [
-          // Top bar
+          // Top bar — 仅返回 + 弹幕菜单
           SafeArea(
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
               child: Row(
                 children: [
                   IconButton(
-                    icon: const Icon(Icons.arrow_back, color: Colors.white),
+                    icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
                     onPressed: onBack,
                   ),
-                  Expanded(
-                    child: Text(title, style: const TextStyle(
-                      color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600),
-                      overflow: TextOverflow.ellipsis),
-                  ),
+                  const Spacer(),
                   GestureDetector(
-                    onTap: onDanmu,
-                    onLongPress: () => _showDanmuPanel(context), // 长按打开设置
+                    onTap: () => _showDanmuQuickMenu(context),
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                       decoration: BoxDecoration(
-                        color: danmuOn ? FnTheme.danmuGreen.withOpacity(0.3) : Colors.white10,
-                        borderRadius: BorderRadius.circular(12),
+                        color: danmuOn ? FnTheme.danmuGreen.withOpacity(0.28) : Colors.white10,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: danmuOn ? FnTheme.danmuGreen.withOpacity(0.5) : Colors.white24,
+                        ),
                       ),
-                      child: Text('弹', style: TextStyle(
-                        color: danmuOn ? FnTheme.danmuGreen : Colors.grey,
-                        fontSize: 14, fontWeight: FontWeight.bold)),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            danmuOn ? Icons.comment_rounded : Icons.comment_outlined,
+                            color: danmuOn ? FnTheme.danmuGreen : Colors.white54,
+                            size: 16,
+                          ),
+                          const SizedBox(width: 4),
+                          Text('弹幕', style: TextStyle(
+                            color: danmuOn ? FnTheme.danmuGreen : Colors.white54,
+                            fontSize: 13, fontWeight: FontWeight.w600)),
+                        ],
+                      ),
                     ),
                   ),
+                  const SizedBox(width: 8),
                 ],
               ),
             ),
@@ -136,6 +171,41 @@ class PlayerControls extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 12),
             child: Column(
               children: [
+                // 进度条上方：内核信息 + 标题
+                Row(
+                  children: [
+                    if (engineLabel.isNotEmpty)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: Colors.black45,
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(color: Colors.white12),
+                        ),
+                        child: Text(engineLabel,
+                          style: const TextStyle(color: Colors.white70, fontSize: 10, fontWeight: FontWeight.w600)),
+                      ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                if (danmuComments.isNotEmpty)
+                  DanmuHeatmap(
+                    comments: danmuComments,
+                    duration: duration,
+                    position: position,
+                    onSeekTap: (ratio) {
+                      final ms = (duration.inMilliseconds * ratio).round();
+                      onSeekChanged(ms.toDouble());
+                    },
+                  ),
+                if (danmuComments.isNotEmpty) const SizedBox(height: 4),
                 SliderTheme(
                   data: SliderTheme.of(context).copyWith(
                     activeTrackColor: FnTheme.danmuGreen,
@@ -158,37 +228,55 @@ class PlayerControls extends StatelessWidget {
                     children: [
                       Text(
                         '${formatDuration(position.inSeconds)} / ${formatDuration(duration.inSeconds)}',
-                        style: const TextStyle(color: Colors.white70, fontSize: 13),
+                        style: const TextStyle(color: Colors.white70, fontSize: 12),
                       ),
-                      const Spacer(),
-                      _ctrlBtn('${seekStep}秒', () => onSeek(Duration(seconds: -seekStep))),
-                      GestureDetector(
-                        onTap: onPlayPause,
-                        child: Container(
-                          padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(
-                            color: FnTheme.danmuGreen.withOpacity(0.2),
-                            shape: BoxShape.circle,
-                          ),
-                          child: Icon(
-                            isPlaying ? Icons.pause : Icons.play_arrow,
-                            color: Colors.white, size: 28,
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          reverse: true,
+                          child: Row(
+                            children: [
+                              if (hasPrevEpisode && onPrevEpisode != null)
+                                _iconBtn(Icons.skip_previous_rounded, onPrevEpisode!),
+                              GestureDetector(
+                                onTap: onPlayPause,
+                                child: Container(
+                                  padding: const EdgeInsets.all(8),
+                                  margin: const EdgeInsets.symmetric(horizontal: 4),
+                                  decoration: BoxDecoration(
+                                    color: FnTheme.danmuGreen.withOpacity(0.2),
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: Icon(
+                                    isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                                    color: Colors.white, size: 26,
+                                  ),
+                                ),
+                              ),
+                              if (hasNextEpisode && onNextEpisode != null)
+                                _iconBtn(Icons.skip_next_rounded, onNextEpisode!),
+                              const SizedBox(width: 4),
+                              _ctrlBtn('${seekStep}s', () => onSeek(Duration(seconds: -seekStep))),
+                              _ctrlBtn('${seekStep}s', () => onSeek(Duration(seconds: seekStep))),
+                              _ctrlBtn('${speed}x', () => _showSpeedMenu(context)),
+                              _ctrlBtn(_aspectLabel(aspectMode), () => _showAspectMenu(context)),
+                              _ctrlBtn(useMpv ? 'MPV' : 'Exo', () => _showEngineMenu(context)),
+                              _ctrlBtn('旋转', onRotate),
+                              if (qualityCount > 0)
+                                _ctrlBtn(qualityLabels.isNotEmpty ? qualityLabels[qualityIndex] : '画质', () => _showQualityMenu(context)),
+                              if (episodeList != null && episodeList!.isNotEmpty)
+                                _ctrlBtn('选集', () => _showEpisodePanel(context)),
+                              if (audioStreams != null && audioStreams!.length > 1)
+                                _ctrlBtn('音频', () => _showAudioMenu(context)),
+                              if (subtitleStreams != null && subtitleStreams!.isNotEmpty)
+                                _ctrlBtn('字幕', () => _showSubtitlePanel(context))
+                              else if (!useMpv && onLoadExternalSubtitle != null)
+                                _ctrlBtn('字幕', () => _showSubtitlePanel(context)),
+                            ],
                           ),
                         ),
                       ),
-                      _ctrlBtn('${seekStep}秒', () => onSeek(Duration(seconds: seekStep))),
-                      const SizedBox(width: 8),
-                      _ctrlBtn('${speed}x', () => _showSpeedMenu(context)),
-                      if (qualityCount > 0)
-                        _ctrlBtn(qualityLabels.isNotEmpty ? qualityLabels[qualityIndex] : '画质', () => _showQualityMenu(context)),
-                      if (episodeList != null && episodeList!.isNotEmpty)
-                        _ctrlBtn('选集', () => _showEpisodePanel(context)),
-                      if (audioStreams != null && audioStreams!.length > 1)
-                        _ctrlBtn('音频', () => _showAudioMenu(context)),
-                      if (subtitleStreams != null && subtitleStreams!.isNotEmpty)
-                        _ctrlBtn('字幕', () => _showSubtitlePanel(context))
-                      else if (!useMpv && onLoadExternalSubtitle != null)
-                        _ctrlBtn('字幕', () => _showSubtitlePanel(context)),
                     ],
                   ),
                 ),
@@ -197,6 +285,157 @@ class PlayerControls extends StatelessWidget {
           ),
           const SizedBox(height: 8),
         ],
+      ),
+    );
+  }
+
+  Widget _iconBtn(IconData icon, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6),
+        child: Icon(icon, color: Colors.white, size: 28),
+      ),
+    );
+  }
+
+  String _aspectLabel(String mode) {
+    switch (mode) {
+      case 'fill': return '填充';
+      case '16:9': return '16:9';
+      case '4:3': return '4:3';
+      default: return '适应';
+    }
+  }
+
+  void _showDanmuQuickMenu(BuildContext context) {
+    _showCompactPopup(
+      context: context,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Padding(
+            padding: EdgeInsets.only(bottom: 8),
+            child: Text('弹幕', style: TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w600)),
+          ),
+          SwitchListTile(
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            title: const Text('显示弹幕', style: TextStyle(color: Colors.white, fontSize: 14)),
+            value: danmuOn,
+            activeColor: FnTheme.danmuGreen,
+            onChanged: (v) {
+              Navigator.pop(context);
+              onDanmuToggle(v);
+            },
+          ),
+          const Divider(color: Colors.white12, height: 8),
+          ListTile(
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.tune_rounded, color: FnTheme.danmuGreen, size: 20),
+            title: const Text('弹幕设置', style: TextStyle(color: Colors.white, fontSize: 14)),
+            trailing: const Icon(Icons.chevron_right, color: Colors.white38, size: 18),
+            onTap: () {
+              Navigator.pop(context);
+              _showDanmuPanel(context);
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showAspectMenu(BuildContext context) {
+    const modes = ['fit', 'fill', '16:9', '4:3'];
+    const labels = ['适应屏幕', '填充屏幕', '16:9', '4:3'];
+    _showCompactPopup(
+      context: context,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: List.generate(modes.length, (i) {
+          final isCurrent = aspectMode == modes[i];
+          return GestureDetector(
+            onTap: () {
+              Navigator.pop(context);
+              onAspectMode(modes[i]);
+            },
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: isCurrent ? FnTheme.danmuGreen.withOpacity(0.15) : Colors.transparent,
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Text(labels[i], style: TextStyle(
+                color: isCurrent ? FnTheme.danmuGreen : Colors.white70,
+                fontSize: 13,
+                fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
+              )),
+            ),
+          );
+        }),
+      ),
+    );
+  }
+
+  void _showEngineMenu(BuildContext context) {
+    _showCompactPopup(
+      context: context,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Padding(
+            padding: EdgeInsets.only(bottom: 8),
+            child: Text('播放内核', style: TextStyle(color: Colors.white70, fontSize: 13)),
+          ),
+          _engineOption(context, 'MPV', useMpv, () {
+            Navigator.pop(context);
+            if (!useMpv) onEngineSelect('mpv');
+          }),
+          const SizedBox(height: 6),
+          _engineOption(context, 'Exo', !useMpv, () {
+            Navigator.pop(context);
+            if (useMpv) onEngineSelect('exo');
+          }),
+          if (isStrmFile)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
+                'strm 直链建议 MPV',
+                style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 11),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _engineOption(BuildContext context, String label, bool active, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: () {
+        if (!active) onTap();
+        else Navigator.pop(context);
+      },
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: active ? FnTheme.danmuGreen.withOpacity(0.15) : Colors.transparent,
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Row(
+          children: [
+            if (active) const Icon(Icons.check, color: FnTheme.danmuGreen, size: 14),
+            if (active) const SizedBox(width: 4),
+            Text(label, style: TextStyle(
+              color: active ? FnTheme.danmuGreen : Colors.white70,
+              fontSize: 13,
+              fontWeight: active ? FontWeight.bold : FontWeight.normal,
+            )),
+          ],
+        ),
       ),
     );
   }
@@ -361,6 +600,11 @@ class PlayerControls extends StatelessWidget {
                 onLoadExternalSubtitle!();
               } : null,
               useMpv: useMpv,
+              isStrmFile: isStrmFile,
+              onSwitchToMpv: onSwitchToMpv != null ? () {
+                Navigator.pop(ctx);
+                onSwitchToMpv!();
+              } : null,
             ),
           ),
         );
@@ -557,6 +801,8 @@ class _SubtitlePanel extends StatefulWidget {
   final void Function(int) onSelect;
   final VoidCallback? onLoadExternal;
   final bool useMpv;
+  final bool isStrmFile;
+  final VoidCallback? onSwitchToMpv;
 
   const _SubtitlePanel({
     required this.subtitleStreams,
@@ -564,6 +810,8 @@ class _SubtitlePanel extends StatefulWidget {
     required this.onSelect,
     this.onLoadExternal,
     this.useMpv = true,
+    this.isStrmFile = false,
+    this.onSwitchToMpv,
   });
 
   @override
@@ -601,6 +849,54 @@ class _SubtitlePanelState extends State<_SubtitlePanel> {
               child: ListView(
                 padding: const EdgeInsets.all(12),
                 children: [
+                  if (!widget.useMpv && widget.isStrmFile && widget.subtitleStreams.isNotEmpty)
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 12),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.orange.withOpacity(0.12),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.orange.withOpacity(0.35)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Row(
+                            children: [
+                              Icon(Icons.info_outline, color: Colors.orange, size: 18),
+                              SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  '网盘串流 (strm) 无法用 Exo 加载内嵌字幕',
+                                  style: TextStyle(color: Colors.orange, fontSize: 12, fontWeight: FontWeight.w600),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          const Text(
+                            '请切换 MPV 内核，由播放器本地解析 mov_text 字幕。',
+                            style: TextStyle(color: Colors.white70, fontSize: 11, height: 1.4),
+                          ),
+                          if (widget.onSwitchToMpv != null) ...[
+                            const SizedBox(height: 10),
+                            SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton.icon(
+                                onPressed: widget.onSwitchToMpv,
+                                icon: const Icon(Icons.swap_horiz, size: 18),
+                                label: const Text('切换 MPV 并加载字幕'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: FnTheme.danmuGreen,
+                                  foregroundColor: Colors.black,
+                                  padding: const EdgeInsets.symmetric(vertical: 10),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
                   // 字幕轨道
                   const Text('字幕轨道', style: TextStyle(
                     color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w600)),
@@ -848,7 +1144,14 @@ class _DanmuPanel extends StatelessWidget {
                   // 字号
                   _slider('字号', app.danmuFontSize, 14, 36, (v) => app.danmuFontSize = v, '${app.danmuFontSize.toInt()}'),
                   // 速度
-                  _slider('速度', app.danmuSpeed, 0.3, 3.0, (v) => app.danmuSpeed = v, '${app.danmuSpeed.toStringAsFixed(1)}x'),
+                  _slider('速度', app.danmuSpeed, 0.1, 2.0, (v) => app.danmuSpeed = v, '${app.danmuSpeed.toStringAsFixed(1)}x'),
+                  Padding(
+                    padding: const EdgeInsets.only(left: 4, bottom: 8),
+                    child: Text(
+                      '1.0 ≈ 14 秒横穿 · 越小越慢',
+                      style: TextStyle(color: Colors.white.withOpacity(0.35), fontSize: 11),
+                    ),
+                  ),
                   // 透明度
                   _slider('透明度', app.danmuOpacity, 0.1, 1.0, (v) => app.danmuOpacity = v, '${(app.danmuOpacity * 100).toInt()}%'),
                   // 区域

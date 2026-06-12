@@ -303,8 +303,12 @@ class AppState extends ChangeNotifier {
   int get danmuArea => _prefs.getInt('danmu_area') ?? 35;
   set danmuArea(int v) { _prefs.setInt('danmu_area', v); notifyListeners(); }
 
-  double get danmuSpeed => _prefs.getDouble('danmu_speed') ?? 1.0;
+  double get danmuSpeed => _prefs.getDouble('danmu_speed') ?? 0.6;
   set danmuSpeed(double v) { _prefs.setDouble('danmu_speed', v); notifyListeners(); }
+
+  /// strm 网盘串流 + 内嵌字幕时自动切 MPV
+  bool get autoMpvForStrm => _prefs.getBool('auto_mpv_strm') ?? true;
+  set autoMpvForStrm(bool v) { _prefs.setBool('auto_mpv_strm', v); notifyListeners(); }
 
   bool get danmuOutline => _prefs.getBool('danmu_outline') ?? true;
   set danmuOutline(bool v) { _prefs.setBool('danmu_outline', v); notifyListeners(); }

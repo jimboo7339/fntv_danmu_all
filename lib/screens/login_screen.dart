@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../providers/app_state.dart';
 import '../utils/theme.dart';
+import '../utils/toast.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -59,9 +60,7 @@ class _LoginScreenState extends State<LoginScreen> {
     final pass = _passCtrl.text.trim();
     if (host.isEmpty || user.isEmpty || pass.isEmpty) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('所有字段都不能为空')),
-        );
+        FnToast.show(context, '所有字段都不能为空', type: FnToastType.warning);
       }
       return;
     }
@@ -69,9 +68,7 @@ class _LoginScreenState extends State<LoginScreen> {
     final app = context.read<AppState>();
     final ok = await app.login(host, user, pass, _remember);
     if (!ok && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('登录失败，请检查服务器地址和账号密码')),
-      );
+      FnToast.show(context, '登录失败，请检查服务器地址和账号密码', type: FnToastType.error);
     }
     if (mounted) setState(() => _loading = false);
   }
@@ -149,9 +146,7 @@ class _LoginScreenState extends State<LoginScreen> {
                               return;
                             }
                             if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text('Token 已过期，请重新输入密码')),
-                              );
+                              FnToast.show(context, 'Token 已过期，请重新输入密码', type: FnToastType.warning);
                               _hostCtrl.text = acc.host;
                               _userCtrl.text = acc.user;
                               _passCtrl.text = '';
@@ -192,9 +187,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                 onPressed: () {
                                   app.removeAccount(acc.id);
                                   if (mounted) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(content: Text('已删除 ${acc.label}')),
-                                    );
+                                    FnToast.show(context, '已删除 ${acc.label}', type: FnToastType.success);
                                   }
                                 },
                               ),

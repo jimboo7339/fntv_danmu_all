@@ -1,0 +1,131 @@
+{
+  "server": "http://192.168.100.10:8005",
+  "results": [
+    {
+      "method": "GET",
+      "path": "/v/api/v1/item/156f65ae151c4aeca09fda58819e60e7",
+      "status": 200,
+      "response": "{\"msg\": \"\", \"code\": 0, \"data\": {\"guid\": \"156f65ae151c4aeca09fda58819e60e7\", \"trim_id\": \"tt289271\", \"tv_title\": \"翘楚\", \"parent_title\": \"第 1 季\", \"title\": \"楚朝遭灭门傅九舍命\", \"posters\": \"/35/15/RXFg9YOlYYTNwMynBkZifbn3VpVnzd401lk1CjS099E0CKLrxg4PsK7J1fuZMNNjgquRyKRC9SAAzYTrHrwjOasbX5.webp\", \"poster_width\": 1920, \"poster_height\": 1080, \"vote_average\": \"0\", \"release_date\": \"2026-06-02\", \"overview\": \"楚朝是大将军楚岺之女，跟着父亲在大楚边境的云中郡长大。楚朝只身从云中郡来到楚都，并在此与萧珣结缘生情。楚朝和萧珣的婚事遭到父亲强烈反对，萧珣只好求皇帝赐婚。大婚当晚，楚都突生变乱，萧珣成为大楚皇帝，楚朝成为皇后。登基大典"
+    },
+    {
+      "method": "POST",
+      "path": "/v/api/v1/play/info",
+      "status": 200,
+      "response": "{\"msg\": \"\", \"code\": 0, \"data\": {\"grand_guid\": \"\", \"guid\": \"156f65ae151c4aeca09fda58819e60e7\", \"parent_guid\": \"92db96e90dc14402a114891f470eb8f2\", \"play_config\": {\"skip_opening\": null, \"skip_ending\": null}, \"ts\": 835, \"type\": \"Episode\", \"video_guid\": \"53748c7fa6ba40218ecc63efd0803386\", \"audio_guid\": \"c2ea386e896b4a87adf7b6b8fb0a35d8\", \"subtitle_guid\": \"2ae941949d6b49f49e8e1b47f2a61493\", \"media_guid\": \"6a3603174dc94bdf92fadfd34cbcbd2d\", \"item\": {\"guid\": \"156f65ae151c4aeca09fda58819e60e7\", \"trim_id\""
+    },
+    {
+      "method": "POST",
+      "path": "/v/api/v1/stream",
+      "status": 200,
+      "response": "{\"msg\": \"\", \"code\": 0, \"data\": {\"file_stream\": {\"guid\": \"6a3603174dc94bdf92fadfd34cbcbd2d\", \"path\": \"/vol1/1000/video/smartstrm/夸克TV-电视剧/翘楚(2026)/翘楚(2026) - S01E01 - 第01集.(mkv).strm\", \"file_name\": \"翘楚(2026) - S01E01 - 第01集.(mkv).strm\", \"size\": 225, \"timestamp\": 1780383117882, \"type\": 1, \"sort_num\": 0, \"can_play\": 1, \"play_error\": \"\", \"create_time\": 1780384891002, \"update_time\": 1780384891002, \"parent_fv_guid\": \"\", \"file_birth_time\": 1780384889705, \"progress_thumb_hash_dir\": \"\"}, \"video_stream\": "
+    },
+    {
+      "method": "GET",
+      "path": "/v/api/v1/stream/list/6a3603174dc94bdf92fadfd34cbcbd2d",
+      "status": 200,
+      "response": "{\"msg\": \"Permission Error\", \"code\": -5, \"data\": null}"
+    },
+    {
+      "method": "GET",
+      "path": "/v/api/v1/media/range/2ae941949d6b49f49e8e1b47f2a61493",
+      "status": 403,
+      "response": ""
+    },
+    {
+      "method": "GET",
+      "path": "/v/api/v1/media/range/6a3603174dc94bdf92fadfd34cbcbd2d?stream_index=3",
+      "status": 400,
+      "response": ""
+    },
+    {
+      "method": "GET",
+      "path": "/v/api/v1/media/range/6a3603174dc94bdf92fadfd34cbcbd2d?stream_index=3&format=srt",
+      "status": 400,
+      "response": ""
+    },
+    {
+      "method": "GET",
+      "path": "/v/api/v1/media/range/6a3603174dc94bdf92fadfd34cbcbd2d?stream=subtitle&stream_index=3",
+      "status": 400,
+      "response": ""
+    },
+    {
+      "method": "GET",
+      "path": "/v/api/v1/media/range/6a3603174dc94bdf92fadfd34cbcbd2d?subtitle_index=3",
+      "status": 400,
+      "response": ""
+    },
+    {
+      "method": "GET",
+      "path": "/v/api/v1/media/range/6a3603174dc94bdf92fadfd34cbcbd2d?type=3&index=3",
+      "status": 400,
+      "response": ""
+    },
+    {
+      "method": "GET",
+      "path": "/v/api/v1/media/range/53748c7fa6ba40218ecc63efd0803386?stream_index=3",
+      "status": 403,
+      "response": ""
+    },
+    {
+      "method": "GET",
+      "path": "/v/api/v1/media/subtitle/6a3603174dc94bdf92fadfd34cbcbd2d",
+      "status": 501,
+      "response": "{\"message\": \"Not Implemented, please update.\"}"
+    },
+    {
+      "method": "GET",
+      "path": "/v/api/v1/media/subtitle/6a3603174dc94bdf92fadfd34cbcbd2d?stream_index=3",
+      "status": 501,
+      "response": "{\"message\": \"Not Implemented, please update.\"}"
+    },
+    {
+      "method": "GET",
+      "path": "/v/api/v1/subtitle/6a3603174dc94bdf92fadfd34cbcbd2d",
+      "status": 501,
+      "response": "{\"message\": \"Not Implemented, please update.\"}"
+    },
+    {
+      "method": "GET",
+      "path": "/v/api/v1/subtitle/6a3603174dc94bdf92fadfd34cbcbd2d?stream_index=3",
+      "status": 501,
+      "response": "{\"message\": \"Not Implemented, please update.\"}"
+    },
+    {
+      "method": "POST",
+      "path": "/v/api/v1/person/list/156f65ae151c4aeca09fda58819e60e7",
+      "status": 200,
+      "response": "{\"msg\": \"\", \"code\": 0, \"data\": {\"total\": 0, \"list\": []}}"
+    },
+    {
+      "method": "POST",
+      "path": "/v/api/v1/item/list",
+      "status": 200,
+      "response": "{\"msg\": \"\", \"code\": 0, \"data\": {\"mdb_name\": \"\", \"mdb_category\": \"\", \"top_dir\": \"\", \"dir\": \"\", \"total\": 1764, \"list\": [{\"guid\": \"1c3b33bd0f1c4d53856c3dc45d630a5b\", \"lan\": \"zh-CN\", \"imdb_id\": \"\", \"trim_id\": \"tt278605\", \"tv_title\": \"南部档案\", \"parent_guid\": \"ff31913d41b24c929e9ffad6e340f878\", \"parent_title\": \"第 1 季\", \"title\": \"\", \"type\": \"Episode\", \"is_favorite\": 0, \"watched\": 0, \"watched_ts\": 0, \"vote_average\": \"0\", \"media_stream\": {\"resolutions\": [\"4k\"], \"audio_type\": null, \"color_range_type\": null}"
+    },
+    {
+      "method": "POST",
+      "path": "/v/api/v1/user/getData",
+      "status": 200,
+      "response": "{\"msg\": \"Invalid Params\", \"code\": -1, \"data\": null}"
+    },
+    {
+      "method": "GET",
+      "path": "/v/api/v1/season/list/92db96e90dc14402a114891f470eb8f2",
+      "status": 200,
+      "response": "{\"msg\": \"\", \"code\": 0, \"data\": null}"
+    },
+    {
+      "method": "GET",
+      "path": "/v/api/v1/episode/list/92db96e90dc14402a114891f470eb8f2",
+      "status": 200,
+      "response": "{\"msg\": \"\", \"code\": 0, \"data\": [{\"guid\": \"156f65ae151c4aeca09fda58819e60e7\", \"lan\": \"zh-CN\", \"imdb_id\": \"\", \"trim_id\": \"tt289271\", \"tv_title\": \"翘楚\", \"parent_guid\": \"92db96e90dc14402a114891f470eb8f2\", \"parent_title\": \"第 1 季\", \"title\": \"楚朝遭灭门傅九舍命\", \"type\": \"Episode\", \"poster\": \"/35/15/RXFg9YOlYYTNwMynBkZifbn3VpVnzd401lk1CjS099E0CKLrxg4PsK7J1fuZMNNjgquRyKRC9SAAzYTrHrwjOasbX5.webp\", \"poster_width\": 1920, \"poster_height\": 1080, \"is_favorite\": 0, \"watched\": 0, \"watched_ts\": 835, \"vote_average\": \"0\", \""
+    },
+    {
+      "method": "POST",
+      "path": "/v/api/v1/item/watched",
+      "status": 200,
+      "response": "{\"msg\": \"\", \"code\": 0, \"data\": true}"
+    }
+  ]
+}

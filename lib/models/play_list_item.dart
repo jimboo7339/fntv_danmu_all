@@ -85,7 +85,7 @@ class PlayListItem {
       ancestorName: json['ancestor_name'],
       ancestorCategory: json['ancestor_category'],
       watched: json['watched'] ?? 0,
-      ts: (json['ts'] ?? 0).toInt(),
+      ts: (json['ts'] ?? json['watched_ts'] ?? 0).toInt(),
       duration: (json['duration'] ?? 0).toInt(),
       episodeNumber: json['episode_number'] ?? 0,
       seasonNumber: json['season_number'] ?? 0,
