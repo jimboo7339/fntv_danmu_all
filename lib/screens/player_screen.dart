@@ -11,7 +11,6 @@ import '../models/play_list_item.dart';
 import '../models/danmu_comment.dart';
 import '../models/subtitle_data.dart';
 import '../models/watch_record.dart';
-import '../utils/format.dart';
 import 'package:crypto/crypto.dart';
 import 'dart:convert';
 import '../utils/theme.dart';
@@ -19,9 +18,10 @@ import '../widgets/danmu_overlay.dart';
 import '../widgets/subtitle_overlay.dart';
 import '../widgets/player_controls.dart';
 import '../services/video_wrapper.dart';
+import '../services/danmu_service.dart';
+import '../services/subtitle_service.dart';
 import 'package:screen_brightness/screen_brightness.dart';
 import 'package:flutter_volume_controller/flutter_volume_controller.dart';
-import 'package:dio/dio.dart';
 import 'package:file_picker/file_picker.dart';
 import 'dart:io';
 
@@ -130,12 +130,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   Timer? _hideTimer;
   Timer? _progressTimer;
-  Timer? _danmuTimer; // 驱动弹幕刷新的定时器
+
+  late DanmuService _danmuService;
+  late SubtitleService _subtitleService;
 
   @override
   void initState() {
     super.initState();
     _appState = context.read<AppState>(); // Cache before dispose
+    _danmuService = DanmuService(api: _appState!.api, appState: _appState!);
+    _subtitleService = SubtitleService(_appState!.api);
     _itemTitle = widget.title;
     _tvTitle = widget.tvTitle;
     _episodeNumber = widget.episodeNumber;
@@ -260,10 +264,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
         }
         if (sd.subtitleStreams != null && sd.subtitleStreams!.isNotEmpty) {
           _subtitleStreams = sd.subtitleStreams;
-          _selectedSubtitleIndex = -1; // default off
-          // ExoPlayer: 尝试自动提取字幕
-          if (_engine != 'mpv' && mounted) {
-            _tryExtractSubtitle();
+          _selectedSubtitleIndex = -1;
+          if (_engine != 'mpv') {
+            _autoLoadExoSubtitle();
           }
         }
       }
@@ -272,47 +275,59 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
   }
 
-  /// ExoPlayer: 尝试从服务器自动提取字幕
-  Future<void> _tryExtractSubtitle() async {
+  /// ExoPlayer: 自动加载默认字幕
+  Future<void> _autoLoadExoSubtitle() async {
     if (_mediaGuid == null) return;
-    try {
-      final baseUrl = _app.api.baseUrl;
-      // 优先使用 subtitle_streams 中的 index（全局容器流索引）
-      final endpoints = <String>[
-        if (_subtitleStreams != null)
-          for (final sub in _subtitleStreams!)
-            '$baseUrl/v/api/v1/media/range/$_mediaGuid?stream_index=${sub.index}',
-        // 通用字幕 API fallback
-        '$baseUrl/v/api/v1/media/subtitle/$_mediaGuid',
-        '$baseUrl/v/api/v1/subtitle/$_mediaGuid',
-      ];
-      for (final url in endpoints) {
-        try {
-          final resp = await _app.api.dio.get(url,
-            options: Options(responseType: ResponseType.plain, validateStatus: (s) => s != null && s < 500),
-          );
-          if (resp.statusCode == 200 && resp.data is String && resp.data.toString().isNotEmpty) {
-            final content = resp.data.toString();
-            // 检测格式并解析
-            SubtitleData? data;
-            if (content.contains('-->')) {
-              if (content.trimLeft().startsWith('WEBVTT')) {
-                data = SubtitleData.parseVtt(content);
-              } else {
-                data = SubtitleData.parseSrt(content);
-              }
-            }
-            if (data != null && data.entries.isNotEmpty && mounted) {
-              setState(() => _softwareSubtitle = data);
-              debugPrint('✅ Auto-loaded ${data.entries.length} subtitle entries from $url');
-              return;
-            }
-          }
-        } catch (_) {}
+    final data = await _subtitleService.loadDefault(
+      mediaGuid: _mediaGuid!,
+      subtitleGuid: _subtitleGuid,
+      streams: _subtitleStreams,
+    );
+    if (mounted && data != null) {
+      setState(() {
+        _softwareSubtitle = data;
+        _selectedSubtitleIndex = 0;
+      });
+    }
+  }
+
+  /// ExoPlayer: 按索引加载/关闭字幕
+  Future<void> _loadExoSubtitle({required int index}) async {
+    if (_mediaGuid == null) return;
+    if (index < 0) {
+      if (mounted) setState(() => _softwareSubtitle = null);
+      return;
+    }
+    final streams = _subtitleStreams;
+    if (streams == null || streams.isEmpty) return;
+
+    final stream = index < streams.length ? streams[index] : null;
+    final data = await _subtitleService.loadByStreamIndex(
+      mediaGuid: _mediaGuid!,
+      streamIndex: index,
+      stream: stream,
+    );
+    if (data == null && _subtitleGuid != null && _subtitleGuid!.isNotEmpty) {
+      final fallback = await _subtitleService.loadDefault(
+        mediaGuid: _mediaGuid!,
+        subtitleGuid: _subtitleGuid,
+        streams: streams,
+      );
+      if (fallback != null && mounted) {
+        setState(() {
+          _softwareSubtitle = fallback;
+          _selectedSubtitleIndex = index;
+        });
       }
-      debugPrint('ℹ️ No server subtitle endpoint found, user can load external SRT');
-    } catch (e) {
-      debugPrint('Subtitle extraction error: $e');
+      return;
+    }
+    if (mounted && data != null) {
+      setState(() {
+        _softwareSubtitle = data;
+        _selectedSubtitleIndex = index;
+      });
+    } else if (mounted) {
+      debugPrint('ℹ️ Exo subtitle load failed for index=$index');
     }
   }
 
@@ -333,15 +348,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
       }
       if (content == null || content.isEmpty) return;
 
-      SubtitleData? data;
-      final lower = file.name.toLowerCase();
-      if (lower.endsWith('.vtt')) {
-        data = SubtitleData.parseVtt(content);
-      } else {
-        data = SubtitleData.parseSrt(content);
-      }
+      final data = SubtitleData.parseAuto(content);
+      if (data == null || data.entries.isEmpty) return;
 
-      if (data.entries.isNotEmpty && mounted) {
+      if (mounted) {
         setState(() => _softwareSubtitle = data);
         debugPrint('✅ Loaded ${data.entries.length} subtitle entries from ${file.name}');
         if (mounted) {
@@ -375,6 +385,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       engine: _engine,
       url: url,
       headers: _app!.api.headers,
+      decoderMode: _app!.decoderMode,
     );
     _videoCtrl!.addListener(_videoListener);
     _videoCtrl!.initialize().then((_) {
@@ -396,7 +407,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
       // 立即上报一次进度（不等5秒定时器）
       Future.delayed(const Duration(seconds: 2), () => _saveProgress());
       _startProgressTimer();
-      _startDanmuTimer();
       _resetHideTimer();
     });
   }
@@ -470,15 +480,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
     });
   }
 
-  void _startDanmuTimer() {
-    _danmuTimer?.cancel();
-    _danmuTimer = Timer.periodic(const Duration(milliseconds: 100), (_) {
-      if (mounted && _isPlaying && _danmuOn) {
-        setState(() {});
-      }
-    });
-  }
-
   void _saveProgress({bool force = false}) {
     if (_videoCtrl == null) return;
     if (!force && !mounted) return;
@@ -519,318 +520,31 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final matchName = _tvTitle.isNotEmpty ? _tvTitle : _itemTitle;
     if (matchName.isEmpty) return;
     try {
-      final danmuUrl = _app.danmuUrl;
-      if (danmuUrl.isEmpty) {
-        debugPrint('Danmu: no URL configured');
-        return;
-      }
-
-      // 尝试从缓存读取弹幕源
-      final cached = _app.getDanmuSource(matchName);
-      int targetEpisodeId = 0;
-      String cachedAnimeName = '';
-      int cachedAnimeId = 0;
-      if (cached != null && cached['episodeNumber'] == _episodeNumber && cached['episodeId'] != null) {
-        targetEpisodeId = cached['episodeId'] as int;
-        cachedAnimeName = cached['animeName']?.toString() ?? matchName;
-        cachedAnimeId = cached['animeId'] as int? ?? 0;
-        debugPrint('Danmu: using cached source for "$matchName" ep=$_episodeNumber, episodeId=$targetEpisodeId');
-      }
-
-      int episodeId = targetEpisodeId;
-      String animeName = cachedAnimeName;
-      int animeId = cachedAnimeId;
-      int commentCount = 0;
-
-      if (episodeId == 0) {
-        // 没有缓存，走完整搜索流程
-        String searchKw = matchName;
-        int targetEp = _episodeNumber;
-        debugPrint('Danmu: searching "$searchKw" ep=$targetEp from $danmuUrl');
-
-        // 1. 搜索动画
-        final searchResp = await _app.api.dio.get(
-          '$danmuUrl/api/v2/search/anime',
-          queryParameters: {'keyword': searchKw},
-        );
-        if (searchResp.statusCode != 200 || searchResp.data == null) {
-          debugPrint('Danmu: search failed');
-          return;
-        }
-
-        List<dynamic> results = [];
-        final raw = searchResp.data;
-        if (raw is List) {
-          results = raw;
-        } else if (raw is Map && raw['animes'] is List) {
-          results = raw['animes'] as List;
-        } else if (raw is Map && raw['data'] is List) {
-          results = raw['data'] as List;
-        } else if (raw is Map && raw['bangumi'] is List) {
-          results = raw['bangumi'] as List;
-        }
-        if (results.isEmpty) {
-          debugPrint('Danmu: no search results for "$searchKw"');
-          return;
-        }
-        debugPrint('Danmu: found ${results.length} anime(s)');
-
-        final first = results[0];
-        animeId = first['animeId'] ?? first['id'] ?? first['bangumiId'] ?? 0;
-        animeName = first['animeName'] ?? first['name'] ?? matchName;
-        if (animeId == 0) {
-          debugPrint('Danmu: no valid anime ID');
-          return;
-        }
-        debugPrint('Danmu: found anime id=$animeId name=$animeName');
-
-        // 2. 获取动画详情（含剧集列表）
-        final bangumiResp = await _app.api.dio.get('$danmuUrl/api/v2/bangumi/$animeId');
-        if (bangumiResp.statusCode != 200 || bangumiResp.data == null) {
-          debugPrint('Danmu: bangumi fetch failed');
-          return;
-        }
-
-        List<dynamic> episodes = [];
-        final bData = bangumiResp.data;
-        if (bData is Map) {
-          if (bData['bangumi'] is Map && bData['bangumi']['episodes'] is List) {
-            episodes = bData['bangumi']['episodes'] as List;
-          } else if (bData['episodes'] is List) {
-            episodes = bData['episodes'] as List;
-          } else if (bData['data'] is Map && bData['data']['episodes'] is List) {
-            episodes = bData['data']['episodes'] as List;
-          }
-        }
-        if (episodes.isEmpty) {
-          debugPrint('Danmu: no episodes found');
-          return;
-        }
-
-        // 3. 匹配目标集数
-        if (targetEp > 0) {
-          for (final ep in episodes) {
-            final rawNum = ep['episodeNumber'] ?? ep['episodeIndex'] ?? ep['ep'];
-            int epIdx = 0;
-            if (rawNum is int) {
-              epIdx = rawNum;
-            } else if (rawNum is String) {
-              epIdx = int.tryParse(rawNum) ?? 0;
-            }
-            if (epIdx == targetEp) {
-              episodeId = ep['episodeId'] ?? ep['id'] ?? 0;
-              commentCount = ep['commentCount'] ?? 0;
-              break;
-            }
-          }
-        }
-        if (episodeId == 0 && episodes.isNotEmpty) {
-          episodeId = episodes[0]['episodeId'] ?? episodes[0]['id'] ?? 0;
-          commentCount = episodes[0]['commentCount'] ?? 0;
-        }
-        if (episodeId == 0) {
-          debugPrint('Danmu: no matching episode');
-          return;
-        }
-        debugPrint('Danmu: matched episodeId=$episodeId');
-      }
-
-      // 4. 获取弹幕评论
-      final commentResp = await _app.api.dio.get(
-        '$danmuUrl/api/v2/comment/$episodeId',
-        queryParameters: {'withRelated': 'true'},
+      final result = await _danmuService.loadAuto(
+        matchName: matchName,
+        episodeNumber: _episodeNumber,
       );
-      if (commentResp.statusCode != 200 || commentResp.data == null) {
-        debugPrint('Danmu: comment fetch failed');
-        return;
-      }
-
-      // 解析弹幕
-      List<dynamic> comments = [];
-      final cData = commentResp.data;
-      if (cData is List) {
-        comments = cData;
-      } else if (cData is Map && cData['comments'] is List) {
-        comments = cData['comments'] as List;
-      } else if (cData is Map && cData['data'] is List) {
-        comments = cData['data'] as List;
-      }
-
-      // 解析弹幕格式：m=文本, p="时间,模式,颜色,用户ID"
-      var danmuList = <DanmuComment>[];
-      for (final c in comments) {
-        if (c is! Map) continue;
-        final text = c['m']?.toString() ?? c['text']?.toString() ?? c['content']?.toString() ?? '';
-        if (text.isEmpty) continue;
-
-        double time = 0;
-        int type = 1;
-        int color = 0xFFFFFFFF;
-
-        final p = c['p'];
-        if (p is String && p.contains(',')) {
-          // 标准格式: "12.5,1,16777215,uid123"
-          final parts = p.split(',');
-          if (parts.isNotEmpty) time = double.tryParse(parts[0]) ?? 0;
-          if (parts.length > 1) type = int.tryParse(parts[1]) ?? 1;
-          if (parts.length > 2) color = int.tryParse(parts[2]) ?? 0xFFFFFFFF;
-        } else if (p is num) {
-          time = p.toDouble();
-          // 颜色可能在 c 字段
-          if (c['c'] != null) {
-            final cv = c['c'];
-            if (cv is int) color = cv;
-            else if (cv is String) color = int.tryParse(cv.replaceAll('#', '0x')) ?? 0xFFFFFFFF;
-          }
-        } else {
-          // 回退到通用字段
-          time = (c['time'] ?? c['time_point'] ?? 0).toDouble();
-          type = c['type'] ?? 1;
-          if (c['color'] != null) {
-            final cv = c['color'];
-            if (cv is int) color = cv;
-            else if (cv is String) {
-              final s = cv.replaceAll('#', '');
-              if (s.length == 6) color = int.parse('FF$s', radix: 16);
-              else if (s.length == 8) color = int.parse(s, radix: 16);
-            }
-          }
-        }
-
-        // 确保颜色有alpha通道（API返回的0xFFFFFF实际是0x00FFFFFF=透明）
-        if (color <= 0xFFFFFF) color |= 0xFF000000;
-
-        danmuList.add(DanmuComment(text: text, time: time, color: color, type: type));
-      }
-
-      debugPrint('Danmu: loaded ${danmuList.length} comments');
-      if (commentCount == 0) commentCount = danmuList.length;
-      // 缓存弹幕源信息
-      final sourceData = {
-        'animeId': animeId,
-        'animeName': animeName,
-        'episodeId': episodeId,
-        'episodeNumber': _episodeNumber,
-        'commentCount': commentCount,
-      };
-      _app.setDanmuSource(matchName, sourceData);
-      if (mounted) setState(() => _danmuSource = sourceData);
-      // 必须按时间排序，渲染器假设已排序（遇到未来时间会break）
-      danmuList.sort((a, b) => a.time.compareTo(b.time));
-      // 合并重复弹幕
-      if (_app.danmuMergeDuplicates && danmuList.length > 1) {
-        final merged = <DanmuComment>[];
-        final Map<String, int> recentTexts = {}; // text -> index in merged
-        for (final c in danmuList) {
-          final key = c.text;
-          final existing = recentTexts[key];
-          if (existing != null && (c.time - merged[existing].time).abs() < 2.0) {
-            // 合并：替换文本加上计数
-            final count = (merged[existing].text.contains(' x ') 
-                ? int.tryParse(merged[existing].text.split(' x ').last) ?? 1 
-                : 1) + 1;
-            merged[existing] = DanmuComment(
-              text: '$key x $count',
-              time: merged[existing].time,
-              color: merged[existing].color,
-              type: merged[existing].type,
-            );
-          } else {
-            recentTexts[key] = merged.length;
-            merged.add(c);
-          }
-        }
-        debugPrint('Danmu: merged ${danmuList.length} -> ${merged.length}');
-        danmuList = merged;
-      }
-      if (mounted && danmuList.isNotEmpty) {
-        setState(() => _danmuItems = danmuList);
+      if (result != null && mounted) {
+        setState(() {
+          _danmuSource = result.source;
+          _danmuItems = result.comments;
+        });
+        debugPrint('Danmu: loaded ${result.comments.length} comments');
       }
     } catch (e) {
       debugPrint('loadDanmu error: $e');
     }
   }
 
-  /// 从指定的弹幕源加载弹幕（手动选择后调用）
   Future<void> _loadDanmuFromSource(Map<String, dynamic> source) async {
     try {
-      final danmuUrl = _app.danmuUrl;
-      if (danmuUrl.isEmpty) return;
-      final episodeId = source['episodeId'] as int? ?? 0;
-      if (episodeId == 0) return;
-      
-      debugPrint('Danmu: loading from source episodeId=$episodeId');
-      final commentResp = await _app.api.dio.get(
-        '$danmuUrl/api/v2/comment/$episodeId',
-        queryParameters: {'withRelated': 'true'},
-      );
-      if (commentResp.statusCode != 200 || commentResp.data == null) return;
-
-      List<dynamic> comments = [];
-      final cData = commentResp.data;
-      if (cData is List) {
-        comments = cData;
-      } else if (cData is Map && cData['comments'] is List) {
-        comments = cData['comments'] as List;
-      } else if (cData is Map && cData['data'] is List) {
-        comments = cData['data'] as List;
-      }
-
-      var danmuList = <DanmuComment>[];
-      for (final c in comments) {
-        if (c is! Map) continue;
-        final text = c['m']?.toString() ?? c['text']?.toString() ?? c['content']?.toString() ?? '';
-        if (text.isEmpty) continue;
-
-        double time = 0;
-        int type = 1;
-        int color = 0xFFFFFFFF;
-
-        final p = c['p'];
-        if (p is String && p.contains(',')) {
-          final parts = p.split(',');
-          if (parts.isNotEmpty) time = double.tryParse(parts[0]) ?? 0;
-          if (parts.length > 1) type = int.tryParse(parts[1]) ?? 1;
-          if (parts.length > 2) color = int.tryParse(parts[2]) ?? 0xFFFFFFFF;
-        } else if (p is num) {
-          time = p.toDouble();
-        } else {
-          time = (c['time'] ?? c['time_point'] ?? 0).toDouble();
-          type = c['type'] ?? 1;
-        }
-
-        if (color <= 0xFFFFFF) color |= 0xFF000000;
-        danmuList.add(DanmuComment(text: text, time: time, color: color, type: type));
-      }
-
-      danmuList.sort((a, b) => a.time.compareTo(b.time));
-      if (_app.danmuMergeDuplicates && danmuList.length > 1) {
-        final merged = <DanmuComment>[];
-        final Map<String, int> recentTexts = {};
-        for (final c in danmuList) {
-          final key = c.text;
-          final existing = recentTexts[key];
-          if (existing != null && (c.time - merged[existing].time).abs() < 2.0) {
-            final count = (merged[existing].text.contains(' x ')
-                ? int.tryParse(merged[existing].text.split(' x ').last) ?? 1
-                : 1) + 1;
-            merged[existing] = DanmuComment(
-              text: '$key x $count',
-              time: merged[existing].time,
-              color: merged[existing].color,
-              type: merged[existing].type,
-            );
-          } else {
-            recentTexts[key] = merged.length;
-            merged.add(c);
-          }
-        }
-        danmuList = merged;
-      }
-
-      debugPrint('Danmu: loaded ${danmuList.length} from manual source');
-      if (mounted && danmuList.isNotEmpty) {
-        setState(() => _danmuItems = danmuList);
+      final result = await _danmuService.loadFromSource(source);
+      if (result != null && mounted) {
+        setState(() {
+          _danmuItems = result.comments;
+          _danmuSource = result.source;
+        });
+        debugPrint('Danmu: loaded ${result.comments.length} from manual source');
       }
     } catch (e) {
       debugPrint('loadDanmuFromSource error: $e');
@@ -867,6 +581,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _cloudDirectUrl = '';
       _isInitialized = false;
       _danmuItems.clear();
+      _softwareSubtitle = null;
       _audioStreams = null;
       _subtitleStreams = null;
       _selectedAudioIndex = 0;
@@ -935,8 +650,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _hideTimer?.cancel();
     _gestureOverlayTimer?.cancel();
     _progressTimer?.cancel();
-    _saveProgress(force: true); // 退出时强制上报最终进度
-    _danmuTimer?.cancel();
+    _saveProgress(force: true);
     _videoCtrl?.removeListener(_videoListener);
     _videoCtrl?.dispose();
     WakelockPlus.disable();
@@ -972,8 +686,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // watch AppState so subtitle style changes trigger rebuild (real-time preview)
-    final appState = context.watch<AppState>();
+    final seekStep = _app.seekStep;
     return Scaffold(
       backgroundColor: Colors.black,
       body: GestureDetector(
@@ -990,9 +703,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
           final w = MediaQuery.of(context).size.width;
           final dx = details.globalPosition.dx;
           if (dx < w / 3) {
-            _seek(const Duration(seconds: -10));
+            _seek(Duration(seconds: -seekStep));
           } else if (dx > w * 2 / 3) {
-            _seek(const Duration(seconds: 10));
+            _seek(Duration(seconds: seekStep));
           } else {
             _togglePlay();
           }
@@ -1064,20 +777,30 @@ class _PlayerScreenState extends State<PlayerScreen> {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            // Video
-            Center(
-              child: _isInitialized && _videoCtrl != null
-                  ? AspectRatio(
-                      aspectRatio: _videoCtrl!.aspectRatio,
-                      child: _videoCtrl!.buildVideo(
-                        subtitleSize: appState.subtitleSize,
-                        subtitleOutline: appState.subtitleOutline,
-                        subtitleBackground: appState.subtitleBackground,
-                        subtitleColor: Color(appState.subtitleColorValue),
-                        subtitleWeight: appState.subtitleWeight,
-                      ),
-                    )
-                  : const Center(child: CircularProgressIndicator(color: FnTheme.danmuGreen)),
+            // Video + 字幕样式（仅监听字幕相关设置）
+            Selector<AppState, _SubtitleStyle>(
+              selector: (_, app) => _SubtitleStyle(
+                size: app.subtitleSize,
+                outline: app.subtitleOutline,
+                background: app.subtitleBackground,
+                color: app.subtitleColorValue,
+                weight: app.subtitleWeight,
+                bottomMargin: app.subtitleBottomMargin,
+              ),
+              builder: (context, style, _) => Center(
+                child: _isInitialized && _videoCtrl != null
+                    ? AspectRatio(
+                        aspectRatio: _videoCtrl!.aspectRatio,
+                        child: _videoCtrl!.buildVideo(
+                          subtitleSize: style.size,
+                          subtitleOutline: style.outline,
+                          subtitleBackground: style.background,
+                          subtitleColor: Color(style.color),
+                          subtitleWeight: style.weight,
+                        ),
+                      )
+                    : const Center(child: CircularProgressIndicator(color: FnTheme.danmuGreen)),
+              ),
             ),
 
             // Buffering indicator
@@ -1088,7 +811,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
             if (_danmuOn && _isPlaying)
               DanmuOverlay(
                 comments: _danmuItems,
-                currentTime: _videoCtrl?.position.inMilliseconds.toDouble() ?? 0,
+                getCurrentTime: () => _videoCtrl?.position ?? Duration.zero,
                 opacity: _app.danmuOpacity,
                 fontSize: _app.danmuFontSize,
                 areaPercent: _app.danmuArea,
@@ -1096,18 +819,35 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 speed: _app.danmuSpeed,
                 danmuDensity: _app.danmuDensity / 100.0,
                 topMargin: _app.danmuTopMargin,
+                showScroll: _app.danmuScroll,
+                showTop: _app.danmuTop,
+                showBottom: _app.danmuBottom,
+                antiOverlap: _app.danmuAntiOverlap,
               ),
 
             // 软件字幕覆盖层（ExoPlayer 用）
-            if (_softwareSubtitle != null && _softwareSubtitle!.isNotEmpty)
-              SubtitleOverlay(
-                subtitleData: _softwareSubtitle,
-                currentPosition: _videoCtrl?.position ?? Duration.zero,
-                fontSize: appState.subtitleSize,
-                outline: appState.subtitleOutline,
-                showBackground: appState.subtitleBackground,
-                color: Color(appState.subtitleColorValue),
-                bottomMargin: appState.subtitleBottomMargin,
+            if (_engine != 'mpv' && _softwareSubtitle != null && _softwareSubtitle!.isNotEmpty)
+              Selector<AppState, _SubtitleStyle>(
+                selector: (_, app) => _SubtitleStyle(
+                  size: app.subtitleSize,
+                  outline: app.subtitleOutline,
+                  background: app.subtitleBackground,
+                  color: app.subtitleColorValue,
+                  weight: app.subtitleWeight,
+                  bottomMargin: app.subtitleBottomMargin,
+                ),
+                builder: (context, style, _) => SubtitleOverlay(
+                  subtitleData: _softwareSubtitle,
+                  getCurrentTime: () => _videoCtrl?.position ?? Duration.zero,
+                  fontSize: style.size,
+                  outline: style.outline,
+                  showBackground: style.background,
+                  color: Color(style.color),
+                  fontWeight: FontWeight.values[
+                    ((style.weight.clamp(100, 900) - 100) / 100).round().clamp(0, 8)
+                  ],
+                  bottomMargin: style.bottomMargin,
+                ),
               ),
 
             // Controls
@@ -1136,14 +876,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   _isLocked = !_isLocked;
                   if (_isLocked) _showControls = false;
                 }),
-                onDanmu: () {
-                  setState(() => _danmuOn = !_danmuOn);
-                  if (_danmuOn) {
-                    _startDanmuTimer();
-                  } else {
-                    _danmuTimer?.cancel();
-                  }
-                },
+                onDanmu: () => setState(() => _danmuOn = !_danmuOn),
                 onBack: () {
                   // 返回前强制恢复竖屏
                   SystemChrome.setPreferredOrientations([
@@ -1170,9 +903,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   setState(() => _selectedAudioIndex = idx);
                   _videoCtrl?.setAudioTrack(idx);
                 },
+                seekStep: seekStep,
                 onSubtitleSelected: (idx) {
-                  setState(() => _selectedSubtitleIndex = idx);
-                  _videoCtrl?.setSubtitleTrack(idx);
+                  if (_engine == 'mpv') {
+                    setState(() => _selectedSubtitleIndex = idx);
+                    _videoCtrl?.setSubtitleTrack(idx);
+                  } else {
+                    _loadExoSubtitle(index: idx);
+                  }
                 },
                 onSeekChanged: (val) {
                   _videoCtrl?.seekTo(Duration(milliseconds: val.toInt()));
@@ -1280,4 +1018,35 @@ class _PlayerScreenState extends State<PlayerScreen> {
   String _md5Hex(String input) {
     return md5.convert(utf8.encode(input)).toString();
   }
+}
+
+class _SubtitleStyle {
+  final double size;
+  final double outline;
+  final bool background;
+  final int color;
+  final double weight;
+  final double bottomMargin;
+
+  const _SubtitleStyle({
+    required this.size,
+    required this.outline,
+    required this.background,
+    required this.color,
+    required this.weight,
+    required this.bottomMargin,
+  });
+
+  @override
+  bool operator ==(Object other) =>
+      other is _SubtitleStyle &&
+      other.size == size &&
+      other.outline == outline &&
+      other.background == background &&
+      other.color == color &&
+      other.weight == weight &&
+      other.bottomMargin == bottomMargin;
+
+  @override
+  int get hashCode => Object.hash(size, outline, background, color, weight, bottomMargin);
 }

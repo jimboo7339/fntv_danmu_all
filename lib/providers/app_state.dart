@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/watch_record.dart';
 import '../services/api_client.dart';
+import '../utils/secure_storage.dart';
 
 /// Represents a saved account (server + user).
 class SavedAccount {
@@ -17,8 +18,8 @@ class SavedAccount {
     required this.id,
     required this.host,
     required this.user,
-    required this.pass,
-    required this.token,
+    this.pass = '',
+    this.token = '',
     String? label,
   }) : label = label ?? '$user@${_shortHost(host)}';
 
@@ -28,14 +29,19 @@ class SavedAccount {
     return h;
   }
 
+  /// 持久化元数据（不含 token / 密码）
   Map<String, dynamic> toJson() => {
-    'id': id, 'host': host, 'user': user,
-    'pass': pass, 'token': token, 'label': label,
+    'id': id, 'host': host, 'user': user, 'label': label,
   };
 
   factory SavedAccount.fromJson(Map<String, dynamic> j) => SavedAccount(
     id: j['id'] ?? '', host: j['host'] ?? '', user: j['user'] ?? '',
-    pass: j['pass'] ?? '', token: j['token'] ?? '', label: j['label'],
+    label: j['label'],
+  );
+
+  SavedAccount copyWith({String? pass, String? token}) => SavedAccount(
+    id: id, host: host, user: user, pass: pass ?? this.pass,
+    token: token ?? this.token, label: label,
   );
 }
 
@@ -47,6 +53,7 @@ class AppState extends ChangeNotifier {
   List<WatchRecord> _watchHistory = [];
   List<SavedAccount> _accounts = [];
   SavedAccount? _currentAccount;
+  Map<String, Map<String, dynamic>>? _danmuSourceCacheMem;
 
   bool get isLoggedIn => _isLoggedIn;
   bool get loading => _loading;
@@ -57,8 +64,8 @@ class AppState extends ChangeNotifier {
 
   Future<void> init() async {
     _prefs = await SharedPreferences.getInstance();
-    _loadAccounts();
-    // Try auto-login with last active account
+    await _migrateLegacySecrets();
+    await _loadAccountsWithSecrets();
     final activeId = _prefs.getString('active_account_id') ?? '';
     if (activeId.isNotEmpty) {
       final acc = _accounts.where((a) => a.id == activeId).toList();
@@ -71,17 +78,45 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  // ====== Accounts ======
-
-  void _loadAccounts() {
+  Future<void> _migrateLegacySecrets() async {
     final json = _prefs.getString('accounts');
-    if (json != null) {
-      try {
-        final list = jsonDecode(json) as List;
-        _accounts = list.map((e) => SavedAccount.fromJson(e)).toList();
-      } catch (_) {
-        _accounts = [];
+    if (json == null) return;
+    try {
+      final list = jsonDecode(json) as List;
+      final secure = SecureStore.instance;
+      for (final item in list) {
+        if (item is! Map) continue;
+        final id = item['id']?.toString() ?? '';
+        if (id.isEmpty) continue;
+        final token = item['token']?.toString() ?? '';
+        final pass = item['pass']?.toString() ?? '';
+        if (token.isNotEmpty) await secure.writeToken(id, token);
+        if (pass.isNotEmpty) await secure.writePass(id, pass);
       }
+    } catch (_) {}
+  }
+
+  Future<void> _loadAccountsWithSecrets() async {
+    final json = _prefs.getString('accounts');
+    if (json == null) {
+      _accounts = [];
+      return;
+    }
+    try {
+      final list = jsonDecode(json) as List;
+      final secure = SecureStore.instance;
+      final loaded = <SavedAccount>[];
+      for (final item in list) {
+        if (item is! Map) continue;
+        var acc = SavedAccount.fromJson(Map<String, dynamic>.from(item));
+        final token = await secure.readToken(acc.id) ?? '';
+        final pass = await secure.readPass(acc.id) ?? '';
+        acc = acc.copyWith(token: token, pass: pass);
+        loaded.add(acc);
+      }
+      _accounts = loaded;
+    } catch (_) {
+      _accounts = [];
     }
   }
 
@@ -89,7 +124,16 @@ class AppState extends ChangeNotifier {
     _prefs.setString('accounts', jsonEncode(_accounts.map((a) => a.toJson()).toList()));
   }
 
-  /// Switch to a saved account without re-login.
+  Future<void> _persistAccountSecrets(SavedAccount account, {bool rememberPass = false}) async {
+    final secure = SecureStore.instance;
+    await secure.writeToken(account.id, account.token);
+    if (rememberPass && account.pass.isNotEmpty) {
+      await secure.writePass(account.id, account.pass);
+    } else {
+      await secure.deletePass(account.id);
+    }
+  }
+
   Future<bool> switchAccount(String accountId) async {
     final acc = _accounts.where((a) => a.id == accountId).toList();
     if (acc.isEmpty) return false;
@@ -99,21 +143,18 @@ class AppState extends ChangeNotifier {
     api.updateBaseUrl(account.host);
     api.setToken(account.token);
     await _prefs.setString('active_account_id', account.id);
-    // Clear watch history on account switch
     _watchHistory.clear();
     _isLoggedIn = true;
     notifyListeners();
     return true;
   }
 
-  /// Remove a saved account.
   void removeAccount(String accountId) {
     _accounts.removeWhere((a) => a.id == accountId);
     _saveAccounts();
+    SecureStore.instance.deleteAccount(accountId);
     notifyListeners();
   }
-
-  // ====== Login / Logout ======
 
   Future<bool> login(String host, String user, String pass, bool remember) async {
     _loading = true;
@@ -128,30 +169,27 @@ class AppState extends ChangeNotifier {
         final token = resp['data']['token'] as String;
         api.setToken(token);
 
-        // Build account id
         final accId = '$host|$user';
         final account = SavedAccount(
           id: accId, host: host, user: user,
           pass: remember ? pass : '', token: token,
         );
 
-        // Update or add account
         _accounts.removeWhere((a) => a.id == accId);
         _accounts.insert(0, account);
-        _currentAccount = account;
         _saveAccounts();
+        await _persistAccountSecrets(account, rememberPass: remember);
 
-        // Set as active
         await _prefs.setString('active_account_id', accId);
         await _prefs.setBool('remember', remember);
 
-        // Clear watch history on account switch
         final lastHost = _prefs.getString('last_host') ?? '';
         if (lastHost != host && lastHost.isNotEmpty) {
           _watchHistory.clear();
         }
         await _prefs.setString('last_host', host);
 
+        _currentAccount = account;
         _isLoggedIn = true;
         _loading = false;
         notifyListeners();
@@ -169,15 +207,10 @@ class AppState extends ChangeNotifier {
     _isLoggedIn = false;
     _currentAccount = null;
     api.setToken('');
-    // Clear active account so auto-login doesn't kick in
     await _prefs.remove('active_account_id');
-    // DON'T remove saved accounts — user can switch between them
     notifyListeners();
   }
 
-  // ====== Watch History (服务端驱动) ======
-
-  /// 从服务端获取继续观看列表（替换本地缓存）
   Future<void> fetchServerPlayList() async {
     try {
       final resp = await api.getPlayList();
@@ -215,7 +248,6 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  /// 更新内存中的观看记录（用于UI即时刷新，不持久化）
   void addWatchRecord(WatchRecord record) {
     record.updatedAt = DateTime.now().millisecondsSinceEpoch;
     _watchHistory.removeWhere((r) => r.dedupKey == record.dedupKey);
@@ -223,8 +255,6 @@ class AppState extends ChangeNotifier {
     if (_watchHistory.length > 100) _watchHistory = _watchHistory.sublist(0, 100);
     notifyListeners();
   }
-
-  // ====== Settings ======
 
   String get decoderMode => _prefs.getString('decoder_mode') ?? 'hardware';
   set decoderMode(String v) { _prefs.setString('decoder_mode', v); notifyListeners(); }
@@ -271,8 +301,6 @@ class AppState extends ChangeNotifier {
   double get danmuTopMargin => _prefs.getDouble('danmu_top_margin') ?? 0.0;
   set danmuTopMargin(double v) { _prefs.setDouble('danmu_top_margin', v); notifyListeners(); }
 
-  // ====== 字幕样式 (MPV) ======
-
   double get subtitleSize => _prefs.getDouble('subtitle_size') ?? 22.0;
   set subtitleSize(double v) { _prefs.setDouble('subtitle_size', v); notifyListeners(); }
 
@@ -285,58 +313,50 @@ class AppState extends ChangeNotifier {
   int get subtitleColorValue => _prefs.getInt('subtitle_color') ?? 0xFFFFFFFF;
   set subtitleColorValue(int v) { _prefs.setInt('subtitle_color', v); notifyListeners(); }
 
-  double get subtitleWeight => _prefs.getDouble('subtitle_weight') ?? 600; // FontWeight.w600
+  double get subtitleWeight => _prefs.getDouble('subtitle_weight') ?? 600;
   set subtitleWeight(double v) { _prefs.setDouble('subtitle_weight', v); notifyListeners(); }
 
   double get subtitleBottomMargin => _prefs.getDouble('subtitle_bottom_margin') ?? 0.0;
   set subtitleBottomMargin(double v) { _prefs.setDouble('subtitle_bottom_margin', v); notifyListeners(); }
 
-  // ====== 弹幕服务器（独立于账号，app级存储） ======
-
   String get danmuUrl {
     final saved = _prefs.getString('danmu_url') ?? '';
     if (saved.isNotEmpty) return saved;
-    return ''; // 不再自动派生，让用户自己设置
+    return '';
   }
 
   set danmuUrl(String v) { _prefs.setString('danmu_url', v); notifyListeners(); }
 
-  /// 缓存弹幕源（完整信息）按剧名，下次自动选择
-  /// Each value: {animeId, animeName, episodeId, episodeNumber, commentCount}
   Map<String, Map<String, dynamic>> get danmuSourceCache {
+    if (_danmuSourceCacheMem != null) return _danmuSourceCacheMem!;
     final raw = _prefs.getString('danmu_source_cache');
     if (raw != null) {
       try {
         final decoded = jsonDecode(raw) as Map<String, dynamic>;
-        return decoded.map((k, v) => MapEntry(k, Map<String, dynamic>.from(v as Map)));
+        _danmuSourceCacheMem = decoded.map((k, v) => MapEntry(k, Map<String, dynamic>.from(v as Map)));
+        return _danmuSourceCacheMem!;
       } catch (_) {}
     }
-    return {};
+    _danmuSourceCacheMem = {};
+    return _danmuSourceCacheMem!;
   }
 
   set danmuSourceCache(Map<String, Map<String, dynamic>> v) {
+    _danmuSourceCacheMem = v;
     _prefs.setString('danmu_source_cache', jsonEncode(v));
     notifyListeners();
   }
 
-  Map<String, dynamic>? getDanmuSource(String showName) {
-    final cache = danmuSourceCache;
-    return cache[showName];
-  }
+  Map<String, dynamic>? getDanmuSource(String showName) => danmuSourceCache[showName];
 
   void setDanmuSource(String showName, Map<String, dynamic> data) {
-    final cache = danmuSourceCache;
+    final cache = Map<String, Map<String, dynamic>>.from(danmuSourceCache);
     cache[showName] = data;
     danmuSourceCache = cache;
   }
 
-  // ====== Player Engine ======
-
-  /// 'exo' or 'mpv'. Default: 'mpv' on all platforms.
   String get playerEngine => _prefs.getString('player_engine') ?? 'mpv';
   set playerEngine(String v) { _prefs.setString('player_engine', v); notifyListeners(); }
-
-  // ====== Long press speed ======
 
   double get danmuLongPressSpeed => _prefs.getDouble('danmu_lp_speed') ?? 2.0;
   set danmuLongPressSpeed(double v) { _prefs.setDouble('danmu_lp_speed', v); notifyListeners(); }

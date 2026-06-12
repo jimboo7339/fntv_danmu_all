@@ -10,6 +10,8 @@ class VideoWrapper {
   final String engine;
   final String url;
   final Map<String, String>? headers;
+  /// 'hardware' or 'software'
+  final String decoderMode;
 
   bool get useMpv => engine == 'mpv';
   bool get useExo => engine == 'exo';
@@ -28,6 +30,8 @@ class VideoWrapper {
   bool _isPlaying = false;
   bool _isBuffering = false;
   bool _isInitialized = false;
+  DateTime _lastPositionNotify = DateTime.fromMillisecondsSinceEpoch(0);
+  Duration _lastNotifiedPosition = Duration.zero;
 
   final List<VoidCallback> _listeners = [];
 
@@ -35,6 +39,7 @@ class VideoWrapper {
     required this.engine,
     required this.url,
     this.headers,
+    this.decoderMode = 'hardware',
   });
 
   // ── Public state getters ──────────────────────────────────────────────
@@ -129,7 +134,7 @@ class VideoWrapper {
     });
     _mpvPlayer!.stream.position.listen((pos) {
       _position = pos;
-      _notifyAll();
+      _throttledNotify(pos);
     });
     _mpvPlayer!.stream.duration.listen((dur) {
       _duration = dur;
@@ -170,11 +175,21 @@ class VideoWrapper {
         native.setProperty('vd-lavc-threads', '4');
         native.setProperty('audio-sync', 'yes');
         native.setProperty('video-sync', 'audio');
-        native.setProperty('hwdec', 'auto');
-        debugPrint('MPV performance tuning applied');
+        native.setProperty('hwdec', decoderMode == 'software' ? 'no' : 'auto');
+        debugPrint('MPV performance tuning applied (hwdec=${decoderMode == 'software' ? 'no' : 'auto'})');
       }
     } catch (e) {
       debugPrint('MPV tuning error: $e');
+    }
+  }
+
+  void _throttledNotify(Duration pos) {
+    final now = DateTime.now();
+    if (now.difference(_lastPositionNotify).inMilliseconds >= 200 ||
+        pos.inSeconds != _lastNotifiedPosition.inSeconds) {
+      _lastPositionNotify = now;
+      _lastNotifiedPosition = pos;
+      _notifyAll();
     }
   }
 

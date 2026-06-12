@@ -51,6 +51,49 @@ class SubtitleData {
     return null;
   }
 
+  /// 自动检测格式并解析
+  static SubtitleData? parseAuto(String content, {String language = ''}) {
+    final trimmed = content.trim();
+    if (trimmed.isEmpty) return null;
+    if (trimmed.startsWith('WEBVTT')) return parseVtt(content, language: language);
+    if (trimmed.contains('[Script Info]') || trimmed.contains('Dialogue:')) {
+      return parseAss(content, language: language);
+    }
+    if (trimmed.contains('-->')) return parseSrt(content, language: language);
+    return null;
+  }
+
+  /// 解析 ASS/SSA 格式字幕（提取 Dialogue 行）
+  static SubtitleData parseAss(String assContent, {String language = ''}) {
+    final entries = <SubtitleEntry>[];
+    int index = 0;
+    for (final line in assContent.split('\n')) {
+      if (!line.startsWith('Dialogue:')) continue;
+      final parts = line.split(',');
+      if (parts.length < 10) continue;
+      final start = _parseAssTime(parts[1].trim());
+      final end = _parseAssTime(parts[2].trim());
+      if (start == null || end == null) continue;
+      final text = _cleanSrtTags(parts.sublist(9).join(',').trim());
+      if (text.isEmpty) continue;
+      index++;
+      entries.add(SubtitleEntry(index: index, start: start, end: end, text: text));
+    }
+    return SubtitleData(entries: entries, language: language, codecName: 'ass');
+  }
+
+  static Duration? _parseAssTime(String t) {
+    // H:MM:SS.cc
+    final m = RegExp(r'^(\d+):(\d{2}):(\d{2})\.(\d{2})$').firstMatch(t);
+    if (m == null) return null;
+    return Duration(
+      hours: int.parse(m.group(1)!),
+      minutes: int.parse(m.group(2)!),
+      seconds: int.parse(m.group(3)!),
+      milliseconds: int.parse(m.group(4)! ) * 10,
+    );
+  }
+
   /// 解析 SRT 格式字幕
   static SubtitleData parseSrt(String srtContent, {String language = ''}) {
     final entries = <SubtitleEntry>[];

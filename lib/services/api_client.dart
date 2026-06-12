@@ -6,6 +6,8 @@ class ApiClient {
   late Dio _dio;
   String? _token;
   String _baseUrl = '';
+  Map<String, String>? _cachedImageHeaders;
+  String? _cachedImageHeadersToken;
 
   ApiClient() {
     _dio = Dio(BaseOptions(
@@ -41,7 +43,11 @@ class ApiClient {
     _dio.options.baseUrl = '$_baseUrl/v/';
   }
 
-  void setToken(String token) { _token = token; }
+  void setToken(String token) {
+    _token = token;
+    _cachedImageHeaders = null;
+    _cachedImageHeadersToken = null;
+  }
   String? get token => _token;
 
   Dio get dio => _dio;
@@ -126,6 +132,9 @@ class ApiClient {
 
   /// 返回图片请求所需的认证头，供 CachedNetworkImage 使用
   Map<String, String> get imageHeaders {
+    if (_cachedImageHeaders != null && _cachedImageHeadersToken == _token) {
+      return _cachedImageHeaders!;
+    }
     final headers = <String, String>{
       'Content-Type': 'application/json',
       'Cookie': 'mode=relay',
@@ -133,9 +142,10 @@ class ApiClient {
     if (_token != null) {
       headers['Authorization'] = _token!;
     }
-    // Authx 需要 url path 和 body，对图片 GET 请求 body 为 null
     final authx = FnAuthUtils.genAuthx('/v/api/v1/sys/img', null);
     headers['Authx'] = authx;
+    _cachedImageHeaders = headers;
+    _cachedImageHeadersToken = _token;
     return headers;
   }
 

@@ -40,6 +40,7 @@ class PlayerControls extends StatelessWidget {
   final void Function(Map<String, dynamic>) onDanmuSourceSelected;
   final VoidCallback? onLoadExternalSubtitle;
   final bool useMpv;
+  final int seekStep;
 
   const PlayerControls({
     super.key,
@@ -75,6 +76,7 @@ class PlayerControls extends StatelessWidget {
     required this.onDanmuSourceSelected,
     this.onLoadExternalSubtitle,
     this.useMpv = true,
+    this.seekStep = 10,
   });
 
   @override
@@ -159,7 +161,7 @@ class PlayerControls extends StatelessWidget {
                         style: const TextStyle(color: Colors.white70, fontSize: 13),
                       ),
                       const Spacer(),
-                      _ctrlBtn('10秒', () => onSeek(const Duration(seconds: -10))),
+                      _ctrlBtn('${seekStep}秒', () => onSeek(Duration(seconds: -seekStep))),
                       GestureDetector(
                         onTap: onPlayPause,
                         child: Container(
@@ -174,7 +176,7 @@ class PlayerControls extends StatelessWidget {
                           ),
                         ),
                       ),
-                      _ctrlBtn('10秒', () => onSeek(const Duration(seconds: 10))),
+                      _ctrlBtn('${seekStep}秒', () => onSeek(Duration(seconds: seekStep))),
                       const SizedBox(width: 8),
                       _ctrlBtn('${speed}x', () => _showSpeedMenu(context)),
                       if (qualityCount > 0)
