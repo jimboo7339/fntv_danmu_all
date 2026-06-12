@@ -218,7 +218,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   if (_previews[lib.guid] != null && _previews[lib.guid]!.isNotEmpty)
                     SliverToBoxAdapter(
                       child: SizedBox(
-                      height: 184,
+                      height: 210,
                       child: ListView.separated(
                         scrollDirection: Axis.horizontal,
                         padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -294,7 +294,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       padding: const EdgeInsets.all(12),
                       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                         crossAxisCount: _calcColumns(context),
-                        childAspectRatio: 0.62,
+                        childAspectRatio: 0.50,
                         crossAxisSpacing: 8,
                         mainAxisSpacing: 8,
                       ),
@@ -304,6 +304,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         imageUrl: _app.api.getImageUrl(_browseItems![i].poster),
                         onTap: () => _onItemTap(_browseItems![i]),
                         showTitle: true,
+                        expandWidth: true,
                       ),
                     ),
         ),

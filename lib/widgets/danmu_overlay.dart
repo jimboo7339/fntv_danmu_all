@@ -82,9 +82,30 @@ class _DanmuOverlayState extends State<DanmuOverlay>
   void _onPositionTick() => _syncAnchor();
 
   void _syncAnchor() {
-    _anchorVideoSec = widget.getCurrentTime().inMilliseconds / 1000.0;
-    _anchorWallSec = DateTime.now().millisecondsSinceEpoch / 1000.0;
-    _lastCurSec = _anchorVideoSec;
+    final actual = widget.getCurrentTime().inMilliseconds / 1000.0;
+    final wallNow = DateTime.now().millisecondsSinceEpoch / 1000.0;
+
+    if (!widget.isPlaying) {
+      _anchorVideoSec = actual;
+      _anchorWallSec = wallNow;
+      return;
+    }
+
+    final rate = widget.playbackSpeed.clamp(0.1, 4.0);
+    final extrapolated = _anchorVideoSec + (wallNow - _anchorWallSec) * rate;
+
+    // 快退 / 跳转：硬重置
+    if (actual < extrapolated - 0.5) {
+      _anchorVideoSec = actual;
+      _anchorWallSec = wallNow;
+      return;
+    }
+
+    // 正常播放：仅向前同步，避免 position 回调滞后导致弹幕回弹
+    if (actual >= extrapolated - 0.12) {
+      _anchorVideoSec = actual;
+      _anchorWallSec = wallNow;
+    }
   }
 
   double _interpolatedVideoSec() {
