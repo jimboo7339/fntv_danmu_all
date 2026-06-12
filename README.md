@@ -41,7 +41,7 @@
 
 | 首页 | 详情页 | 播放器 |
 |------|--------|--------|
-| 继续观看 + 媒体库入口 | 海报模糊 + Logo + 信息标签 | 弹幕 + 手势控制 |
+| 继续观看 + 媒体库入口 <img width="1272" height="2772" alt="9f99c9ab0d5ad2de40625e885863158c" src="https://github.com/user-attachments/assets/c58b4ed4-196f-43bb-8f57-d872625c1314" />| 海报模糊 + Logo + 信息标签 <img width="1272" height="2772" alt="a14c1ebd1aeb01bea89b53eb04139739" src="https://github.com/user-attachments/assets/3f843b8a-6993-4c41-883b-aee51364f35c" /><img width="1272" height="2772" alt="09d7493f74c4256bdc60342b9c67eb01" src="https://github.com/user-attachments/assets/0dedde12-1bfb-4962-8fce-f6f3e6f591be" />| 弹幕 + 手势控制 <img width="2772" height="1272" alt="e2e75a24471e8d6038f1a40831ffed1a" src="https://github.com/user-attachments/assets/4e229e35-916b-42b0-a135-ffe7e8e02c9a" />|
 
 ---
 
