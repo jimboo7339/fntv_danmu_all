@@ -75,7 +75,12 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _fetchItems(String guid, String title) async {
-    setState(() { _loading = true; _browseGuid = guid; _browseTitle = title; });
+    setState(() {
+      _loading = true;
+      _browseGuid = guid;
+      _browseTitle = title;
+      _browseItems = null;
+    });
     try {
       final resp = await _app.api.getItemList({
         'ancestor_guid': guid,
@@ -137,8 +142,16 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (_browseGuid != null && _browseItems != null) {
-      return _buildBrowseView();
+    if (_browseGuid != null) {
+      return PopScope(
+        canPop: false,
+        onPopInvokedWithResult: (didPop, result) {
+          if (!didPop) {
+            setState(() { _browseGuid = null; _browseItems = null; });
+          }
+        },
+        child: _buildBrowseView(),
+      );
     }
     return _buildOverview();
   }
