@@ -34,6 +34,7 @@ class VideoWrapper {
   Duration _lastNotifiedPosition = Duration.zero;
 
   final List<VoidCallback> _listeners = [];
+  final ValueNotifier<Duration> positionNotifier = ValueNotifier(Duration.zero);
 
   VideoWrapper({
     required this.engine,
@@ -111,12 +112,23 @@ class VideoWrapper {
       Uri.parse(url),
       httpHeaders: headers ?? {},
     );
+    _exoController!.addListener(_onExoTick);
     await _exoController!.initialize();
     _isInitialized = true;
+    _duration = _exoController!.value.duration;
+    positionNotifier.value = _exoController!.value.position;
     for (final l in _listeners) {
       _exoController!.addListener(l);
     }
     _notifyAll();
+  }
+
+  void _onExoTick() {
+    if (_exoController == null) return;
+    final v = _exoController!.value;
+    positionNotifier.value = v.position;
+    _duration = v.duration;
+    _throttledNotify(v.position);
   }
 
   Future<void> _initMpv() async {
@@ -134,6 +146,7 @@ class VideoWrapper {
     });
     _mpvPlayer!.stream.position.listen((pos) {
       _position = pos;
+      positionNotifier.value = pos;
       _throttledNotify(pos);
     });
     _mpvPlayer!.stream.duration.listen((dur) {
@@ -318,6 +331,7 @@ class VideoWrapper {
       _mpvPlayer = null;
       _mpvVideoController = null;
     } else {
+      _exoController?.removeListener(_onExoTick);
       for (final l in _listeners) {
         _exoController?.removeListener(l);
       }
@@ -325,6 +339,7 @@ class VideoWrapper {
       _exoController = null;
     }
 
+    positionNotifier.dispose();
     _listeners.clear();
   }
 }

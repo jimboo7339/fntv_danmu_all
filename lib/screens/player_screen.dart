@@ -283,7 +283,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       subtitleGuid: _subtitleGuid,
       streams: _subtitleStreams,
     );
-    if (mounted && data != null) {
+    if (mounted && data != null && data.isNotEmpty) {
       setState(() {
         _softwareSubtitle = data;
         _selectedSubtitleIndex = 0;
@@ -295,40 +295,57 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Future<void> _loadExoSubtitle({required int index}) async {
     if (_mediaGuid == null) return;
     if (index < 0) {
-      if (mounted) setState(() => _softwareSubtitle = null);
+      if (mounted) {
+        setState(() {
+          _selectedSubtitleIndex = -1;
+          _softwareSubtitle = null;
+        });
+      }
       return;
     }
     final streams = _subtitleStreams;
     if (streams == null || streams.isEmpty) return;
 
     final stream = index < streams.length ? streams[index] : null;
-    final data = await _subtitleService.loadByStreamIndex(
+    SubtitleData? data = await _subtitleService.loadByStreamIndex(
       mediaGuid: _mediaGuid!,
       streamIndex: index,
       stream: stream,
     );
-    if (data == null && _subtitleGuid != null && _subtitleGuid!.isNotEmpty) {
-      final fallback = await _subtitleService.loadDefault(
+    if (data == null) {
+      data = await _subtitleService.loadDefault(
         mediaGuid: _mediaGuid!,
-        subtitleGuid: _subtitleGuid,
+        subtitleGuid: stream?.guid ?? _subtitleGuid,
         streams: streams,
       );
-      if (fallback != null && mounted) {
-        setState(() {
-          _softwareSubtitle = fallback;
-          _selectedSubtitleIndex = index;
-        });
-      }
-      return;
     }
-    if (mounted && data != null) {
+
+    if (!mounted) return;
+    if (data != null && data.isNotEmpty) {
       setState(() {
         _softwareSubtitle = data;
         _selectedSubtitleIndex = index;
       });
-    } else if (mounted) {
-      debugPrint('ℹ️ Exo subtitle load failed for index=$index');
+      debugPrint('✅ Exo subtitle ready: ${data.entries.length} entries, index=$index');
+    } else {
+      setState(() => _selectedSubtitleIndex = index);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('字幕加载失败，可尝试加载外部 SRT/VTT 文件'),
+          duration: Duration(seconds: 3),
+        ),
+      );
+      debugPrint('❌ Exo subtitle load failed for index=$index');
     }
+  }
+
+  Future<void> _onExoSubtitleSelected(int idx) async {
+    setState(() => _selectedSubtitleIndex = idx);
+    if (idx < 0) {
+      setState(() => _softwareSubtitle = null);
+      return;
+    }
+    await _loadExoSubtitle(index: idx);
   }
 
   /// 加载外部 SRT/VTT 字幕文件
@@ -808,10 +825,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
               const Center(child: CircularProgressIndicator(color: FnTheme.danmuGreen, strokeWidth: 3)),
 
             // Danmu overlay
-            if (_danmuOn && _isPlaying)
+            if (_danmuOn && _videoCtrl != null && _danmuItems.isNotEmpty)
               DanmuOverlay(
                 comments: _danmuItems,
-                getCurrentTime: () => _videoCtrl?.position ?? Duration.zero,
+                getCurrentTime: () => _videoCtrl!.position,
+                positionListenable: _videoCtrl!.positionNotifier,
                 opacity: _app.danmuOpacity,
                 fontSize: _app.danmuFontSize,
                 areaPercent: _app.danmuArea,
@@ -826,7 +844,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
               ),
 
             // 软件字幕覆盖层（ExoPlayer 用）
-            if (_engine != 'mpv' && _softwareSubtitle != null && _softwareSubtitle!.isNotEmpty)
+            if (_engine != 'mpv' && _selectedSubtitleIndex >= 0 && _softwareSubtitle != null && _softwareSubtitle!.isNotEmpty)
               Selector<AppState, _SubtitleStyle>(
                 selector: (_, app) => _SubtitleStyle(
                   size: app.subtitleSize,
@@ -838,7 +856,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 ),
                 builder: (context, style, _) => SubtitleOverlay(
                   subtitleData: _softwareSubtitle,
-                  getCurrentTime: () => _videoCtrl?.position ?? Duration.zero,
+                  getCurrentTime: () => _videoCtrl!.position,
+                  positionListenable: _videoCtrl?.positionNotifier,
                   fontSize: style.size,
                   outline: style.outline,
                   showBackground: style.background,
@@ -909,7 +928,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     setState(() => _selectedSubtitleIndex = idx);
                     _videoCtrl?.setSubtitleTrack(idx);
                   } else {
-                    _loadExoSubtitle(index: idx);
+                    _onExoSubtitleSelected(idx);
                   }
                 },
                 onSeekChanged: (val) {

@@ -11,7 +11,7 @@ class SubtitleService {
 
   SubtitleService(this.api);
 
-  /// 自动加载默认字幕轨（优先 play/info 的 subtitle_guid，否则逐条尝试字幕流）。
+  /// 自动加载默认字幕轨。
   Future<SubtitleData?> loadDefault({
     required String mediaGuid,
     String? subtitleGuid,
@@ -49,10 +49,16 @@ class SubtitleService {
     SubtitleStreamInfo? stream,
   }) async {
     final idx = stream?.index ?? streamIndex;
+    final streamGuid = stream?.guid;
+
     final candidates = <_SubtitleRequest>[
+      if (streamGuid != null && streamGuid.isNotEmpty)
+        _SubtitleRequest('api/v1/media/range/$streamGuid'),
       _SubtitleRequest('api/v1/media/range/$mediaGuid', {'stream_index': idx}),
       _SubtitleRequest('api/v1/media/range/$mediaGuid', {'subtitle_index': idx}),
+      _SubtitleRequest('api/v1/media/range/$mediaGuid', {'stream_index': idx, 'format': 'srt'}),
       _SubtitleRequest('api/v1/media/subtitle/$mediaGuid', {'stream_index': idx}),
+      _SubtitleRequest('api/v1/media/subtitle/$mediaGuid', {'index': idx}),
       _SubtitleRequest('api/v1/subtitle/$mediaGuid', {'stream_index': idx}),
     ];
 
@@ -75,6 +81,7 @@ class SubtitleService {
         options: Options(
           responseType: ResponseType.bytes,
           validateStatus: (s) => s != null && s >= 200 && s < 500,
+          headers: const {'Accept': 'text/plain, application/json, */*'},
         ),
       );
       if (resp.statusCode != 200 || resp.data == null) return null;
@@ -82,26 +89,70 @@ class SubtitleService {
       final bytes = resp.data as List<int>;
       if (bytes.isEmpty) return null;
 
-      final content = _decodeBytes(bytes);
-      if (content.trim().isEmpty) return null;
+      final content = _extractText(bytes);
+      if (content == null || content.trim().isEmpty) return null;
 
       final data = SubtitleData.parseAuto(content);
       if (data != null && data.isNotEmpty) {
         debugPrint('✅ Subtitle loaded (${data.entries.length} entries) from $label');
         return data;
       }
+      debugPrint('⚠️ Subtitle response from $label could not be parsed (${content.length} chars)');
     } catch (e) {
       debugPrint('Subtitle fetch $label error: $e');
     }
     return null;
   }
 
-  String _decodeBytes(List<int> bytes) {
-    try {
-      return utf8.decode(bytes, allowMalformed: true);
-    } catch (_) {
-      return latin1.decode(bytes, allowInvalid: true);
+  String? _extractText(List<int> bytes) {
+    // UTF-8 BOM
+    var raw = bytes;
+    if (raw.length >= 3 && raw[0] == 0xEF && raw[1] == 0xBB && raw[2] == 0xBF) {
+      raw = raw.sublist(3);
     }
+
+    String text;
+    try {
+      text = utf8.decode(raw, allowMalformed: true);
+    } catch (_) {
+      text = latin1.decode(raw, allowInvalid: true);
+    }
+
+    text = text.trim();
+    if (text.isEmpty) return null;
+
+    // JSON 包装
+    if (text.startsWith('{') || text.startsWith('[')) {
+      try {
+        final decoded = jsonDecode(text);
+        final fromJson = _textFromJson(decoded);
+        if (fromJson != null && fromJson.trim().isNotEmpty) return fromJson;
+      } catch (_) {}
+    }
+
+    return text;
+  }
+
+  String? _textFromJson(dynamic decoded) {
+    if (decoded is String) return decoded;
+    if (decoded is List) {
+      for (final item in decoded) {
+        final t = _textFromJson(item);
+        if (t != null && t.contains('-->')) return t;
+      }
+      return null;
+    }
+    if (decoded is! Map) return null;
+
+    if (decoded['code'] != null && decoded['code'] != 0) return null;
+
+    for (final key in ['data', 'content', 'subtitle', 'text', 'body']) {
+      final v = decoded[key];
+      if (v == null) continue;
+      final t = _textFromJson(v);
+      if (t != null && t.trim().isNotEmpty) return t;
+    }
+    return null;
   }
 }
 

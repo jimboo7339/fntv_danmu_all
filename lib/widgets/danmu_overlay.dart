@@ -6,6 +6,7 @@ import '../models/danmu_comment.dart';
 class DanmuOverlay extends StatefulWidget {
   final List<DanmuComment> comments;
   final Duration Function() getCurrentTime;
+  final Listenable? positionListenable;
   final double opacity;
   final double fontSize;
   final int areaPercent;
@@ -22,6 +23,7 @@ class DanmuOverlay extends StatefulWidget {
     super.key,
     required this.comments,
     required this.getCurrentTime,
+    this.positionListenable,
     this.opacity = 0.85,
     this.fontSize = 22,
     this.areaPercent = 35,
@@ -54,8 +56,7 @@ class _DanmuOverlayState extends State<DanmuOverlay>
     _animCtrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 50),
-    )..addListener(_tick);
-    _animCtrl.repeat();
+    )..repeat();
   }
 
   @override
@@ -65,10 +66,9 @@ class _DanmuOverlayState extends State<DanmuOverlay>
     super.dispose();
   }
 
-  void _tick() {
-    if (!mounted) return;
-    setState(() {});
-  }
+  Listenable get _repaintListenable => widget.positionListenable != null
+      ? Listenable.merge([_animCtrl, widget.positionListenable!])
+      : _animCtrl;
 
   @override
   void didUpdateWidget(covariant DanmuOverlay oldWidget) {
@@ -115,6 +115,7 @@ class _DanmuOverlayState extends State<DanmuOverlay>
             lastRealTime: _lastRealTime,
             paragraphCache: _paragraphCache,
             onRealTimeUpdate: (t) => _lastRealTime = t,
+            repaint: _repaintListenable,
           ),
           size: Size.infinite,
         ),
@@ -170,6 +171,7 @@ class _DanmuPainter extends CustomPainter {
     required this.lastRealTime,
     required this.paragraphCache,
     required this.onRealTimeUpdate,
+    Listenable? repaint,
     this.opacity = 0.85,
     this.fontSize = 22,
     this.areaPercent = 35,
@@ -181,7 +183,7 @@ class _DanmuPainter extends CustomPainter {
     this.showTop = true,
     this.showBottom = true,
     this.antiOverlap = false,
-  });
+  }) : super(repaint: repaint);
 
   bool _typeVisible(int type) {
     if (type == 4) return showBottom;
@@ -360,6 +362,7 @@ class _DanmuPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _DanmuPainter oldDelegate) {
+    // 动画帧由 repaint: _animCtrl 驱动；此处仅比较静态属性
     return oldDelegate.comments != comments ||
         oldDelegate.opacity != opacity ||
         oldDelegate.fontSize != fontSize ||

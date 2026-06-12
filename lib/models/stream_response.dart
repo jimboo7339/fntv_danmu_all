@@ -91,15 +91,17 @@ class AudioStreamInfo {
 
 class SubtitleStreamInfo {
   final String? codecName, language, title;
+  final String? guid;
   final int index;
 
-  SubtitleStreamInfo({this.codecName, this.language, this.title, this.index = 0});
+  SubtitleStreamInfo({this.codecName, this.language, this.title, this.guid, this.index = 0});
 
   factory SubtitleStreamInfo.fromJson(Map<String, dynamic> json) {
     return SubtitleStreamInfo(
       codecName: json['codec_name'],
       language: json['language'],
       title: json['title'],
+      guid: json['guid'] ?? json['media_guid'] ?? json['subtitle_guid'],
       index: json['index'] ?? 0,
     );
   }

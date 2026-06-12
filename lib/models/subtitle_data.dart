@@ -108,23 +108,11 @@ class SubtitleData {
       if (index == null) continue;
 
       // 第二行：时间码 00:00:01,000 --> 00:00:04,000
-      final timeMatch = RegExp(
-        r'(\d{2}):(\d{2}):(\d{2})[,.](\d{3})\s*-->\s*(\d{2}):(\d{2}):(\d{2})[,.](\d{3})',
-      ).firstMatch(lines[1]);
+      final timeMatch = _matchTime(lines[1]);
       if (timeMatch == null) continue;
 
-      final start = Duration(
-        hours: int.parse(timeMatch.group(1)!),
-        minutes: int.parse(timeMatch.group(2)!),
-        seconds: int.parse(timeMatch.group(3)!),
-        milliseconds: int.parse(timeMatch.group(4)!),
-      );
-      final end = Duration(
-        hours: int.parse(timeMatch.group(5)!),
-        minutes: int.parse(timeMatch.group(6)!),
-        seconds: int.parse(timeMatch.group(7)!),
-        milliseconds: int.parse(timeMatch.group(8)!),
-      );
+      final start = _durationFromMatch(timeMatch, 1);
+      final end = _durationFromMatch(timeMatch, 5);
 
       // 剩余行：字幕文本
       final text = lines.sublist(2).join('\n').trim();
@@ -162,23 +150,11 @@ class SubtitleData {
         }
       }
 
-      final timeMatch = RegExp(
-        r'(\d{2}):(\d{2}):(\d{2})[.](\d{3})\s*-->\s*(\d{2}):(\d{2}):(\d{2})[.](\d{3})',
-      ).firstMatch(lines[timeLineIdx]);
+      final timeMatch = _matchTime(lines[timeLineIdx]);
       if (timeMatch == null) continue;
 
-      final start = Duration(
-        hours: int.parse(timeMatch.group(1)!),
-        minutes: int.parse(timeMatch.group(2)!),
-        seconds: int.parse(timeMatch.group(3)!),
-        milliseconds: int.parse(timeMatch.group(4)!),
-      );
-      final end = Duration(
-        hours: int.parse(timeMatch.group(5)!),
-        minutes: int.parse(timeMatch.group(6)!),
-        seconds: int.parse(timeMatch.group(7)!),
-        milliseconds: int.parse(timeMatch.group(8)!),
-      );
+      final start = _durationFromMatch(timeMatch, 1);
+      final end = _durationFromMatch(timeMatch, 5);
 
       final text = lines.sublist(timeLineIdx + 1).join('\n').trim();
       if (text.isNotEmpty) {
@@ -200,5 +176,40 @@ class SubtitleData {
     return text
         .replaceAll(RegExp(r'<[^>]+>'), '') // HTML tags
         .replaceAll(RegExp(r'\{[^}]+\}'), ''); // ASS tags
+  }
+
+  static RegExpMatch? _matchTime(String line) {
+    return RegExp(r'(.+?)\s*-->\s*(.+)').firstMatch(line.trim());
+  }
+
+  static Duration _durationFromMatch(RegExpMatch m, int side) {
+    final token = side == 1 ? m.group(1)! : m.group(2)!;
+    return _parseTimeToken(token.trim());
+  }
+
+  static Duration _parseTimeToken(String token) {
+    final parts = token.split(':');
+    if (parts.length == 3) {
+      final secParts = parts[2].split(RegExp(r'[.,]'));
+      return Duration(
+        hours: int.parse(parts[0]),
+        minutes: int.parse(parts[1]),
+        seconds: int.parse(secParts[0]),
+        milliseconds: secParts.length > 1
+            ? int.parse(secParts[1].padRight(3, '0').substring(0, 3))
+            : 0,
+      );
+    }
+    if (parts.length == 2) {
+      final secParts = parts[1].split(RegExp(r'[.,]'));
+      return Duration(
+        minutes: int.parse(parts[0]),
+        seconds: int.parse(secParts[0]),
+        milliseconds: secParts.length > 1
+            ? int.parse(secParts[1].padRight(3, '0').substring(0, 3))
+            : 0,
+      );
+    }
+    return Duration.zero;
   }
 }

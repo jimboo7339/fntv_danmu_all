@@ -5,6 +5,7 @@ import '../models/subtitle_data.dart';
 class SubtitleOverlay extends StatefulWidget {
   final SubtitleData? subtitleData;
   final Duration Function() getCurrentTime;
+  final Listenable? positionListenable;
   final double fontSize;
   final double outline;
   final bool showBackground;
@@ -16,6 +17,7 @@ class SubtitleOverlay extends StatefulWidget {
     super.key,
     required this.subtitleData,
     required this.getCurrentTime,
+    this.positionListenable,
     this.fontSize = 22,
     this.outline = 1.5,
     this.showBackground = false,
@@ -28,28 +30,35 @@ class SubtitleOverlay extends StatefulWidget {
   State<SubtitleOverlay> createState() => _SubtitleOverlayState();
 }
 
-class _SubtitleOverlayState extends State<SubtitleOverlay>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _tickCtrl;
+class _SubtitleOverlayState extends State<SubtitleOverlay> {
   SubtitleEntry? _currentEntry;
 
   @override
   void initState() {
     super.initState();
-    _tickCtrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 100),
-    )..addListener(_onTick);
-    _tickCtrl.repeat();
+    widget.positionListenable?.addListener(_refresh);
+    _refresh();
+  }
+
+  @override
+  void didUpdateWidget(covariant SubtitleOverlay oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.positionListenable != widget.positionListenable) {
+      oldWidget.positionListenable?.removeListener(_refresh);
+      widget.positionListenable?.addListener(_refresh);
+    }
+    if (oldWidget.subtitleData != widget.subtitleData) {
+      _refresh();
+    }
   }
 
   @override
   void dispose() {
-    _tickCtrl.dispose();
+    widget.positionListenable?.removeListener(_refresh);
     super.dispose();
   }
 
-  void _onTick() {
+  void _refresh() {
     if (!mounted || widget.subtitleData == null) return;
     final entry = widget.subtitleData!.getEntryAt(widget.getCurrentTime());
     if (entry?.index != _currentEntry?.index || entry?.text != _currentEntry?.text) {
