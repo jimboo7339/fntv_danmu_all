@@ -1006,6 +1006,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   comments: _danmuItems,
                   getCurrentTime: () => _videoCtrl!.position,
                   positionListenable: _videoCtrl!.positionNotifier,
+                  isPlaying: _isPlaying,
+                  playbackSpeed: _speed,
                   opacity: style.opacity,
                   fontSize: style.fontSize,
                   areaPercent: style.areaPercent,
