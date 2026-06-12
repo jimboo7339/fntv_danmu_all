@@ -36,6 +36,7 @@ class PlayerScreen extends StatefulWidget {
   final int seekTs;
   final int duration;
   final String? parentGuid;
+  final String logoUrl;
 
   const PlayerScreen({
     super.key,
@@ -48,6 +49,7 @@ class PlayerScreen extends StatefulWidget {
     this.seekTs = 0,
     this.duration = 0,
     this.parentGuid,
+    this.logoUrl = '',
   });
 
   @override
@@ -72,6 +74,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   String? _parentGuid;
   String _itemTitle = '';
   String _tvTitle = '';
+  String _logoUrl = '';
   int _episodeNumber = 0;
   int _seasonNumber = 1;
   String _actualVideoDecoder = '';
@@ -147,6 +150,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _subtitleService = SubtitleService(_appState!.api);
     _itemTitle = widget.title;
     _tvTitle = widget.tvTitle;
+    _logoUrl = widget.logoUrl;
     _episodeNumber = widget.episodeNumber;
     _parentGuid = widget.parentGuid;
     _danmuOn = _appState!.danmuOn;
@@ -182,6 +186,17 @@ class _PlayerScreenState extends State<PlayerScreen> {
     return buf.toString();
   }
 
+  String get _headerTitle => _tvTitle.isNotEmpty ? _tvTitle : _itemTitle;
+
+  String _logoUrlFromItem(ItemInfo? item) {
+    if (item == null) return _logoUrl;
+    final logo = item.logos ?? item.logo;
+    if (logo != null && logo.isNotEmpty) {
+      return _app.api.getImageUrl(logo, width: 500);
+    }
+    return _logoUrl;
+  }
+
   Future<void> _loadPlayInfo() async {
     // 加载保存的倍速
     try {
@@ -206,6 +221,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
           _itemTitle = info.item!.title ?? _itemTitle;
           _seasonNumber = info.item!.seasonNumber > 0 ? info.item!.seasonNumber : 1;
           _episodeNumber = info.item!.episodeNumber;
+          _logoUrl = _logoUrlFromItem(info.item);
         }
         // 尝试从缓存加载弹幕源信息
         final matchName = _tvTitle.isNotEmpty ? _tvTitle : _itemTitle;
@@ -219,6 +235,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
         if (_parentGuid != null && _parentGuid!.isNotEmpty) {
           _loadEpisodes();
         }
+        if (mounted) setState(() {});
       }
     } catch (e) {
       debugPrint('loadPlayInfo error: $e');
@@ -684,6 +701,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
         _videoGuid = info.videoGuid;
         _audioGuid = info.audioGuid;
         _subtitleGuid = info.subtitleGuid;
+        if (info.item != null) {
+          if (info.item!.tvTitle != null) _tvTitle = info.item!.tvTitle!;
+          _itemTitle = info.item!.title ?? _itemTitle;
+          _episodeNumber = info.item!.episodeNumber;
+          _logoUrl = _logoUrlFromItem(info.item);
+        }
         await _fetchStreamInfo();
         _startPlayback();
         _loadDanmu();
@@ -1027,6 +1050,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
             if (_showControls)
               PlayerControls(
                 title: _displayTitle,
+                logoUrl: _logoUrl,
+                headerTitle: _headerTitle,
                 isPlaying: _isPlaying,
                 isLocked: _isLocked,
                 speed: _speed,

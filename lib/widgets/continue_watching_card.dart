@@ -22,8 +22,8 @@ class ContinueWatchingCard extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        width: 220,
-        margin: const EdgeInsets.symmetric(horizontal: 5),
+        width: 200,
+        margin: const EdgeInsets.only(right: 8),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
@@ -45,8 +45,10 @@ class ContinueWatchingCard extends StatelessWidget {
                             imageUrl: imageUrl,
                             httpHeaders: context.read<AppState>().api.imageHeaders,
                             fit: BoxFit.cover,
-                            placeholder: (_, __) => const Center(
-                              child: Icon(Icons.movie_outlined, color: Colors.grey, size: 32)),
+                            width: double.infinity,
+                            height: double.infinity,
+                            fadeInDuration: Duration.zero,
+                            placeholder: (_, __) => Container(color: const Color(0xFF2A2A2A)),
                             errorWidget: (_, __, ___) => const Center(
                               child: Icon(Icons.broken_image, color: Colors.grey, size: 32)),
                           )

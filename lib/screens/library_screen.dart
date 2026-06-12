@@ -208,9 +208,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
                       padding: const EdgeInsets.all(12),
                       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                         crossAxisCount: _calcColumns(context),
-                        childAspectRatio: 0.65,
-                        crossAxisSpacing: 10,
-                        mainAxisSpacing: 10,
+                        childAspectRatio: 0.62,
+                        crossAxisSpacing: 8,
+                        mainAxisSpacing: 8,
                       ),
                       itemCount: _browseItems!.length,
                       itemBuilder: (_, i) => MediaCard(

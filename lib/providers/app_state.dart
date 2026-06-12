@@ -82,21 +82,31 @@ class AppState extends ChangeNotifier {
     final acc = matches.first;
 
     if (acc.token.isNotEmpty) {
-      _currentAccount = acc;
       api.updateBaseUrl(acc.host);
       api.setToken(acc.token);
-      _isLoggedIn = true;
-      return;
+      try {
+        final resp = await api.getUserInfo();
+        if (resp['code'] == 0) {
+          _currentAccount = acc;
+          _isLoggedIn = true;
+          return;
+        }
+      } catch (e) {
+        debugPrint('restore session token check failed: $e');
+      }
     }
 
-    // Token 丢失时尝试用已保存密码自动登录
     if (acc.pass.isNotEmpty) {
       final ok = await login(acc.host, acc.user, acc.pass, true);
       if (!ok) {
         _isLoggedIn = false;
         _currentAccount = null;
       }
+      return;
     }
+
+    _isLoggedIn = false;
+    _currentAccount = null;
   }
 
   Future<void> _migrateLegacySecrets() async {
@@ -162,20 +172,33 @@ class AppState extends ChangeNotifier {
     final acc = _accounts.where((a) => a.id == accountId).toList();
     if (acc.isEmpty) return false;
     final account = acc.first;
-    if (account.token.isEmpty) {
+
+    if (account.token.isNotEmpty) {
+      api.updateBaseUrl(account.host);
+      api.setToken(account.token);
+      try {
+        final resp = await api.getUserInfo();
+        if (resp['code'] == 0) {
+          _currentAccount = account;
+          await _prefs.setString('active_account_id', account.id);
+          _watchHistory.clear();
+          _isLoggedIn = true;
+          notifyListeners();
+          return true;
+        }
+      } catch (e) {
+        debugPrint('switchAccount token check failed: $e');
+      }
       if (account.pass.isNotEmpty) {
         return login(account.host, account.user, account.pass, true);
       }
       return false;
     }
-    _currentAccount = account;
-    api.updateBaseUrl(account.host);
-    api.setToken(account.token);
-    await _prefs.setString('active_account_id', account.id);
-    _watchHistory.clear();
-    _isLoggedIn = true;
-    notifyListeners();
-    return true;
+
+    if (account.pass.isNotEmpty) {
+      return login(account.host, account.user, account.pass, true);
+    }
+    return false;
   }
 
   void removeAccount(String accountId) {

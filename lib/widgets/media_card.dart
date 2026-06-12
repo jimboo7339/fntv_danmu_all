@@ -6,6 +6,9 @@ import '../models/play_list_item.dart';
 import '../utils/theme.dart';
 
 class MediaCard extends StatelessWidget {
+  static const double cardWidth = 112;
+  static const double posterAspect = 2 / 3;
+
   final PlayListItem item;
   final String imageUrl;
   final VoidCallback onTap;
@@ -21,45 +24,52 @@ class MediaCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final headers = context.read<AppState>().api.imageHeaders;
+
     return GestureDetector(
       onTap: onTap,
-      child: Container(
-        width: 140,
-        margin: const EdgeInsets.symmetric(horizontal: 5),
+      child: SizedBox(
+        width: cardWidth,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
           children: [
-            // Poster
-            Expanded(
+            AspectRatio(
+              aspectRatio: posterAspect,
               child: Container(
                 decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: BorderRadius.circular(8),
                   color: const Color(0xFF2A2A2A),
                 ),
                 clipBehavior: Clip.antiAlias,
                 child: imageUrl.isNotEmpty
                     ? CachedNetworkImage(
                         imageUrl: imageUrl,
-                        httpHeaders: context.read<AppState>().api.imageHeaders,
+                        httpHeaders: headers,
                         fit: BoxFit.cover,
-                        placeholder: (_, __) => const Center(
-                          child: Icon(Icons.movie_outlined, color: Colors.grey, size: 32)),
+                        width: double.infinity,
+                        height: double.infinity,
+                        fadeInDuration: Duration.zero,
+                        fadeOutDuration: Duration.zero,
+                        placeholder: (_, __) => Container(color: const Color(0xFF2A2A2A)),
                         errorWidget: (_, __, ___) => const Center(
-                          child: Icon(Icons.broken_image, color: Colors.grey, size: 32)),
+                          child: Icon(Icons.broken_image, color: Colors.grey, size: 28),
+                        ),
                       )
                     : const Center(
-                        child: Icon(Icons.movie_outlined, color: Colors.grey, size: 32)),
+                        child: Icon(Icons.movie_outlined, color: Colors.grey, size: 28),
+                      ),
               ),
             ),
-            // Type tag
+            if (showTitle) ...[
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(item.categoryLabel, style: const TextStyle(
+                  fontSize: 10, color: FnTheme.textMuted)),
+              ),
+            ],
             Padding(
-              padding: const EdgeInsets.only(top: 5, left: 2),
-              child: Text(item.categoryLabel, style: const TextStyle(
-                fontSize: 10, color: FnTheme.textMuted)),
-            ),
-            // Title
-            Padding(
-              padding: const EdgeInsets.only(left: 2, right: 2, bottom: 2),
+              padding: const EdgeInsets.only(top: 3),
               child: Text(
                 item.title ?? '',
                 maxLines: 1,

@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:media_kit/media_kit.dart';
 import 'providers/app_state.dart';
 import 'screens/login_screen.dart';
+import 'screens/account_select_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/library_screen.dart';
 import 'screens/settings_screen.dart';
@@ -37,15 +38,43 @@ class FnTvApp extends StatelessWidget {
             debugShowCheckedModeBanner: false,
             theme: FnTheme.dark,
             home: !app.initDone
-                ? const Scaffold(
-                    backgroundColor: Color(0xFF0D0D0D),
-                    body: Center(
-                      child: CircularProgressIndicator(color: FnTheme.danmuGreen),
-                    ),
-                  )
-                : (app.isLoggedIn ? const MainShell() : const LoginScreen()),
+                ? const _SplashScreen()
+                : app.isLoggedIn
+                    ? const MainShell()
+                    : app.accounts.isNotEmpty
+                        ? const AccountSelectScreen()
+                        : const LoginScreen(),
           );
         },
+      ),
+    );
+  }
+}
+
+class _SplashScreen extends StatelessWidget {
+  const _SplashScreen();
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF0D0D0D),
+      body: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 64,
+              height: 64,
+              decoration: BoxDecoration(
+                color: FnTheme.danmuGreen.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: const Icon(Icons.play_circle_fill_rounded, size: 40, color: FnTheme.danmuGreen),
+            ),
+            const SizedBox(height: 20),
+            const CircularProgressIndicator(color: FnTheme.danmuGreen, strokeWidth: 2.5),
+          ],
+        ),
       ),
     );
   }

@@ -1,4 +1,3 @@
-import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -39,11 +38,39 @@ class _DetailScreenState extends State<DetailScreen> {
   String? _tvGuid;
   bool _overviewExpanded = false;
   static Map<int, String>? _genreMapCache;
+  static const double _appBarExpandedHeight = 260;
+
+  final ScrollController _scrollController = ScrollController();
+  double _appBarCollapse = 0;
 
   @override
   void initState() {
     super.initState();
+    _scrollController.addListener(_onScroll);
     _loadPlayInfo();
+  }
+
+  @override
+  void dispose() {
+    _scrollController.removeListener(_onScroll);
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    if (!_scrollController.hasClients || !mounted) return;
+    final topPadding = MediaQuery.of(context).padding.top;
+    final collapseDistance = _appBarExpandedHeight - kToolbarHeight - topPadding;
+    if (collapseDistance <= 0) return;
+    final t = (_scrollController.offset / collapseDistance).clamp(0.0, 1.0);
+    if ((t - _appBarCollapse).abs() > 0.015) {
+      setState(() => _appBarCollapse = t);
+    }
+  }
+
+  double get _collapsedTitleOpacity {
+    if (_appBarCollapse <= 0.72) return 0;
+    return ((_appBarCollapse - 0.72) / 0.28).clamp(0.0, 1.0);
   }
 
   AppState get _app => context.read<AppState>();
@@ -364,6 +391,7 @@ class _DetailScreenState extends State<DetailScreen> {
               seekTs: seekTs,
               duration: item.duration,
               parentGuid: info.parentGuid ?? item.parentGuid,
+              logoUrl: _logoUrl,
             ),
           ));
           // 从播放页返回后刷新剧集列表（更新观看进度）
@@ -533,6 +561,7 @@ class _DetailScreenState extends State<DetailScreen> {
     final wide = MediaQuery.of(context).size.width >= 720;
 
     return CustomScrollView(
+      controller: _scrollController,
       slivers: [
         _buildSliverAppBar(item),
         SliverToBoxAdapter(
@@ -694,7 +723,7 @@ class _DetailScreenState extends State<DetailScreen> {
   SliverAppBar _buildSliverAppBar(ItemInfo? item) {
     final bgUrl = _backdropUrl.isNotEmpty ? _backdropUrl : _posterUrl;
     return SliverAppBar(
-      expandedHeight: 260,
+      expandedHeight: _appBarExpandedHeight,
       pinned: true,
       backgroundColor: _dominantColor,
       surfaceTintColor: Colors.transparent,
@@ -702,36 +731,24 @@ class _DetailScreenState extends State<DetailScreen> {
         icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
         onPressed: () => Navigator.pop(context),
       ),
-      title: Text(
-        _displayTitle,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+      title: Opacity(
+        opacity: _collapsedTitleOpacity,
+        child: _buildCollapsedAppBarTitle(),
       ),
       flexibleSpace: FlexibleSpaceBar(
         collapseMode: CollapseMode.parallax,
         background: Stack(
           fit: StackFit.expand,
           children: [
-            if (bgUrl.isNotEmpty) ...[
+            if (bgUrl.isNotEmpty)
               CachedNetworkImage(
                 imageUrl: bgUrl,
                 httpHeaders: _app.api.imageHeaders,
                 fit: BoxFit.cover,
-                alignment: Alignment.topCenter,
+                alignment: Alignment.center,
                 errorWidget: (_, __, ___) => Container(color: _dominantColor),
-              ),
-              ImageFiltered(
-                imageFilter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-                child: CachedNetworkImage(
-                  imageUrl: bgUrl,
-                  httpHeaders: _app.api.imageHeaders,
-                  fit: BoxFit.cover,
-                  alignment: Alignment.bottomCenter,
-                  errorWidget: (_, __, ___) => const SizedBox.shrink(),
-                ),
-              ),
-            ] else
+              )
+            else
               Container(color: _dominantColor),
             Container(
               decoration: BoxDecoration(
@@ -739,36 +756,72 @@ class _DetailScreenState extends State<DetailScreen> {
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
                   colors: [
-                    Colors.black.withAlpha(100),
-                    Colors.black.withAlpha(160),
+                    Colors.black.withAlpha(80),
+                    Colors.black.withAlpha(140),
                     _dominantColor,
                   ],
-                  stops: const [0.0, 0.55, 1.0],
+                  stops: const [0.0, 0.65, 1.0],
                 ),
               ),
             ),
-            if (_logoUrl.isNotEmpty)
-              Positioned(
-                top: 72,
-                left: 24,
-                right: 24,
+            Positioned(
+              left: 20,
+              right: 20,
+              bottom: 20,
+              child: Opacity(
+                opacity: (1 - _appBarCollapse * 1.15).clamp(0.0, 1.0),
                 child: Align(
-                  alignment: Alignment.topCenter,
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxHeight: 64, maxWidth: 280),
-                    child: CachedNetworkImage(
-                      imageUrl: _logoUrl,
-                      httpHeaders: _app.api.imageHeaders,
-                      fit: BoxFit.contain,
-                      errorWidget: (_, __, ___) => const SizedBox.shrink(),
-                    ),
+                  alignment: Alignment.bottomCenter,
+                  child: _buildLogoOrTitle(
+                    title: _displayTitle,
+                    maxHeight: 72,
+                    maxWidth: 300,
+                    titleSize: 24,
                   ),
                 ),
               ),
+            ),
           ],
         ),
       ),
     );
+  }
+
+  Widget _buildCollapsedAppBarTitle() {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: _buildLogoOrTitle(
+        title: _displayTitle,
+        maxHeight: 30,
+        maxWidth: 260,
+        titleSize: 16,
+        titleMaxLines: 1,
+        alignment: Alignment.centerLeft,
+      ),
+    );
+  }
+
+  Widget _buildLogoOrTitle({
+    required String title,
+    double maxHeight = 72,
+    double maxWidth = 300,
+    double titleSize = 22,
+    int titleMaxLines = 2,
+    Alignment alignment = Alignment.bottomCenter,
+  }) {
+    if (_logoUrl.isNotEmpty) {
+      return ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: maxHeight, maxWidth: maxWidth),
+        child: CachedNetworkImage(
+          imageUrl: _logoUrl,
+          httpHeaders: _app.api.imageHeaders,
+          fit: BoxFit.contain,
+          alignment: alignment,
+          errorWidget: (_, __, ___) => _buildTitleText(title, size: titleSize, maxLines: titleMaxLines),
+        ),
+      );
+    }
+    return _buildTitleText(title, size: titleSize, maxLines: titleMaxLines);
   }
 
   Widget _buildHeroInfoCard(ItemInfo? item, {bool compact = false}) {
@@ -992,10 +1045,10 @@ class _DetailScreenState extends State<DetailScreen> {
     );
   }
 
-  Widget _buildTitleText(String title, {double size = 22}) {
+  Widget _buildTitleText(String title, {double size = 22, int maxLines = 2}) {
     return Text(
       title,
-      maxLines: 2,
+      maxLines: maxLines,
       overflow: TextOverflow.ellipsis,
       style: TextStyle(
         fontSize: size,
