@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/watch_record.dart';
 import '../services/api_client.dart';
 import '../utils/secure_storage.dart';
+import '../utils/log_buffer.dart';
 
 /// Represents a saved account (server + user).
 class SavedAccount {
@@ -51,6 +52,8 @@ class AppState extends ChangeNotifier {
   bool _isLoggedIn = false;
   bool _loading = false;
   bool _initDone = false;
+  bool _sessionRestoring = false;
+  bool _restoreCancelled = false;
   List<WatchRecord> _watchHistory = [];
   List<SavedAccount> _accounts = [];
   SavedAccount? _currentAccount;
@@ -59,6 +62,7 @@ class AppState extends ChangeNotifier {
   bool get isLoggedIn => _isLoggedIn;
   bool get loading => _loading;
   bool get initDone => _initDone;
+  bool get sessionRestoring => _sessionRestoring;
   List<WatchRecord> get watchHistory => _watchHistory;
   List<SavedAccount> get accounts => _accounts;
   SavedAccount? get currentAccount => _currentAccount;
@@ -66,14 +70,42 @@ class AppState extends ChangeNotifier {
 
   Future<void> init() async {
     _prefs = await SharedPreferences.getInstance();
+    LogBuffer.instance.enabled = _prefs.getBool('debug_log_enabled') ?? false;
     await _migrateLegacySecrets();
     await _loadAccountsWithSecrets();
-    await _tryRestoreSession();
+
+    final activeId = _prefs.getString('active_account_id') ?? '';
+    final hasActiveAccount = activeId.isNotEmpty &&
+        _accounts.any((a) => a.id == activeId);
+    _sessionRestoring = hasActiveAccount;
+
     _initDone = true;
+    notifyListeners();
+
+    if (hasActiveAccount) {
+      await _tryRestoreSession();
+      if (!_restoreCancelled) {
+        _sessionRestoring = false;
+        notifyListeners();
+      }
+    }
+  }
+
+  /// 启动自动登录等待期间，用户主动切换账号。
+  void cancelSessionRestore() {
+    if (!_sessionRestoring) return;
+    _restoreCancelled = true;
+    _sessionRestoring = false;
+    _isLoggedIn = false;
+    _currentAccount = null;
+    _loading = false;
+    api.setToken('');
     notifyListeners();
   }
 
   Future<void> _tryRestoreSession() async {
+    if (_restoreCancelled) return;
+
     final activeId = _prefs.getString('active_account_id') ?? '';
     if (activeId.isEmpty) return;
 
@@ -85,7 +117,9 @@ class AppState extends ChangeNotifier {
       api.updateBaseUrl(acc.host);
       api.setToken(acc.token);
       try {
-        final resp = await api.getUserInfo();
+        final resp = await api.getUserInfo()
+            .timeout(const Duration(seconds: 6));
+        if (_restoreCancelled) return;
         if (resp['code'] == 0) {
           _currentAccount = acc;
           _isLoggedIn = true;
@@ -96,8 +130,17 @@ class AppState extends ChangeNotifier {
       }
     }
 
+    if (_restoreCancelled) return;
+
     if (acc.pass.isNotEmpty) {
-      final ok = await login(acc.host, acc.user, acc.pass, true);
+      bool ok = false;
+      try {
+        ok = await login(acc.host, acc.user, acc.pass, true)
+            .timeout(const Duration(seconds: 8));
+      } catch (e) {
+        debugPrint('restore session auto login failed: $e');
+      }
+      if (_restoreCancelled) return;
       if (!ok) {
         _isLoggedIn = false;
         _currentAccount = null;
@@ -241,6 +284,12 @@ class AppState extends ChangeNotifier {
         }
         await _prefs.setString('last_host', host);
 
+        if (_restoreCancelled) {
+          _loading = false;
+          notifyListeners();
+          return false;
+        }
+
         _currentAccount = account;
         _isLoggedIn = true;
         _loading = false;
@@ -313,6 +362,13 @@ class AppState extends ChangeNotifier {
 
   int get seekStep => _prefs.getInt('seek_step') ?? 10;
   set seekStep(int v) { _prefs.setInt('seek_step', v); notifyListeners(); }
+
+  bool get debugLogEnabled => _prefs.getBool('debug_log_enabled') ?? false;
+  set debugLogEnabled(bool v) {
+    _prefs.setBool('debug_log_enabled', v);
+    LogBuffer.instance.enabled = v;
+    notifyListeners();
+  }
 
   bool get danmuOn => _prefs.getBool('danmu_on') ?? true;
   set danmuOn(bool v) { _prefs.setBool('danmu_on', v); notifyListeners(); }

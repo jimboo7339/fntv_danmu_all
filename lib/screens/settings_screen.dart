@@ -107,13 +107,46 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const SizedBox(height: 10),
 
               // ── 调试日志 ──
-              _MenuTile(
-                icon: Icons.bug_report_rounded,
-                color: Colors.orange,
-                title: '调试日志',
-                subtitle: '${LogBuffer.instance.entries.length} 条记录',
-                onTap: () => Navigator.push(context,
-                  MaterialPageRoute(builder: (_) => const LogViewerScreen()),
+              Card(
+                clipBehavior: Clip.antiAlias,
+                child: Column(
+                  children: [
+                    SwitchListTile(
+                      secondary: Container(
+                        width: 36,
+                        height: 36,
+                        decoration: BoxDecoration(
+                          color: Colors.orange.withOpacity(0.12),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Icon(Icons.bug_report_rounded, size: 20, color: Colors.orange),
+                      ),
+                      title: const Text('记录调试日志'),
+                      subtitle: Text(
+                        app.debugLogEnabled
+                            ? '已开启 · ${LogBuffer.instance.entries.length} 条'
+                            : '默认关闭，排查问题时再开启',
+                        style: const TextStyle(fontSize: 12, color: FnTheme.textSecondary),
+                      ),
+                      value: app.debugLogEnabled,
+                      activeColor: FnTheme.danmuGreen,
+                      onChanged: (v) => app.debugLogEnabled = v,
+                    ),
+                    if (app.debugLogEnabled)
+                      ListTile(
+                        leading: const SizedBox(width: 36),
+                        title: const Text('查看日志'),
+                        subtitle: Text(
+                          '${LogBuffer.instance.entries.length} 条记录',
+                          style: const TextStyle(fontSize: 12, color: FnTheme.textSecondary),
+                        ),
+                        trailing: const Icon(Icons.chevron_right_rounded),
+                        onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (_) => const LogViewerScreen()),
+                        ),
+                      ),
+                  ],
                 ),
               ),
               const SizedBox(height: 24),

@@ -39,11 +39,16 @@ class FnTvApp extends StatelessWidget {
             theme: FnTheme.dark,
             home: !app.initDone
                 ? const _SplashScreen()
-                : app.isLoggedIn
-                    ? const MainShell()
-                    : app.accounts.isNotEmpty
-                        ? const AccountSelectScreen()
-                        : const LoginScreen(),
+                : app.sessionRestoring
+                    ? _SplashScreen(
+                        showSwitchAccount: app.accounts.isNotEmpty,
+                        statusText: '正在连接服务器…',
+                      )
+                    : app.isLoggedIn
+                        ? const MainShell()
+                        : app.accounts.isNotEmpty
+                            ? const AccountSelectScreen()
+                            : const LoginScreen(),
           );
         },
       ),
@@ -52,7 +57,13 @@ class FnTvApp extends StatelessWidget {
 }
 
 class _SplashScreen extends StatelessWidget {
-  const _SplashScreen();
+  final bool showSwitchAccount;
+  final String? statusText;
+
+  const _SplashScreen({
+    this.showSwitchAccount = false,
+    this.statusText,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -73,6 +84,32 @@ class _SplashScreen extends StatelessWidget {
             ),
             const SizedBox(height: 20),
             const CircularProgressIndicator(color: FnTheme.danmuGreen, strokeWidth: 2.5),
+            if (statusText != null) ...[
+              const SizedBox(height: 16),
+              Text(
+                statusText!,
+                style: const TextStyle(color: FnTheme.textSecondary, fontSize: 13),
+              ),
+            ],
+            if (showSwitchAccount) ...[
+              const SizedBox(height: 28),
+              OutlinedButton.icon(
+                onPressed: () => context.read<AppState>().cancelSessionRestore(),
+                icon: const Icon(Icons.switch_account_rounded, size: 18),
+                label: const Text('切换账号'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: FnTheme.danmuGreen,
+                  side: BorderSide(color: FnTheme.danmuGreen.withOpacity(0.35)),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '连接较慢？可切换其他服务器或添加新账号',
+                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+              ),
+            ],
           ],
         ),
       ),

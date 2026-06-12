@@ -7,6 +7,14 @@ class LogBuffer {
 
   final List<LogEntry> _entries = [];
   static const int maxEntries = 2000;
+  bool _enabled = false;
+
+  bool get enabled => _enabled;
+
+  set enabled(bool value) {
+    _enabled = value;
+    if (!value) clear();
+  }
 
   List<LogEntry> get entries => List.unmodifiable(_entries);
 
@@ -32,7 +40,7 @@ class LogBuffer {
     final original = debugPrint;
     debugPrint = (String? message, {int? wrapWidth}) {
       original(message, wrapWidth: wrapWidth);
-      if (message != null && message.isNotEmpty) {
+      if (instance._enabled && message != null && message.isNotEmpty) {
         instance.add(message);
       }
     };
