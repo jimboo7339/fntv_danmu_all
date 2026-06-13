@@ -34,6 +34,7 @@ class _DetailScreenState extends State<DetailScreen> {
   String? _error;
   Color _dominantColor = const Color(0xFF1A1A2E);
   int _episodeViewMode = 0; // 0=详细列表 1=封面九宫格 2=数字按钮
+  bool _episodeSortAscending = true;
   String? _parentGuid; // TV 或 Season GUID，用于刷新
   String? _tvGuid;
   bool _overviewExpanded = false;
@@ -196,11 +197,6 @@ class _DetailScreenState extends State<DetailScreen> {
       final resp = await _app.api.getEpisodeList(seasonGuid);
       if (resp['code'] == 0 && resp['data'] != null) {
         final items = (resp['data'] as List).map((e) => PlayListItem.fromJson(e)).toList();
-        items.sort((a, b) {
-          final an = a.episodeNumber > 0 ? a.episodeNumber : 9999;
-          final bn = b.episodeNumber > 0 ? b.episodeNumber : 9999;
-          return an.compareTo(bn);
-        });
         if (mounted) setState(() {
           _episodes = items;
           _loadingEpisodes = false;
@@ -510,6 +506,16 @@ class _DetailScreenState extends State<DetailScreen> {
   }
 
   int get _watchedCount => _episodes.where((e) => e.watched > 0).length;
+
+  List<PlayListItem> get _sortedEpisodes {
+    final items = List<PlayListItem>.from(_episodes);
+    items.sort((a, b) {
+      final an = a.episodeNumber > 0 ? a.episodeNumber : 9999;
+      final bn = b.episodeNumber > 0 ? b.episodeNumber : 9999;
+      return _episodeSortAscending ? an.compareTo(bn) : bn.compareTo(an);
+    });
+    return items;
+  }
 
   String get _playButtonLabel {
     final cont = _continueEpisode;
@@ -1274,13 +1280,47 @@ class _DetailScreenState extends State<DetailScreen> {
               color: FnTheme.textMuted, fontSize: 13,
             )),
           const Spacer(),
-          // 视图切换按钮
           if (_episodes.isNotEmpty) ...[
+            _sortOrderBtn(),
+            const SizedBox(width: 4),
             _viewModeBtn(0, Icons.view_list_rounded, '详细'),
             _viewModeBtn(1, Icons.grid_view_rounded, '封面'),
             _viewModeBtn(2, Icons.apps_rounded, '按钮'),
           ],
         ],
+      ),
+    );
+  }
+
+  Widget _sortOrderBtn() {
+    final ascending = _episodeSortAscending;
+    return Tooltip(
+      message: ascending ? '正序（点击切换倒序）' : '倒序（点击切换正序）',
+      child: InkWell(
+        onTap: () => setState(() => _episodeSortAscending = !ascending),
+        borderRadius: BorderRadius.circular(6),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+          decoration: BoxDecoration(
+            color: FnTheme.danmuGreen.withAlpha(30),
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                ascending ? Icons.arrow_upward_rounded : Icons.arrow_downward_rounded,
+                size: 16,
+                color: FnTheme.danmuGreen,
+              ),
+              const SizedBox(width: 4),
+              Text(
+                ascending ? '正序' : '倒序',
+                style: const TextStyle(fontSize: 12, color: FnTheme.danmuGreen, fontWeight: FontWeight.w500),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -1324,14 +1364,16 @@ class _DetailScreenState extends State<DetailScreen> {
 
   /// 详细列表视图（原有）
   Widget _buildEpisodeDetailList() {
+    final episodes = _sortedEpisodes;
     return Column(
       mainAxisSize: MainAxisSize.min,
-      children: List.generate(_episodes.length, (i) => _buildEpisodeTile(_episodes[i], i)),
+      children: List.generate(episodes.length, (i) => _buildEpisodeTile(episodes[i], i)),
     );
   }
 
   /// 封面九宫格视图
   Widget _buildEpisodeGrid() {
+    final episodes = _sortedEpisodes;
     return LayoutBuilder(
       builder: (context, constraints) {
         final crossCount = constraints.maxWidth > 900 ? 6 : constraints.maxWidth > 600 ? 4 : 3;
@@ -1342,8 +1384,8 @@ class _DetailScreenState extends State<DetailScreen> {
           child: Wrap(
             spacing: 8,
             runSpacing: 8,
-            children: List.generate(_episodes.length, (i) {
-              final ep = _episodes[i];
+            children: List.generate(episodes.length, (i) {
+              final ep = episodes[i];
               final epNum = ep.episodeNumber > 0 ? ep.episodeNumber : i + 1;
               final epPoster = ep.poster ?? _bestPoster;
               final posterUrl = epPoster.isNotEmpty ? _app.api.getImageUrl(epPoster, width: 300) : '';
@@ -1429,6 +1471,7 @@ class _DetailScreenState extends State<DetailScreen> {
 
   /// 数字按钮视图
   Widget _buildEpisodeButtons() {
+    final episodes = _sortedEpisodes;
     return LayoutBuilder(
       builder: (context, constraints) {
         final crossCount = constraints.maxWidth > 900 ? 12 : constraints.maxWidth > 600 ? 8 : 6;
@@ -1438,8 +1481,8 @@ class _DetailScreenState extends State<DetailScreen> {
           child: Wrap(
             spacing: 8,
             runSpacing: 8,
-            children: List.generate(_episodes.length, (i) {
-              final ep = _episodes[i];
+            children: List.generate(episodes.length, (i) {
+              final ep = episodes[i];
               final epNum = ep.episodeNumber > 0 ? ep.episodeNumber : i + 1;
               final hasProgress = ep.ts > 0 && ep.duration > 0;
               final isWatched = ep.watched > 0;
