@@ -452,8 +452,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
       await _autoLoadDefaultSubtitle();
       if (!mounted) return;
       setState(() => _isInitialized = true);
-      _videoCtrl!.setSpeed(_speed);
-      _videoCtrl!.play();
+      await _videoCtrl!.play();
+      await _videoCtrl!.setSpeed(_speed);
       _isPlaying = true;
       if (seekTs > 0) {
         debugPrint('🎯 Resume from ${seekTs}s (pre-seek during init)');
@@ -763,13 +763,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
     return buf.toString();
   }
 
-  void _setSpeed(double speed) {
+  Future<void> _setSpeed(double speed) async {
     _speed = speed;
-    _videoCtrl?.setSpeed(_speed);
-    setState(() {});
-    SharedPreferences.getInstance().then((prefs) {
-      prefs.setDouble('play_speed', _speed);
-    });
+    await _videoCtrl?.setSpeed(_speed);
+    if (mounted) setState(() {});
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble('play_speed', _speed);
   }
 
   void _resetHideTimer() {

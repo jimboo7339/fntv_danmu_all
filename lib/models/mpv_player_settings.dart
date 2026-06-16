@@ -11,9 +11,9 @@ class MpvPlayerSettings {
   final bool interpolation;
 
   const MpvPlayerSettings({
-    this.hwdec = 'auto-copy',
+    this.hwdec = 'mediacodec-copy',
     this.vo = 'gpu',
-    this.videoSync = 'display-resample',
+    this.videoSync = 'audio',
     this.bufferMb = 192,
     this.cacheSecs = 25,
     this.interpolation = false,
@@ -49,8 +49,8 @@ class MpvPlayerSettings {
       };
 
   static String videoSyncLabel(String value) => switch (value) {
-        'audio' => '跟随音频',
-        'display-resample' => '显示重采样（推荐）',
+        'audio' => '跟随音频（推荐）',
+        'display-resample' => '显示重采样',
         'display-vdrop' => '显示丢帧',
         _ => value,
       };
@@ -72,8 +72,8 @@ class MpvPlayerSettings {
       };
 
   static String videoSyncDescription(String value) => switch (value) {
-        'audio' => '视频帧对齐音频时钟',
-        'display-resample' => '按显示器刷新率重采样，流畅且同步较好',
+        'audio' => '视频帧对齐音频时钟，音画同步最稳定',
+        'display-resample' => '按显示器刷新率重采样，部分设备可能不同步',
         'display-vdrop' => '丢帧对齐显示，低延迟设备可用',
         _ => '',
       };

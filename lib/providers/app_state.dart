@@ -1,4 +1,6 @@
 import 'dart:convert';
+import 'dart:io' show Platform;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/watch_record.dart';
@@ -94,6 +96,7 @@ class AppState extends ChangeNotifier {
   Future<void> init() async {
     _prefs = await SharedPreferences.getInstance();
     LogBuffer.instance.enabled = _prefs.getBool('debug_log_enabled') ?? false;
+    await _migrateMpvDefaults();
     await _migrateLegacySecrets();
     await _loadAccountsWithSecrets();
 
@@ -380,12 +383,29 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> _migrateMpvDefaults() async {
+    const version = 3;
+    if ((_prefs.getInt('mpv_defaults_version') ?? 0) >= version) return;
+    final sync = _prefs.getString('mpv_video_sync');
+    if (sync == null || sync == 'display-resample') {
+      await _prefs.setString('mpv_video_sync', 'audio');
+    }
+    if (!kIsWeb && Platform.isAndroid) {
+      final hw = _prefs.getString('mpv_hwdec');
+      if (hw == null || hw == 'auto-copy' || hw == 'auto') {
+        await _prefs.setString('mpv_hwdec', 'mediacodec-copy');
+      }
+    }
+    await _prefs.setInt('mpv_defaults_version', version);
+  }
+
   String get decoderMode => mpvHwdec == 'no' ? 'software' : 'hardware';
-  set decoderMode(String v) { mpvHwdec = v == 'software' ? 'no' : 'auto-copy'; }
+  set decoderMode(String v) { mpvHwdec = v == 'software' ? 'no' : 'mediacodec-copy'; }
 
   String get mpvHwdec {
     final saved = _prefs.getString('mpv_hwdec');
     if (saved != null) return saved;
+    if (!kIsWeb && Platform.isAndroid) return 'mediacodec-copy';
     return _prefs.getString('decoder_mode') == 'software' ? 'no' : 'auto-copy';
   }
   set mpvHwdec(String v) { _prefs.setString('mpv_hwdec', v); notifyListeners(); }
@@ -393,7 +413,7 @@ class AppState extends ChangeNotifier {
   String get mpvVo => _prefs.getString('mpv_vo') ?? 'gpu';
   set mpvVo(String v) { _prefs.setString('mpv_vo', v); notifyListeners(); }
 
-  String get mpvVideoSync => _prefs.getString('mpv_video_sync') ?? 'display-resample';
+  String get mpvVideoSync => _prefs.getString('mpv_video_sync') ?? 'audio';
   set mpvVideoSync(String v) { _prefs.setString('mpv_video_sync', v); notifyListeners(); }
 
   int get mpvBufferMb => _prefs.getInt('mpv_buffer_mb') ?? 192;

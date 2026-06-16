@@ -18,21 +18,22 @@ class VideoWrapper {
   Duration _duration = Duration.zero;
   Duration _lastStablePosition = Duration.zero;
   double _aspectRatio = 16 / 9;
+  double _playbackRate = 1.0;
   bool _isPlaying = false;
   bool _isBuffering = false;
   bool _isInitialized = false;
   bool _isSeeking = false;
   bool _mpvSubtitleActive = false;
+  bool _initPropertiesApplied = false;
   DateTime _lastPositionNotify = DateTime.fromMillisecondsSinceEpoch(0);
   Duration _lastNotifiedPosition = Duration.zero;
   Timer? _networkSpeedTimer;
-  int _regressionRecoveries = 0;
 
   final List<VoidCallback> _listeners = [];
   final ValueNotifier<Duration> positionNotifier = ValueNotifier(Duration.zero);
   final ValueNotifier<int> networkSpeedBps = ValueNotifier(0);
 
-  /// 播放进度意外回退时回调（已尝试自动恢复）
+  /// 播放进度意外回退时回调（仅记录，不再自动 seek 以免加剧音画不同步）
   void Function(Duration lastStable)? onPositionRegression;
 
   VideoWrapper({
@@ -44,6 +45,7 @@ class VideoWrapper {
   Duration get position => _position;
   Duration get duration => _duration;
   double get aspectRatio => _aspectRatio;
+  double get playbackRate => _playbackRate;
   bool get isPlaying => _isPlaying;
   bool get isBuffering => _isBuffering;
   bool get isInitialized => _isInitialized;
@@ -59,8 +61,14 @@ class VideoWrapper {
     }
   }
 
+  NativePlayer? get _native {
+    final p = _mpvPlayer?.platform;
+    return p is NativePlayer ? p : null;
+  }
+
   Future<void> initialize({Duration? startAt}) async {
-    _regressionRecoveries = 0;
+    _playbackRate = 1.0;
+    _initPropertiesApplied = false;
     _mpvPlayer = Player(
       configuration: PlayerConfiguration(
         bufferSize: settings.bufferBytes,
@@ -97,11 +105,13 @@ class VideoWrapper {
       }
     });
 
+    // 解码/同步相关属性必须在 open 前设置
+    await _applyInitProperties();
+
     await _mpvPlayer!.open(
       Media(url, httpHeaders: headers ?? const {}),
       play: false,
     );
-    await _applyMpvProperties();
     await _waitForMetadata();
     _readVideoDimensions();
 
@@ -109,31 +119,32 @@ class VideoWrapper {
       await _accurateSeek(startAt);
     }
 
+    await _waitForMpvTracks();
+    await _disableEmbeddedSubtitles();
+
     _isInitialized = true;
     _lastStablePosition = _position;
     _startNetworkSpeedPolling();
-    await _waitForMpvTracks();
-    await prepareCleanPlayback();
-    await _applyMpvProperties();
     _notifyAll();
   }
 
-  /// 多音轨/字幕容器：默认关闭 MPV 字幕解码，避免干扰音画同步与进度。
-  Future<void> prepareCleanPlayback() async {
+  /// 多音轨/字幕容器：默认关闭 MPV 字幕解码，软件字幕层单独渲染。
+  Future<void> _disableEmbeddedSubtitles() async {
     if (_mpvPlayer == null) return;
     try {
       await _mpvPlayer!.setSubtitleTrack(SubtitleTrack.no());
       _mpvSubtitleActive = false;
-      final native = _mpvPlayer!.platform;
-      if (native is NativePlayer) {
+      final native = _native;
+      if (native != null) {
         await native.setProperty('sid', 'no');
         await native.setProperty('sub-visibility', 'no');
-        await native.setProperty('sub-forced-only', 'no');
       }
     } catch (e) {
-      debugPrint('prepareCleanPlayback error: $e');
+      debugPrint('disableEmbeddedSubtitles error: $e');
     }
   }
+
+  Future<void> prepareCleanPlayback() => _disableEmbeddedSubtitles();
 
   Future<void> _waitForMpvTracks({int attempts = 80}) async {
     for (var i = 0; i < attempts; i++) {
@@ -211,7 +222,6 @@ class VideoWrapper {
     return tracks.first;
   }
 
-  /// 仅多音轨时按服务端列表索引切换，使用 MPV 真实 track id。
   Future<void> applyInitialAudioIfNeeded({
     List<AudioStreamInfo>? audioStreams,
     int preferredListIndex = 0,
@@ -222,46 +232,68 @@ class VideoWrapper {
     await setAudioTrackByInfo(listIndex: idx, info: audioStreams[idx]);
   }
 
-  Future<void> _applyMpvProperties() async {
-    try {
-      final native = _mpvPlayer!.platform;
-      if (native == null || native is! NativePlayer) return;
+  /// 仅在 open 前调用一次，避免播放中反复重置同步状态。
+  Future<void> _applyInitProperties() async {
+    if (_initPropertiesApplied) return;
+    final native = _native;
+    if (native == null) return;
 
-      final props = <String, String>{
-        'cache': 'yes',
-        'cache-pause': 'yes',
-        'cache-secs': '${settings.cacheSecs}',
-        'demuxer-readahead-secs': '${settings.cacheSecs}',
-        'demuxer-max-bytes': '${settings.bufferMb}MiB',
-        'demuxer-thread': 'yes',
-        'hr-seek': 'yes',
-        'framedrop': 'no',
-        'vd-lavc-threads': '0',
-        'audio-sync': 'yes',
-        'video-sync': settings.videoSync,
-        'hwdec': settings.hwdec,
-        'hwdec-codecs': 'all',
-        'opengl-pbo': 'yes',
-        'interpolation': settings.interpolation ? 'yes' : 'no',
-        'network-timeout': '60',
-        'stream-buffer-size': '8MiB',
-        'force-seekable': 'yes',
-        'sub-fix-timing': 'yes',
-        'sub-delay': '0',
-        'sub-scale-with-window': 'yes',
-        'sub-ass-override': 'no',
-        'audio-buffer': '0.2',
-        'video-latency-hacks': 'no',
-        'correct-pts': 'yes',
-        'untimed': 'no',
-      };
+    final syncMode = _playbackRate != 1.0 ? 'audio' : settings.videoSync;
+    final props = <String, String>{
+      'cache': 'yes',
+      'cache-pause': 'yes',
+      'cache-secs': '${settings.cacheSecs}',
+      'demuxer-readahead-secs': '${settings.cacheSecs}',
+      'demuxer-max-bytes': '${settings.bufferMb}MiB',
+      'demuxer-thread': 'yes',
+      'hr-seek': 'yes',
+      'framedrop': 'no',
+      'vd-lavc-threads': '0',
+      'hwdec': settings.hwdec,
+      'hwdec-codecs': 'all',
+      'opengl-pbo': 'yes',
+      'interpolation': settings.interpolation ? 'yes' : 'no',
+      'network-timeout': '60',
+      'stream-buffer-size': '8MiB',
+      'force-seekable': 'yes',
+      'audio-buffer': '0.15',
+      'video-latency-hacks': 'yes',
+      'untimed': 'no',
+      'video-sync': syncMode,
+      'video-sync-max-video-change': '5',
+      'video-sync-max-audio-change': '0.125',
+      'audio-pitch-correction': 'yes',
+      'sub-fix-timing': 'yes',
+      'sub-delay': '0',
+      'sub-ass-override': 'no',
+    };
+    try {
       for (final e in props.entries) {
         await native.setProperty(e.key, e.value);
       }
-      debugPrint('MPV props: hwdec=${settings.hwdec}, vo=${settings.vo}, '
-          'sync=${settings.videoSync}, buffer=${settings.bufferMb}MB');
+      _initPropertiesApplied = true;
+      debugPrint('MPV init: hwdec=${settings.hwdec}, vo=${settings.vo}, sync=$syncMode');
     } catch (e) {
-      debugPrint('MPV tuning error: $e');
+      debugPrint('MPV init props error: $e');
+    }
+  }
+
+  Future<void> _applyPlaybackRate() async {
+    final player = _mpvPlayer;
+    if (player == null) return;
+    final rate = _playbackRate.clamp(0.25, 4.0);
+    try {
+      await player.setRate(rate);
+      final native = _native;
+      if (native != null) {
+        await native.setProperty('speed', rate.toStringAsFixed(3));
+        if (rate != 1.0) {
+          await native.setProperty('video-sync', 'audio');
+        }
+      }
+      debugPrint('MPV speed: ${rate}x');
+    } catch (e) {
+      debugPrint('applyPlaybackRate error: $e');
     }
   }
 
@@ -270,17 +302,18 @@ class VideoWrapper {
         !_isSeeking &&
         _isPlaying &&
         !_isBuffering &&
-        _lastStablePosition > const Duration(seconds: 12) &&
-        pos + const Duration(seconds: 4) < _lastStablePosition) {
-      _handlePositionRegression(pos);
-      return;
+        _playbackRate == 1.0 &&
+        _lastStablePosition > const Duration(seconds: 20) &&
+        pos + const Duration(seconds: 8) < _lastStablePosition) {
+      debugPrint('⚠️ Position regression ${pos.inSeconds}s (stable ${_lastStablePosition.inSeconds}s)');
+      onPositionRegression?.call(_lastStablePosition);
     }
 
     if (!_isSeeking && pos > _lastStablePosition) {
       _lastStablePosition = pos;
     } else if (!_isSeeking && !_isBuffering && pos.inMilliseconds > 0) {
       final drift = (_lastStablePosition - pos).inMilliseconds.abs();
-      if (drift < 2000) _lastStablePosition = pos;
+      if (drift < 3000) _lastStablePosition = pos;
     }
 
     _position = pos;
@@ -288,35 +321,13 @@ class VideoWrapper {
     _throttledNotify(pos);
   }
 
-  Future<void> _handlePositionRegression(Duration badPos) async {
-    if (_regressionRecoveries >= 3) {
-      debugPrint('⚠️ Position regression ignored after retries: ${badPos.inSeconds}s');
-      return;
-    }
-    _regressionRecoveries++;
-    final recover = _lastStablePosition;
-    debugPrint('⚠️ Position regression ${badPos.inSeconds}s -> recover ${recover.inSeconds}s');
-    onPositionRegression?.call(recover);
-    try {
-      _isSeeking = true;
-      await _mpvPlayer?.seek(recover);
-      _position = recover;
-      positionNotifier.value = recover;
-      _notifyAll();
-    } catch (e) {
-      debugPrint('Position recovery seek failed: $e');
-    } finally {
-      _isSeeking = false;
-    }
-  }
-
   void _startNetworkSpeedPolling() {
     _networkSpeedTimer?.cancel();
     _networkSpeedTimer = Timer.periodic(const Duration(seconds: 1), (_) async {
       if (_mpvPlayer == null) return;
       try {
-        final native = _mpvPlayer!.platform;
-        if (native is! NativePlayer) return;
+        final native = _native;
+        if (native == null) return;
         final raw = await native.getProperty('cache-speed', waitForInitialization: false);
         final speed = double.tryParse(raw.trim()) ?? 0;
         final bps = speed.round().clamp(0, 999999999);
@@ -342,11 +353,6 @@ class VideoWrapper {
     if (_mpvPlayer == null) return;
     _isSeeking = true;
     try {
-      final native = _mpvPlayer!.platform;
-      if (native is NativePlayer) {
-        await native.setProperty('hr-seek', 'yes');
-      }
-
       final dur = _duration.inMilliseconds > 0 ? _duration : (_mpvPlayer!.state.duration);
       final maxMs = dur.inMilliseconds > 1000 ? dur.inMilliseconds - 500 : target.inMilliseconds;
       final clamped = Duration(milliseconds: target.inMilliseconds.clamp(0, maxMs));
@@ -406,7 +412,7 @@ class VideoWrapper {
 
   Future<void> play() async {
     await _mpvPlayer?.play();
-    await _applyMpvProperties();
+    await _applyPlaybackRate();
   }
 
   Future<void> pause() async => _mpvPlayer?.pause();
@@ -414,9 +420,13 @@ class VideoWrapper {
   Future<void> seekTo(Duration position) async {
     await _accurateSeek(position);
     _lastStablePosition = _position;
+    await _applyPlaybackRate();
   }
 
-  Future<void> setSpeed(double speed) async => _mpvPlayer?.setRate(speed);
+  Future<void> setSpeed(double speed) async {
+    _playbackRate = speed.clamp(0.25, 4.0);
+    await _applyPlaybackRate();
+  }
 
   Future<void> setAudioTrack(int index) async {
     await setAudioTrackByInfo(listIndex: index);
@@ -434,16 +444,14 @@ class VideoWrapper {
         debugPrint('setAudioTrack: no MPV track for listIndex=$listIndex');
         return;
       }
-      debugPrint('setAudioTrack: list=$listIndex -> mpv aid=${track.id} '
-          '(${track.language ?? track.title ?? ""})');
+      debugPrint('setAudioTrack: list=$listIndex -> mpv aid=${track.id}');
       await _mpvPlayer!.setAudioTrack(track);
-      await _applyMpvProperties();
+      await _applyPlaybackRate();
     } catch (e) {
       debugPrint('setAudioTrack error: $e');
     }
   }
 
-  /// [listIndex] 为字幕列表序号，-1 关闭。
   Future<void> setSubtitleTrack(int listIndex) async {
     await setSubtitleTrackByInfo(listIndex: listIndex);
   }
@@ -455,7 +463,7 @@ class VideoWrapper {
     if (_mpvPlayer == null) return;
     try {
       if (listIndex < 0) {
-        await prepareCleanPlayback();
+        await _disableEmbeddedSubtitles();
         return;
       }
       await _waitForMpvTracks();
@@ -467,12 +475,12 @@ class VideoWrapper {
       debugPrint('setSubtitleTrack: list=$listIndex -> mpv sid=${track.id}');
       await _mpvPlayer!.setSubtitleTrack(track);
       _mpvSubtitleActive = true;
-      final native = _mpvPlayer!.platform;
-      if (native is NativePlayer) {
+      final native = _native;
+      if (native != null) {
         await native.setProperty('sub-visibility', 'yes');
         await native.setProperty('sub-delay', '0');
-        await native.setProperty('sub-fix-timing', 'yes');
       }
+      await _applyPlaybackRate();
     } catch (e) {
       debugPrint('setSubtitleTrack error: $e');
     }
