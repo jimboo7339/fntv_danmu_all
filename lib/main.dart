@@ -126,20 +126,29 @@ class MainShell extends StatefulWidget {
 
 class _MainShellState extends State<MainShell> {
   int _currentIndex = 0;
-
-  final _pages = const [
-    HomeScreen(),
-    LibraryScreen(),
-    SettingsScreen(),
-  ];
+  int _lastGoHomeToken = 0;
 
   @override
   Widget build(BuildContext context) {
+    final app = context.watch<AppState>();
+    final sessionVersion = app.sessionVersion;
+
+    if (app.goHomeToken != _lastGoHomeToken) {
+      _lastGoHomeToken = app.goHomeToken;
+      _currentIndex = 0;
+    }
+
+    final pages = [
+      HomeScreen(key: ValueKey('home_$sessionVersion')),
+      LibraryScreen(key: ValueKey('library_$sessionVersion')),
+      const SettingsScreen(),
+    ];
+
     return Scaffold(
       body: SafeArea(
         child: IndexedStack(
           index: _currentIndex,
-          children: _pages,
+          children: pages,
         ),
       ),
       bottomNavigationBar: Container(

@@ -13,6 +13,7 @@ import '../utils/theme.dart';
 import '../utils/toast.dart';
 import '../utils/log_buffer.dart';
 import 'danmu_settings_screen.dart';
+import 'login_screen.dart';
 
 // ────────────────────────────────────────────────────────────
 //  主设置页 — 二级菜单入口
@@ -398,6 +399,14 @@ class _PlayerSettingsPage extends StatelessWidget {
                   trailing: const Icon(Icons.chevron_right_rounded),
                   onTap: () => _showLongPressSpeedPicker(context, app),
                 ),
+                const Divider(height: 1, indent: 16, endIndent: 16),
+                SwitchListTile(
+                  title: const Text('网速指示器'),
+                  subtitle: const Text('呼出进度条时显示当前网速与系统时间'),
+                  value: app.showNetworkSpeed,
+                  activeColor: FnTheme.danmuGreen,
+                  onChanged: (v) => app.showNetworkSpeed = v,
+                ),
               ],
             ),
           ),
@@ -533,6 +542,11 @@ class _PlayerSettingsPage extends StatelessWidget {
 class _AccountManagePage extends StatelessWidget {
   const _AccountManagePage();
 
+  Future<void> _afterAccountChanged(BuildContext context) async {
+    if (!context.mounted) return;
+    Navigator.of(context).popUntil((route) => route.isFirst);
+  }
+
   @override
   Widget build(BuildContext context) {
     final app = context.watch<AppState>();
@@ -574,8 +588,12 @@ class _AccountManagePage extends StatelessWidget {
                       : null,
                   onTap: acc.id == app.currentAccount?.id ? null : () async {
                     final ok = await app.switchAccount(acc.id);
-                    if (ok && context.mounted) {
+                    if (!context.mounted) return;
+                    if (ok) {
                       FnToast.show(context, '已切换到 ${acc.label}', type: FnToastType.success);
+                      await _afterAccountChanged(context);
+                    } else {
+                      FnToast.show(context, '切换失败，请重新登录该账号', type: FnToastType.error);
                     }
                   },
                 )),
@@ -588,7 +606,34 @@ class _AccountManagePage extends StatelessWidget {
                     ),
                     child: const Icon(Icons.add_rounded, size: 20, color: FnTheme.textMuted),
                   ),
-                  title: const Text('切换 / 添加账号'),
+                  title: const Text('添加账号'),
+                  subtitle: const Text('登录新服务器账号'),
+                  onTap: () async {
+                    final ok = await Navigator.push<bool>(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const LoginScreen(fromAccountPicker: true),
+                      ),
+                    );
+                    if (ok == true && context.mounted) {
+                      FnToast.show(context, '已登录 ${app.currentAccount?.label ?? ''}',
+                          type: FnToastType.success);
+                      await _afterAccountChanged(context);
+                    }
+                  },
+                ),
+                const Divider(height: 1, indent: 16, endIndent: 16),
+                ListTile(
+                  leading: Container(
+                    width: 36, height: 36,
+                    decoration: BoxDecoration(
+                      color: Colors.grey.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(Icons.switch_account_rounded, size: 20, color: FnTheme.textMuted),
+                  ),
+                  title: const Text('账号选择页'),
+                  subtitle: const Text('退出当前登录，回到账号列表'),
                   onTap: () {
                     app.logout();
                     Navigator.of(context).popUntil((route) => route.isFirst);

@@ -69,6 +69,7 @@ class _DanmuOverlayState extends State<DanmuOverlay> with SingleTickerProviderSt
   double _anchorVideoSec = 0;
   double _anchorWallSec = 0;
   int _lastSyncMs = 0;
+  double? _pauseFrozenSec;
 
   @override
   void initState() {
@@ -77,12 +78,15 @@ class _DanmuOverlayState extends State<DanmuOverlay> with SingleTickerProviderSt
     _repaintCtrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 16),
-    )..addListener(_onTick)
-      ..repeat();
+    )..addListener(_onTick);
+    if (widget.isPlaying) {
+      _repaintCtrl.repeat();
+    }
     widget.positionListenable?.addListener(_onPositionTick);
   }
 
   void _onPositionTick() {
+    if (!widget.isPlaying) return;
     final now = DateTime.now().millisecondsSinceEpoch;
     if (now - _lastSyncMs < 400) return;
     _lastSyncMs = now;
@@ -98,13 +102,12 @@ class _DanmuOverlayState extends State<DanmuOverlay> with SingleTickerProviderSt
   void _softSyncAnchor() {
     final actual = widget.getCurrentTime().inMilliseconds / 1000.0;
     final wallNow = DateTime.now().millisecondsSinceEpoch / 1000.0;
-    if (!widget.isPlaying) {
-      _anchorVideoSec = actual;
-      _anchorWallSec = wallNow;
-      return;
-    }
+    if (!widget.isPlaying) return;
     final extrapolated = _anchorVideoSec + (wallNow - _anchorWallSec) * widget.playbackSpeed.clamp(0.1, 4.0);
     if (actual < extrapolated - 0.8) {
+      _anchorVideoSec = actual;
+      _anchorWallSec = wallNow;
+    } else if (actual > extrapolated + 1.2) {
       _anchorVideoSec = actual;
       _anchorWallSec = wallNow;
     }
@@ -112,7 +115,8 @@ class _DanmuOverlayState extends State<DanmuOverlay> with SingleTickerProviderSt
 
   double _videoSec() {
     if (!widget.isPlaying) {
-      return widget.getCurrentTime().inMilliseconds / 1000.0;
+      return _pauseFrozenSec ??
+          widget.getCurrentTime().inMilliseconds / 1000.0;
     }
     final wallNow = DateTime.now().millisecondsSinceEpoch / 1000.0;
     final rate = widget.playbackSpeed.clamp(0.1, 4.0);
@@ -121,6 +125,7 @@ class _DanmuOverlayState extends State<DanmuOverlay> with SingleTickerProviderSt
 
   void _onTick() {
     if (_size.width <= 0 || widget.comments.isEmpty) return;
+    if (!widget.isPlaying) return;
     final curSec = _videoSec();
     _updateDanmu(curSec);
   }
@@ -134,6 +139,7 @@ class _DanmuOverlayState extends State<DanmuOverlay> with SingleTickerProviderSt
     _topStaticCount = 0;
     _bottomStaticCount = 0;
     _lastCurSec = 0;
+    _pauseFrozenSec = null;
     _paragraphCache.clear();
     _resetAnchor();
   }
@@ -196,11 +202,26 @@ class _DanmuOverlayState extends State<DanmuOverlay> with SingleTickerProviderSt
       _prewarmParagraphCache();
     }
     if (!widget.isPlaying && oldWidget.isPlaying) {
-      _resetAnchor();
+      _pauseFrozenSec = _videoSec();
+      _repaintCtrl.stop();
+      setState(() {});
+    } else if (widget.isPlaying && !oldWidget.isPlaying) {
+      final resumeSec = widget.getCurrentTime().inMilliseconds / 1000.0;
+      _anchorVideoSec = resumeSec;
+      _anchorWallSec = DateTime.now().millisecondsSinceEpoch / 1000.0;
+      _pauseFrozenSec = null;
+      if (!_repaintCtrl.isAnimating) _repaintCtrl.repeat();
     }
-    if (widget.isPlaying && !oldWidget.isPlaying) {
-      _resetAnchor();
-    }
+  }
+
+  double _scrollX(_DanmuItem a, double curSec, double pxPerSec) {
+    final elapsed = max(0.0, curSec - a.spawnSec);
+    return _size.width - elapsed * pxPerSec;
+  }
+
+  bool _isFullyOffScreen(_DanmuItem a, double curSec, double pxPerSec) {
+    final x = _scrollX(a, curSec, pxPerSec);
+    return x + a.tw < -24;
   }
 
   void _updateDanmu(double curSec) {
@@ -213,28 +234,27 @@ class _DanmuOverlayState extends State<DanmuOverlay> with SingleTickerProviderSt
     if (curSec < _lastCurSec - 0.8) {
       _resetDanmuState();
       _scanIdx = _lowerBound(comments, curSec - 1.0);
+      _lastCurSec = curSec;
+      return;
     }
     _lastCurSec = curSec;
 
-    _activeScroll.removeWhere((a) {
-      final elapsed = curSec - a.spawnSec;
-      if (elapsed < 0) return true;
-      final x = _size.width - elapsed * pxPerSec;
-      return x + a.tw < -120;
-    });
+    _activeScroll.removeWhere((a) => _isFullyOffScreen(a, curSec, pxPerSec));
 
-    _activeStatic.removeWhere((a) {
-      a.ttl -= 1 / 60.0;
-      if (a.ttl <= 0) {
-        if (a.type == 5) {
-          _topStaticCount = max(0, _topStaticCount - 1);
-        } else if (a.type == 4) {
-          _bottomStaticCount = max(0, _bottomStaticCount - 1);
+    if (widget.isPlaying) {
+      _activeStatic.removeWhere((a) {
+        a.ttl -= 1 / 60.0;
+        if (a.ttl <= 0) {
+          if (a.type == 5) {
+            _topStaticCount = max(0, _topStaticCount - 1);
+          } else if (a.type == 4) {
+            _bottomStaticCount = max(0, _bottomStaticCount - 1);
+          }
+          return true;
         }
-        return true;
-      }
-      return false;
-    });
+        return false;
+      });
+    }
 
     while (_scanIdx < comments.length && comments[_scanIdx].time < curSec - _maxLateSec) {
       _scanIdx++;
@@ -256,7 +276,7 @@ class _DanmuOverlayState extends State<DanmuOverlay> with SingleTickerProviderSt
       _scanIdx++;
     }
 
-    if (_pending.isEmpty || _activeScroll.length >= _maxActiveScroll) return;
+    if (!widget.isPlaying || _pending.isEmpty || _activeScroll.length >= _maxActiveScroll) return;
 
     var progressed = true;
     while (progressed && _pending.isNotEmpty && _activeScroll.length < _maxActiveScroll) {
@@ -320,9 +340,7 @@ class _DanmuOverlayState extends State<DanmuOverlay> with SingleTickerProviderSt
     var has = false;
     for (final a in _activeScroll) {
       if (a.row != row) continue;
-      final elapsed = curSec - a.spawnSec;
-      if (elapsed < 0) continue;
-      final x = _size.width - elapsed * pxPerSec;
+      final x = _scrollX(a, curSec, pxPerSec);
       final right = x + a.tw;
       if (!has || right > maxRight) {
         maxRight = right;
@@ -418,6 +436,7 @@ class _DanmuOverlayState extends State<DanmuOverlay> with SingleTickerProviderSt
               painter: _DanmuPainter(
                 videoSec: _videoSec,
                 speed: widget.speed,
+                screenWidth: _size.width,
                 getParagraphs: _getParagraphs,
                 activeScroll: _activeScroll,
                 activeStatic: _activeStatic,
@@ -467,10 +486,11 @@ class _DanmuItem {
 }
 
 class _DanmuPainter extends CustomPainter {
-  static const _crossBaseSeconds = 14.0;
+  static const _crossBaseSeconds = 16.0;
 
   final double Function() videoSec;
   final double speed;
+  final double screenWidth;
   final _DanmuParagraphs Function(String text, int colorValue) getParagraphs;
   final List<_DanmuItem> activeScroll;
   final List<_DanmuItem> activeStatic;
@@ -478,6 +498,7 @@ class _DanmuPainter extends CustomPainter {
   _DanmuPainter({
     required this.videoSec,
     required this.speed,
+    required this.screenWidth,
     required this.getParagraphs,
     required this.activeScroll,
     required this.activeStatic,
@@ -494,15 +515,13 @@ class _DanmuPainter extends CustomPainter {
     if (size.width <= 0) return;
 
     final t = videoSec();
-    final pxPerSec = pixelsPerVideoSecond(size.width, speed);
+    final pxPerSec = pixelsPerVideoSecond(screenWidth > 0 ? screenWidth : size.width, speed);
     final right = size.width + 80;
-    const left = -160.0;
 
     for (final a in activeScroll) {
-      final elapsed = t - a.spawnSec;
-      if (elapsed < 0) continue;
+      final elapsed = max(0.0, t - a.spawnSec);
       final x = size.width - elapsed * pxPerSec;
-      if (x < left || x > right) continue;
+      if (x > right) continue;
       final paras = getParagraphs(a.text, a.color);
       final offset = Offset(x, a.y);
       if (paras.outline != null) {

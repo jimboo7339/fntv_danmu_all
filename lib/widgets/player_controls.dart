@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -53,6 +54,8 @@ class PlayerControls extends StatelessWidget {
   final bool hasNextEpisode;
   final VoidCallback onRotate;
   final List<DanmuComment> danmuComments;
+  final bool showNetworkSpeed;
+  final int networkSpeedBps;
 
   const PlayerControls({
     super.key,
@@ -99,6 +102,8 @@ class PlayerControls extends StatelessWidget {
     this.hasNextEpisode = false,
     required this.onRotate,
     this.danmuComments = const [],
+    this.showNetworkSpeed = false,
+    this.networkSpeedBps = 0,
   });
 
   @override
@@ -194,6 +199,9 @@ class PlayerControls extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 6),
+                if (showNetworkSpeed)
+                  _NetworkInfoBar(networkSpeedBps: networkSpeedBps),
+                if (showNetworkSpeed) const SizedBox(height: 4),
                 if (danmuComments.isNotEmpty)
                   DanmuHeatmap(
                     comments: danmuComments,
@@ -645,6 +653,61 @@ class PlayerControls extends StatelessWidget {
     );
   }
 
+}
+
+class _NetworkInfoBar extends StatefulWidget {
+  final int networkSpeedBps;
+  const _NetworkInfoBar({required this.networkSpeedBps});
+
+  @override
+  State<_NetworkInfoBar> createState() => _NetworkInfoBarState();
+}
+
+class _NetworkInfoBarState extends State<_NetworkInfoBar> {
+  Timer? _clockTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _clockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _clockTimer?.cancel();
+    super.dispose();
+  }
+
+  String _clockText() {
+    final now = DateTime.now();
+    final h = now.hour.toString().padLeft(2, '0');
+    final m = now.minute.toString().padLeft(2, '0');
+    final s = now.second.toString().padLeft(2, '0');
+    return '$h:$m:$s';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(Icons.speed_rounded, size: 13, color: Colors.white.withOpacity(0.55)),
+        const SizedBox(width: 4),
+        Text(
+          formatNetworkSpeed(widget.networkSpeedBps),
+          style: const TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w600),
+        ),
+        const Spacer(),
+        Icon(Icons.schedule_rounded, size: 13, color: Colors.white.withOpacity(0.55)),
+        const SizedBox(width: 4),
+        Text(
+          _clockText(),
+          style: const TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w600),
+        ),
+      ],
+    );
+  }
 }
 
 // ── 音频右侧面板 ──────────────────────────────────────────

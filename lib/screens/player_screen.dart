@@ -136,6 +136,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   Timer? _hideTimer;
   Timer? _progressTimer;
+  int _networkSpeedBps = 0;
 
   late DanmuService _danmuService;
 
@@ -304,7 +305,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   Future<void> _autoLoadMpvSubtitle() async {
     if (_subtitleStreams == null || _subtitleStreams!.isEmpty) return;
-    await Future.delayed(const Duration(milliseconds: 1200));
+    await Future.delayed(const Duration(milliseconds: 600));
     if (!mounted || _videoCtrl == null) return;
     _applyMpvSubtitleTrack(_selectedSubtitleIndex >= 0 ? _selectedSubtitleIndex : 0);
   }
@@ -355,8 +356,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _initVideo(url);
   }
 
-  void _initVideo(String url) {
+  void _disposeVideoCtrl() {
+    _videoCtrl?.removeListener(_videoListener);
+    _videoCtrl?.networkSpeedBps.removeListener(_onNetworkSpeedUpdate);
     _videoCtrl?.dispose();
+    _videoCtrl = null;
+  }
+
+  void _initVideo(String url) {
+    _disposeVideoCtrl();
     final seekTs = widget.seekTs > 0 ? widget.seekTs : _serverSeekTs;
     final startAt = seekTs > 0 ? Duration(seconds: seekTs) : null;
 
@@ -365,6 +373,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
       headers: _app!.api.headers,
       settings: _app!.mpvSettings,
     );
+    _videoCtrl!.onPositionRegression = (lastStable) {
+      debugPrint('🔄 Recovering playback position to ${lastStable.inSeconds}s');
+    };
+    _networkSpeedBps = 0;
+    _videoCtrl!.networkSpeedBps.addListener(_onNetworkSpeedUpdate);
     _videoCtrl!.addListener(_videoListener);
     _videoCtrl!.initialize(startAt: startAt).then((_) {
       if (!mounted) return;
@@ -382,6 +395,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _startProgressTimer();
       _resetHideTimer();
     });
+  }
+
+  void _onNetworkSpeedUpdate() {
+    if (_videoCtrl == null || !mounted) return;
+    final bps = _videoCtrl!.networkSpeedBps.value;
+    if (bps != _networkSpeedBps) {
+      setState(() => _networkSpeedBps = bps);
+    }
   }
 
   void _videoListener() {
@@ -551,8 +572,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _selectedAudioIndex = 0;
       _selectedSubtitleIndex = -1;
     });
-    _videoCtrl?.dispose();
-    _videoCtrl = null;
+    _disposeVideoCtrl();
     _loadPlayInfoForItem(ep.guid);
   }
 
@@ -689,8 +709,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _progressTimer?.cancel();
     _writeLocalProgress();
     _flushProgressToServer();
-    _videoCtrl?.removeListener(_videoListener);
-    _videoCtrl?.dispose();
+    _disposeVideoCtrl();
     WakelockPlus.disable();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     SystemChrome.setPreferredOrientations(DeviceOrientation.values);
@@ -940,8 +959,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     _cloudDirectUrl = _qualityUrls[idx];
                     if (pos > 0) _serverSeekTs = pos;
                   });
-                  _videoCtrl?.dispose();
-                  _videoCtrl = null;
+                  _disposeVideoCtrl();
                   setState(() => _isInitialized = false);
                   _startPlayback();
                 },
@@ -995,6 +1013,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     : null,
                 onRotate: _toggleOrientation,
                 danmuComments: _danmuItems,
+                showNetworkSpeed: _app.showNetworkSpeed,
+                networkSpeedBps: _networkSpeedBps,
               ),
 
             // Lock button (always visible)

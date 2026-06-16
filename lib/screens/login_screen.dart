@@ -75,6 +75,12 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _loading = true);
     final app = context.read<AppState>();
     final ok = await app.login(host, user, pass, _remember);
+    if (ok && mounted) {
+      FnToast.show(context, '登录成功', type: FnToastType.success);
+      if (widget.fromAccountPicker) {
+        Navigator.of(context).pop(true);
+      }
+    }
     if (!ok && mounted) {
       FnToast.show(context, '登录失败，请检查服务器地址和账号密码', type: FnToastType.error);
     }

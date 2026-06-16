@@ -40,7 +40,7 @@ class _AccountSelectScreenState extends State<AccountSelectScreen> {
     if (mounted) {
       setState(() => _loadingId = null);
       FnToast.show(context, '登录已过期，请重新输入密码', type: FnToastType.warning);
-      await Navigator.push(
+      final ok = await Navigator.push<bool>(
         context,
         MaterialPageRoute(
           builder: (_) => LoginScreen(
@@ -50,11 +50,14 @@ class _AccountSelectScreenState extends State<AccountSelectScreen> {
           ),
         ),
       );
+      if (ok == true && mounted) {
+        setState(() => _loadingId = null);
+      }
     }
   }
 
   void _openAddAccount() {
-    Navigator.push(
+    Navigator.push<bool>(
       context,
       MaterialPageRoute(builder: (_) => const LoginScreen(fromAccountPicker: true)),
     );

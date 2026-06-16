@@ -59,15 +59,37 @@ class AppState extends ChangeNotifier {
   List<SavedAccount> _accounts = [];
   SavedAccount? _currentAccount;
   Map<String, Map<String, dynamic>>? _danmuSourceCacheMem;
+  int _sessionVersion = 0;
+  int _goHomeToken = 0;
 
   bool get isLoggedIn => _isLoggedIn;
   bool get loading => _loading;
   bool get initDone => _initDone;
+  int get sessionVersion => _sessionVersion;
+  int get goHomeToken => _goHomeToken;
   bool get sessionRestoring => _sessionRestoring;
   List<WatchRecord> get watchHistory => _watchHistory;
   List<SavedAccount> get accounts => _accounts;
   SavedAccount? get currentAccount => _currentAccount;
   String get serverHost => _currentAccount?.host ?? '';
+
+  /// 账号切换 / 登录成功后递增，用于重建首页与媒体库
+  void _bumpSession() {
+    _sessionVersion++;
+    _danmuSourceCacheMem = null;
+    notifyListeners();
+  }
+
+  /// 通知主界面跳转到首页 Tab
+  void requestGoHome() {
+    _goHomeToken++;
+    notifyListeners();
+  }
+
+  void _onAccountSessionChanged() {
+    _bumpSession();
+    requestGoHome();
+  }
 
   Future<void> init() async {
     _prefs = await SharedPreferences.getInstance();
@@ -227,7 +249,7 @@ class AppState extends ChangeNotifier {
           await _prefs.setString('active_account_id', account.id);
           _watchHistory.clear();
           _isLoggedIn = true;
-          notifyListeners();
+          _onAccountSessionChanged();
           return true;
         }
       } catch (e) {
@@ -294,7 +316,7 @@ class AppState extends ChangeNotifier {
         _currentAccount = account;
         _isLoggedIn = true;
         _loading = false;
-        notifyListeners();
+        _onAccountSessionChanged();
         return true;
       }
     } catch (e) {
@@ -390,6 +412,9 @@ class AppState extends ChangeNotifier {
 
   int get seekStep => _prefs.getInt('seek_step') ?? 10;
   set seekStep(int v) { _prefs.setInt('seek_step', v); notifyListeners(); }
+
+  bool get showNetworkSpeed => _prefs.getBool('show_network_speed') ?? false;
+  set showNetworkSpeed(bool v) { _prefs.setBool('show_network_speed', v); notifyListeners(); }
 
   bool get debugLogEnabled => _prefs.getBool('debug_log_enabled') ?? false;
   set debugLogEnabled(bool v) {
