@@ -108,8 +108,13 @@ class VideoWrapper {
     // 解码/同步相关属性必须在 open 前设置
     await _applyInitProperties();
 
-    // open 前关闭字幕解码，避免字幕 demux 干扰音画同步建立
-    await _disableEmbeddedSubtitles();
+    // open 前通过属性关闭字幕解码器（setSubtitleTrack 需要文件已打开）
+    final nativePre = _native;
+    if (nativePre != null) {
+      await nativePre.setProperty('sid', 'no');
+      await nativePre.setProperty('sub-visibility', 'no');
+      _mpvSubtitleActive = false;
+    }
 
     await _mpvPlayer!.open(
       Media(url, httpHeaders: headers ?? const {}),
@@ -250,7 +255,7 @@ class VideoWrapper {
       'demuxer-max-bytes': '${settings.bufferMb}MiB',
       'demuxer-thread': 'yes',
       'hr-seek': 'yes',
-      'framedrop': 'no',
+      'framedrop': 'decoder',
       'vd-lavc-threads': '0',
       'hwdec': settings.hwdec,
       'hwdec-codecs': 'all',
@@ -261,18 +266,17 @@ class VideoWrapper {
       'force-seekable': 'yes',
       'audio-buffer': '0.5',
       'video-latency-hacks': 'no',
-      'correct-pts': 'yes',
       'untimed': 'no',
+      'no-sub': 'yes',
       'video-sync': syncMode,
-      'video-sync-max-video-change': '0.5',
+      'video-sync-max-video-change': '5',
       'video-sync-max-audio-change': '0.125',
       'audio-pitch-correction': 'yes',
       'sub-fix-timing': 'yes',
       'sub-delay': '0',
       'sub-ass-override': 'no',
-      'demuxer-lavf-analyzeduration': '1',
+      'demuxer-lavf-analyzeduration': '2',
       'demuxer-lavf-probesize': '5000000',
-      'demuxer-lavf-o': 'skip_sub=1',
     };
     try {
       for (final e in props.entries) {
