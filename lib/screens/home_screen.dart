@@ -99,16 +99,17 @@ class _HomeScreenState extends State<HomeScreen> {
     if (mounted) setState(() => _loading = false);
   }
 
-  void _onItemTap(PlayListItem item) {
+  void _onItemTap(PlayListItem item) async {
     if (item.type == 'Directory') {
       // Directory: navigate into folder
       _fetchItems(item.guid, item.title ?? '');
       return;
     }
     // TV / Movie / Episode / Video → go to detail screen
-    Navigator.push(context, MaterialPageRoute(
+    await Navigator.push(context, MaterialPageRoute(
       builder: (_) => DetailScreen(item: item),
     ));
+    if (mounted) _app.fetchServerPlayList();
   }
 
   void _onWatchRecordTap(WatchRecord record) async {

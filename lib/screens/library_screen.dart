@@ -64,15 +64,15 @@ class _LibraryScreenState extends State<LibraryScreen> {
     if (mounted) setState(() => _loading = false);
   }
 
-  void _onItemTap(PlayListItem item) {
+  void _onItemTap(PlayListItem item) async {
     if (item.type == 'Directory') {
       _fetchItems(item.guid, item.title ?? '');
       return;
     }
-    // TV / Movie / Episode / Video → go to detail screen
-    Navigator.push(context, MaterialPageRoute(
+    await Navigator.push(context, MaterialPageRoute(
       builder: (_) => DetailScreen(item: item),
     ));
+    if (mounted) _app.fetchServerPlayList();
   }
 
   int _calcColumns(BuildContext context) {

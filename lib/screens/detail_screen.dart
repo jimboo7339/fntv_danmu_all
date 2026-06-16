@@ -390,10 +390,7 @@ class _DetailScreenState extends State<DetailScreen> {
               logoUrl: _logoUrl,
             ),
           ));
-          // 从播放页返回后刷新剧集列表（更新观看进度）
-          if (mounted && _parentGuid != null) {
-            _loadEpisodes(_parentGuid!, keepLoading: true);
-          }
+          if (mounted) await _refreshAfterPlayback();
         }
       }
     } catch (e) {
@@ -401,6 +398,29 @@ class _DetailScreenState extends State<DetailScreen> {
       if (mounted) {
         FnToast.show(context, '播放失败: $e', type: FnToastType.error);
       }
+    }
+  }
+
+  /// 从播放页返回后同步本地/服务端进度并刷新 UI
+  Future<void> _refreshAfterPlayback() async {
+    final tasks = <Future<void>>[
+      _app.fetchServerPlayList(),
+      _refreshPlayInfo(),
+    ];
+    if (_parentGuid != null && _parentGuid!.isNotEmpty) {
+      tasks.add(_loadEpisodes(_parentGuid!, keepLoading: true));
+    }
+    await Future.wait(tasks);
+  }
+
+  Future<void> _refreshPlayInfo() async {
+    try {
+      final resp = await _app.api.getPlayInfo(widget.item.guid);
+      if (resp['code'] == 0 && resp['data'] != null && mounted) {
+        setState(() => _playInfo = PlayInfoResponse.fromJson(resp['data']));
+      }
+    } catch (e) {
+      debugPrint('refreshPlayInfo error: $e');
     }
   }
 

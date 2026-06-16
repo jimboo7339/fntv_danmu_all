@@ -417,24 +417,37 @@ class _PlayerScreenState extends State<PlayerScreen> {
   void _saveProgress({bool force = false}) {
     if (_videoCtrl == null) return;
     if (!force && !mounted) return;
+    _writeLocalProgress();
+    _flushProgressToServer();
+  }
+
+  void _writeLocalProgress() {
+    if (_videoCtrl == null) return;
     final pos = _videoCtrl!.position.inSeconds;
     final dur = _videoCtrl!.duration.inSeconds;
-    if (dur > 0) {
-      _app.addWatchRecord(WatchRecord(
-        guid: widget.itemGuid,
-        title: _itemTitle,
-        tvTitle: _tvTitle,
-        episodeNumber: _episodeNumber,
-        poster: widget.poster,
-        libraryName: widget.category,
-        parentGuid: _parentGuid,
-        ts: pos,
-        duration: dur,
-      ));
-      // 同步上报服务端（用于继续观看列表）
-      // 必须用 play/info 返回的实际 episode GUID，不能用 widget.itemGuid（可能是 TV/Season 的）
-      final episodeGuid = _episodeGuid ?? widget.itemGuid;
-      _app.api.recordPlayStatus({
+    if (dur <= 0) return;
+    _app.addWatchRecord(WatchRecord(
+      guid: widget.itemGuid,
+      title: _itemTitle,
+      tvTitle: _tvTitle,
+      episodeNumber: _episodeNumber,
+      poster: widget.poster,
+      libraryName: widget.category,
+      parentGuid: _parentGuid,
+      ts: pos,
+      duration: dur,
+    ));
+  }
+
+  Future<void> _flushProgressToServer() async {
+    if (_videoCtrl == null) return;
+    final pos = _videoCtrl!.position.inSeconds;
+    final dur = _videoCtrl!.duration.inSeconds;
+    if (dur <= 0) return;
+    _writeLocalProgress();
+    final episodeGuid = _episodeGuid ?? widget.itemGuid;
+    try {
+      await _app.api.recordPlayStatus({
         'item_guid': episodeGuid,
         'media_guid': _mediaGuid ?? '',
         'video_guid': _videoGuid ?? '',
@@ -444,10 +457,22 @@ class _PlayerScreenState extends State<PlayerScreen> {
         'bitrate': 0,
         'ts': pos,
         'duration': dur,
-      }).catchError((e) {
-        debugPrint('❌ recordPlayStatus error: $e (item=$episodeGuid, media=${_mediaGuid ?? ""}, ts=$pos, dur=$dur)');
       });
+    } catch (e) {
+      debugPrint('❌ recordPlayStatus error: $e (item=$episodeGuid, media=${_mediaGuid ?? ""}, ts=$pos, dur=$dur)');
     }
+  }
+
+  Future<void> _exitPlayer() async {
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.portraitDown,
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    await _flushProgressToServer();
+    if (mounted) Navigator.pop(context);
   }
 
   Future<void> _loadDanmu() async {
@@ -662,7 +687,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _hideTimer?.cancel();
     _gestureOverlayTimer?.cancel();
     _progressTimer?.cancel();
-    _saveProgress(force: true);
+    _writeLocalProgress();
+    _flushProgressToServer();
     _videoCtrl?.removeListener(_videoListener);
     _videoCtrl?.dispose();
     WakelockPlus.disable();
@@ -699,7 +725,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
   @override
   Widget build(BuildContext context) {
     final seekStep = _app.seekStep;
-    return Scaffold(
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop) _exitPlayer();
+      },
+      child: Scaffold(
       backgroundColor: Colors.black,
       body: GestureDetector(
         onTap: () {
@@ -900,17 +931,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   _danmuOn = v;
                   _app.danmuOn = v;
                 }),
-                onBack: () {
-                  // 返回前强制恢复竖屏
-                  SystemChrome.setPreferredOrientations([
-                    DeviceOrientation.portraitUp,
-                    DeviceOrientation.portraitDown,
-                    DeviceOrientation.landscapeLeft,
-                    DeviceOrientation.landscapeRight,
-                  ]);
-                  SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-                  Navigator.pop(context);
-                },
+                onBack: _exitPlayer,
                 onEpisode: _playEpisode,
                 onQuality: (idx) {
                   final pos = _videoCtrl?.position.inSeconds ?? 0;
@@ -1038,6 +1059,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
           ],
         ),
       ),
+    ),
     );
   }
 
