@@ -362,13 +362,13 @@ class PlayerControls extends StatelessWidget {
     const labels = ['适应屏幕', '填充屏幕', '16:9', '4:3'];
     _showCompactPopup(
       context: context,
-      child: Column(
+      childBuilder: (dialogCtx) => Column(
         mainAxisSize: MainAxisSize.min,
         children: List.generate(modes.length, (i) {
           final isCurrent = aspectMode == modes[i];
           return GestureDetector(
             onTap: () {
-              Navigator.pop(context);
+              Navigator.pop(dialogCtx);
               onAspectMode(modes[i]);
             },
             child: Container(
@@ -411,7 +411,7 @@ class PlayerControls extends StatelessWidget {
     const speeds = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0];
     _showCompactPopup(
       context: context,
-      child: Column(
+      childBuilder: (dialogCtx) => Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           const Padding(
@@ -425,7 +425,7 @@ class PlayerControls extends StatelessWidget {
               final isCurrent = (s - speed).abs() < 0.01;
               return GestureDetector(
                 onTap: () {
-                  Navigator.pop(context);
+                  Navigator.pop(dialogCtx);
                   onSpeed(s);
                 },
                 child: Container(
@@ -456,13 +456,13 @@ class PlayerControls extends StatelessWidget {
   void _showQualityMenu(BuildContext context) {
     _showCompactPopup(
       context: context,
-      child: Column(
+      childBuilder: (dialogCtx) => Column(
         mainAxisSize: MainAxisSize.min,
         children: List.generate(qualityCount, (i) {
           final isCurrent = i == qualityIndex;
           return GestureDetector(
             onTap: () {
-              Navigator.pop(context);
+              Navigator.pop(dialogCtx);
               onQuality(i);
             },
             child: Container(
@@ -494,14 +494,14 @@ class PlayerControls extends StatelessWidget {
   void _showBottomPopup(
     BuildContext context, {
     required String title,
-    required Widget child,
+    required Widget Function(BuildContext dialogCtx) childBuilder,
     double maxHeight = 320,
   }) {
     showDialog(
       context: context,
       barrierColor: Colors.black26,
-      builder: (ctx) {
-        final bottom = MediaQuery.of(ctx).padding.bottom;
+      builder: (dialogCtx) {
+        final bottom = MediaQuery.of(dialogCtx).padding.bottom;
         return Align(
           alignment: Alignment.bottomCenter,
           child: Padding(
@@ -527,7 +527,7 @@ class PlayerControls extends StatelessWidget {
                             padding: EdgeInsets.zero,
                             constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
                             icon: const Icon(Icons.close_rounded, color: Colors.white54, size: 20),
-                            onPressed: () => Navigator.pop(ctx),
+                            onPressed: () => Navigator.pop(dialogCtx),
                           ),
                         ],
                       ),
@@ -535,7 +535,7 @@ class PlayerControls extends StatelessWidget {
                     Flexible(
                       child: SingleChildScrollView(
                         padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
-                        child: child,
+                        child: childBuilder(dialogCtx),
                       ),
                     ),
                   ],
@@ -556,11 +556,11 @@ class PlayerControls extends StatelessWidget {
       context,
       title: '音频轨道',
       maxHeight: 260,
-      child: _AudioPanel(
+      childBuilder: (dialogCtx) => _AudioPanel(
         audioStreams: audioStreams!,
         selectedIndex: selectedAudioIndex,
         onSelect: (i) {
-          Navigator.pop(context);
+          Navigator.pop(dialogCtx);
           onAudioSelected(i);
         },
       ),
@@ -574,15 +574,15 @@ class PlayerControls extends StatelessWidget {
       context,
       title: '字幕',
       maxHeight: 360,
-      child: _SubtitlePanel(
+      childBuilder: (dialogCtx) => _SubtitlePanel(
         subtitleStreams: subtitleStreams ?? [],
         selectedIndex: selectedSubtitleIndex,
         onSelect: (idx) {
-          Navigator.pop(context);
+          Navigator.pop(dialogCtx);
           onSubtitleSelected(idx);
         },
         onLoadExternal: onLoadExternalSubtitle != null ? () {
-          Navigator.pop(context);
+          Navigator.pop(dialogCtx);
           onLoadExternalSubtitle!();
         } : null,
       ),
@@ -596,15 +596,13 @@ class PlayerControls extends StatelessWidget {
       context,
       title: '弹幕设置',
       maxHeight: 400,
-      child: _DanmuPanel(
+      childBuilder: (dialogCtx) => _DanmuPanel(
         showName: showName,
         currentDanmuSource: currentDanmuSource,
         danmuOn: danmuOn,
-        onDanmuToggle: (v) {
-          onDanmuToggle(v);
-        },
+        onDanmuToggle: onDanmuToggle,
         onSourceSelected: (data) {
-          Navigator.pop(context);
+          Navigator.pop(dialogCtx);
           onDanmuSourceSelected(data);
         },
       ),
@@ -619,11 +617,11 @@ class PlayerControls extends StatelessWidget {
       context,
       title: '选集 (${episodeList!.length})',
       maxHeight: 300,
-      child: _EpisodePanel(
+      childBuilder: (dialogCtx) => _EpisodePanel(
         episodeList: episodeList!,
         currentEpIndex: currentEpIndex,
         onSelect: (i) {
-          Navigator.pop(context);
+          Navigator.pop(dialogCtx);
           onEpisode(i);
         },
       ),
@@ -632,11 +630,14 @@ class PlayerControls extends StatelessWidget {
 
   // ── 紧凑弹窗工具方法 ────────────────────────────────────
 
-  void _showCompactPopup({required BuildContext context, required Widget child}) {
+  void _showCompactPopup({
+    required BuildContext context,
+    required Widget Function(BuildContext dialogCtx) childBuilder,
+  }) {
     showDialog(
       context: context,
       barrierColor: Colors.black38,
-      builder: (ctx) => Align(
+      builder: (dialogCtx) => Align(
         alignment: Alignment.bottomCenter,
         child: Padding(
           padding: const EdgeInsets.only(bottom: 70, left: 12, right: 12),
@@ -645,7 +646,7 @@ class PlayerControls extends StatelessWidget {
             borderRadius: BorderRadius.circular(10),
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              child: child,
+              child: childBuilder(dialogCtx),
             ),
           ),
         ),
@@ -980,7 +981,7 @@ class _SubtitlePanelState extends State<_SubtitlePanel> {
 
 // ── 弹幕设置右侧面板 ──────────────────────────────────────
 
-class _DanmuPanel extends StatelessWidget {
+class _DanmuPanel extends StatefulWidget {
   final String showName;
   final Map<String, dynamic>? currentDanmuSource;
   final bool danmuOn;
@@ -996,6 +997,27 @@ class _DanmuPanel extends StatelessWidget {
   });
 
   @override
+  State<_DanmuPanel> createState() => _DanmuPanelState();
+}
+
+class _DanmuPanelState extends State<_DanmuPanel> {
+  late bool _danmuOn;
+
+  @override
+  void initState() {
+    super.initState();
+    _danmuOn = widget.danmuOn;
+  }
+
+  @override
+  void didUpdateWidget(covariant _DanmuPanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.danmuOn != widget.danmuOn) {
+      _danmuOn = widget.danmuOn;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final app = context.watch<AppState>();
     return Column(
@@ -1006,9 +1028,12 @@ class _DanmuPanel extends StatelessWidget {
           dense: true,
           contentPadding: EdgeInsets.zero,
           title: const Text('开启弹幕', style: TextStyle(color: Colors.white, fontSize: 13)),
-          value: danmuOn,
+          value: _danmuOn,
           activeColor: FnTheme.danmuGreen,
-          onChanged: onDanmuToggle,
+          onChanged: (v) {
+            setState(() => _danmuOn = v);
+            widget.onDanmuToggle(v);
+          },
         ),
         const Divider(color: Colors.white12, height: 12),
         _buildSourceCard(context, app),
@@ -1056,10 +1081,10 @@ class _DanmuPanel extends StatelessWidget {
   }
 
   Widget _buildSourceCard(BuildContext context, AppState app) {
-    final hasSource = currentDanmuSource != null;
-    final animeName = currentDanmuSource?['animeName']?.toString() ?? '';
-    final commentCount = currentDanmuSource?['commentCount'] ?? 0;
-    final epNum = currentDanmuSource?['episodeNumber'] ?? 0;
+    final hasSource = widget.currentDanmuSource != null;
+    final animeName = widget.currentDanmuSource?['animeName']?.toString() ?? '';
+    final commentCount = widget.currentDanmuSource?['commentCount'] ?? 0;
+    final epNum = widget.currentDanmuSource?['episodeNumber'] ?? 0;
     return GestureDetector(
       onTap: () => _showDanmuSearch(context, app),
       child: Container(
@@ -1092,7 +1117,7 @@ class _DanmuPanel extends StatelessWidget {
                 : Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(showName.isNotEmpty ? '未匹配到弹幕' : '未知剧集',
+                      Text(widget.showName.isNotEmpty ? '未匹配到弹幕' : '未知剧集',
                         style: const TextStyle(color: Colors.white70, fontSize: 13)),
                       const SizedBox(height: 2),
                       const Text('点击手动搜索弹幕源', style: TextStyle(color: Colors.white38, fontSize: 11)),
@@ -1118,10 +1143,10 @@ class _DanmuPanel extends StatelessWidget {
         return FadeTransition(
           opacity: anim,
           child: _DanmuSearchDialog(
-            showName: showName,
+            showName: widget.showName,
             danmuUrl: app.danmuUrl,
             api: app.api,
-            onSelect: (data) => onSourceSelected(data),
+            onSelect: (data) => widget.onSourceSelected(data),
           ),
         );
       },

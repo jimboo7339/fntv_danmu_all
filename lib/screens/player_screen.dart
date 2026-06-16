@@ -78,6 +78,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
   int _seasonNumber = 1;
   String _actualVideoDecoder = '';
   int _serverSeekTs = 0; // 从 play/info 服务端获取的续播位置（秒）
+  int? _explicitSeekTs; // 非 null 时优先使用（切集=0、切画质=当前位置）
+  bool _useRouteSeekTs = true; // 仅首次进入播放页时使用路由 seekTs
+  bool _fetchServerSeekOnLoad = false; // 选集面板切换时拉取该集服务端进度
 
   // Stream details
   String _streamVCodec = '';
@@ -393,9 +396,34 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _videoCtrl = null;
   }
 
+  int _resolveSeekTs() {
+    if (_explicitSeekTs != null) {
+      final ts = _explicitSeekTs!;
+      _explicitSeekTs = null;
+      return ts;
+    }
+    if (_useRouteSeekTs && widget.seekTs > 0) {
+      _useRouteSeekTs = false;
+      return widget.seekTs;
+    }
+    _useRouteSeekTs = false;
+    return _serverSeekTs;
+  }
+
+  Future<void> _autoLoadDefaultSubtitle() async {
+    final streams = _subtitleStreams;
+    if (streams == null || streams.isEmpty || _selectedSubtitleIndex >= 0) return;
+    var idx = 0;
+    if (_subtitleGuid != null) {
+      final i = streams.indexWhere((s) => s.guid == _subtitleGuid);
+      if (i >= 0) idx = i;
+    }
+    await _selectSubtitleTrack(idx);
+  }
+
   void _initVideo(String url) {
     _disposeVideoCtrl();
-    final seekTs = widget.seekTs > 0 ? widget.seekTs : _serverSeekTs;
+    final seekTs = _resolveSeekTs();
     final startAt = seekTs > 0 ? Duration(seconds: seekTs) : null;
 
     _videoCtrl = VideoWrapper(
@@ -411,10 +439,17 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _videoCtrl!.addListener(_videoListener);
     _videoCtrl!.initialize(startAt: startAt).then((_) async {
       if (!mounted) return;
-      await _videoCtrl!.applyInitialAudioIfNeeded(
-        audioStreams: _audioStreams,
-        preferredListIndex: _selectedAudioIndex,
-      );
+      // 多音轨仅在非默认轨时切换，避免无谓 remap 导致音画不同步
+      if (_audioStreams != null &&
+          _audioStreams!.length > 1 &&
+          _selectedAudioIndex > 0) {
+        await _videoCtrl!.applyInitialAudioIfNeeded(
+          audioStreams: _audioStreams,
+          preferredListIndex: _selectedAudioIndex,
+        );
+      }
+      if (!mounted) return;
+      await _autoLoadDefaultSubtitle();
       if (!mounted) return;
       setState(() => _isInitialized = true);
       _videoCtrl!.setSpeed(_speed);
@@ -587,9 +622,17 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
   }
 
-  void _playEpisode(int index) {
+  void _playEpisode(int index, {bool resumeFromServer = false}) {
     if (_episodeList == null || index < 0 || index >= _episodeList!.length) return;
     final ep = _episodeList![index];
+    _useRouteSeekTs = false;
+    if (resumeFromServer) {
+      _explicitSeekTs = null;
+      _fetchServerSeekOnLoad = true;
+    } else {
+      _explicitSeekTs = 0;
+      _fetchServerSeekOnLoad = false;
+    }
     setState(() {
       _currentEpIndex = index;
       _itemTitle = ep.title ?? '';
@@ -618,6 +661,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
         _videoGuid = info.videoGuid;
         _audioGuid = info.audioGuid;
         _subtitleGuid = info.subtitleGuid;
+        if (_fetchServerSeekOnLoad) {
+          _serverSeekTs = info.ts;
+          _fetchServerSeekOnLoad = false;
+        }
         if (info.item != null) {
           if (info.item!.tvTitle != null) _tvTitle = info.item!.tvTitle!;
           _itemTitle = info.item!.title ?? _itemTitle;
@@ -984,13 +1031,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   _app.danmuOn = v;
                 }),
                 onBack: _exitPlayer,
-                onEpisode: _playEpisode,
+                onEpisode: (i) => _playEpisode(i, resumeFromServer: true),
                 onQuality: (idx) {
                   final pos = _videoCtrl?.position.inSeconds ?? 0;
                   setState(() {
                     _qualityIndex = idx;
                     _cloudDirectUrl = _qualityUrls[idx];
-                    if (pos > 0) _serverSeekTs = pos;
+                    if (pos > 0) _explicitSeekTs = pos;
                   });
                   _disposeVideoCtrl();
                   setState(() => _isInitialized = false);
