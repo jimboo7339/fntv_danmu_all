@@ -411,13 +411,13 @@ class _PlayerSettingsPage extends StatelessWidget {
 
   Widget _buildMpvInfoCard() {
     return Card(
-      color: FnTheme.danmuGreen.withValues(alpha: 0.08),
+      color: FnTheme.danmuGreen.withOpacity(0.08),
       child: Padding(
         padding: const EdgeInsets.all(14),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(Icons.play_circle_fill_rounded, color: FnTheme.danmuGreen.withValues(alpha: 0.9), size: 28),
+            Icon(Icons.play_circle_fill_rounded, color: FnTheme.danmuGreen.withOpacity(0.9), size: 28),
             const SizedBox(width: 12),
             const Expanded(
               child: Column(
