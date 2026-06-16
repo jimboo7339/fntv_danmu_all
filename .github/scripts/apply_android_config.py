@@ -6,6 +6,7 @@ MANIFEST = '''<manifest xmlns:android="http://schemas.android.com/apk/res/androi
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
     <application
         android:label="飞牛TV"
         android:name="${applicationName}"
@@ -34,6 +35,15 @@ MANIFEST = '''<manifest xmlns:android="http://schemas.android.com/apk/res/androi
         <meta-data
             android:name="flutterEmbedding"
             android:value="2"/>
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileProvider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
     <queries>
         <intent>
@@ -42,6 +52,14 @@ MANIFEST = '''<manifest xmlns:android="http://schemas.android.com/apk/res/androi
         </intent>
     </queries>
 </manifest>
+'''
+
+FILE_PATHS = '''<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <cache-path name="cache" path="." />
+    <files-path name="files" path="." />
+    <external-cache-path name="external_cache" path="." />
+</paths>
 '''
 
 NETCFG = '''<?xml version="1.0" encoding="utf-8"?>
@@ -71,6 +89,7 @@ def main():
     print('Applying custom Android config...')
     write(f'{base}/AndroidManifest.xml', MANIFEST)
     write(f'{base}/res/xml/network_security_config.xml', NETCFG)
+    write(f'{base}/res/xml/file_paths.xml', FILE_PATHS)
     write(f'{base}/res/values/colors.xml', COLORS)
     print('Done.')
 

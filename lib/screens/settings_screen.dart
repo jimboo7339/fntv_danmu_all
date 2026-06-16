@@ -2,8 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
+import 'package:dio/dio.dart';
+import 'package:open_filex/open_filex.dart';
 import '../models/mpv_player_settings.dart';
+import '../models/update_mirror.dart';
+import '../models/app_release_info.dart';
 import '../providers/app_state.dart';
+import '../services/update_service.dart';
 import '../utils/theme.dart';
 import '../utils/toast.dart';
 import '../utils/log_buffer.dart';
@@ -614,12 +619,135 @@ class _AccountManagePage extends StatelessWidget {
 // ────────────────────────────────────────────────────────────
 //  关于 二级页面
 // ────────────────────────────────────────────────────────────
-class _AboutPage extends StatelessWidget {
+class _AboutPage extends StatefulWidget {
   final String version;
   const _AboutPage({required this.version});
 
   @override
+  State<_AboutPage> createState() => _AboutPageState();
+}
+
+class _AboutPageState extends State<_AboutPage> {
+  final _updateService = UpdateService();
+  bool _checking = false;
+  String? _statusText;
+
+  Future<void> _checkUpdate() async {
+    if (_checking) return;
+    setState(() {
+      _checking = true;
+      _statusText = '正在检查更新…';
+    });
+
+    final result = await _updateService.checkForUpdate(widget.version);
+    if (!mounted) return;
+
+    setState(() {
+      _checking = false;
+      _statusText = null;
+    });
+
+    if (result.error != null) {
+      FnToast.show(context, result.error!, type: FnToastType.error, duration: const Duration(seconds: 4));
+      return;
+    }
+
+    if (!result.hasUpdate || result.release == null) {
+      FnToast.show(context, '当前已是最新版本', type: FnToastType.success);
+      return;
+    }
+
+    await _showUpdateDialog(result.release!);
+  }
+
+  Future<void> _showUpdateDialog(AppReleaseInfo release) async {
+    final mirror = await showModalBottomSheet<UpdateMirror>(
+      context: context,
+      backgroundColor: const Color(0xFF1E1E1E),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 12, 8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('发现新版本 ${release.versionLabel}',
+                          style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+                        if (release.apkSizeText.isNotEmpty)
+                          Text(release.apkSizeText,
+                            style: const TextStyle(fontSize: 12, color: FnTheme.textMuted)),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close, size: 20),
+                    onPressed: () => Navigator.pop(ctx),
+                  ),
+                ],
+              ),
+            ),
+            if (release.body.trim().isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Text(
+                  release.body.trim(),
+                  maxLines: 6,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 12, color: FnTheme.textSecondary, height: 1.4),
+                ),
+              ),
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 16, 20, 8),
+              child: Text('选择下载源',
+                style: TextStyle(fontSize: 13, color: FnTheme.textMuted, fontWeight: FontWeight.w600)),
+            ),
+            Flexible(
+              child: ListView(
+                shrinkWrap: true,
+                children: UpdateMirror.mirrors.map((m) => ListTile(
+                  title: Text(m.label, style: const TextStyle(fontSize: 14)),
+                  subtitle: Text(m.description,
+                    style: const TextStyle(fontSize: 11, color: FnTheme.textMuted)),
+                  trailing: const Icon(Icons.download_rounded, color: FnTheme.danmuGreen, size: 20),
+                  onTap: () => Navigator.pop(ctx, m),
+                )).toList(),
+              ),
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+
+    if (mirror != null && mounted) {
+      await _downloadAndInstall(release, mirror);
+    }
+  }
+
+  Future<void> _downloadAndInstall(AppReleaseInfo release, UpdateMirror mirror) async {
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => _DownloadUpdateDialog(
+        updateService: _updateService,
+        release: release,
+        mirror: mirror,
+      ),
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final version = widget.version;
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
       appBar: AppBar(
@@ -664,6 +792,25 @@ class _AboutPage extends StatelessWidget {
                 ),
                 const Divider(height: 1),
                 ListTile(
+                  title: const Text('检查更新'),
+                  subtitle: Text(
+                    _statusText ?? (_updateService.isSupported
+                        ? '从 GitHub Releases 下载安装包'
+                        : '仅 Android 客户端支持'),
+                    style: const TextStyle(fontSize: 12, color: FnTheme.textSecondary),
+                  ),
+                  trailing: _checking
+                      ? const SizedBox(
+                          width: 22,
+                          height: 22,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: FnTheme.danmuGreen),
+                        )
+                      : const Icon(Icons.system_update_rounded, color: FnTheme.danmuGreen),
+                  enabled: _updateService.isSupported && !_checking,
+                  onTap: _updateService.isSupported ? _checkUpdate : null,
+                ),
+                const Divider(height: 1),
+                ListTile(
                   title: const Text('Framework'),
                   trailing: const Text('Flutter', style: TextStyle(color: FnTheme.textSecondary)),
                 ),
@@ -672,6 +819,104 @@ class _AboutPage extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _DownloadUpdateDialog extends StatefulWidget {
+  final UpdateService updateService;
+  final AppReleaseInfo release;
+  final UpdateMirror mirror;
+
+  const _DownloadUpdateDialog({
+    required this.updateService,
+    required this.release,
+    required this.mirror,
+  });
+
+  @override
+  State<_DownloadUpdateDialog> createState() => _DownloadUpdateDialogState();
+}
+
+class _DownloadUpdateDialogState extends State<_DownloadUpdateDialog> {
+  late final CancelToken _cancelToken;
+  int _received = 0;
+  int _total = 0;
+  String _status = '连接中…';
+  bool _started = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _cancelToken = CancelToken();
+    _total = widget.release.apkSize > 0 ? widget.release.apkSize : 0;
+    _startDownload();
+  }
+
+  Future<void> _startDownload() async {
+    if (_started) return;
+    _started = true;
+
+    try {
+      final path = await widget.updateService.downloadApk(
+        release: widget.release,
+        mirror: widget.mirror,
+        cancelToken: _cancelToken,
+        onProgress: (r, t) {
+          if (!mounted) return;
+          setState(() {
+            _received = r;
+            if (t > 0) _total = t;
+            _status = _total > 0
+                ? '${(_received / _total * 100).toStringAsFixed(0)}%'
+                : '${(_received / (1024 * 1024)).toStringAsFixed(1)} MB';
+          });
+        },
+      );
+      if (!mounted) return;
+      Navigator.pop(context);
+      final openResult = await OpenFilex.open(
+        path,
+        type: 'application/vnd.android.package-archive',
+      );
+      if (!mounted) return;
+      if (openResult.type != ResultType.done) {
+        FnToast.show(context, '请允许安装未知来源应用', type: FnToastType.warning);
+      }
+    } catch (e) {
+      if (!mounted) return;
+      Navigator.pop(context);
+      FnToast.show(context, '下载失败: $e', type: FnToastType.error, duration: const Duration(seconds: 4));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      backgroundColor: const Color(0xFF1E1E1E),
+      title: Text('正在下载 (${widget.mirror.label})',
+          style: const TextStyle(fontSize: 15)),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          LinearProgressIndicator(
+            value: _total > 0 ? _received / _total : null,
+            backgroundColor: Colors.white12,
+            valueColor: const AlwaysStoppedAnimation(FnTheme.danmuGreen),
+          ),
+          const SizedBox(height: 12),
+          Text(_status, style: const TextStyle(color: FnTheme.textSecondary, fontSize: 13)),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () {
+            _cancelToken.cancel('user cancelled');
+            Navigator.pop(context);
+          },
+          child: const Text('取消'),
+        ),
+      ],
     );
   }
 }
