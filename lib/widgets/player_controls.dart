@@ -43,12 +43,8 @@ class PlayerControls extends StatelessWidget {
   final Map<String, dynamic>? currentDanmuSource;
   final void Function(Map<String, dynamic>) onDanmuSourceSelected;
   final VoidCallback? onLoadExternalSubtitle;
-  final bool useMpv;
-  final bool isStrmFile;
-  final VoidCallback? onSwitchToMpv;
   final int seekStep;
-  final String engineLabel;
-  final void Function(String engine) onEngineSelect;
+  final String playbackInfo;
   final String aspectMode;
   final void Function(String) onAspectMode;
   final VoidCallback? onPrevEpisode;
@@ -93,12 +89,8 @@ class PlayerControls extends StatelessWidget {
     this.currentDanmuSource,
     required this.onDanmuSourceSelected,
     this.onLoadExternalSubtitle,
-    this.useMpv = true,
-    this.isStrmFile = false,
-    this.onSwitchToMpv,
     this.seekStep = 10,
-    this.engineLabel = '',
-    required this.onEngineSelect,
+    this.playbackInfo = '',
     this.aspectMode = 'fit',
     required this.onAspectMode,
     this.onPrevEpisode,
@@ -181,7 +173,7 @@ class PlayerControls extends StatelessWidget {
                 // 进度条上方：内核信息 + 标题
                 Row(
                   children: [
-                    if (engineLabel.isNotEmpty)
+                    if (playbackInfo.isNotEmpty)
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                         decoration: BoxDecoration(
@@ -189,7 +181,7 @@ class PlayerControls extends StatelessWidget {
                           borderRadius: BorderRadius.circular(6),
                           border: Border.all(color: Colors.white12),
                         ),
-                        child: Text(engineLabel,
+                        child: Text(playbackInfo,
                           style: const TextStyle(color: Colors.white70, fontSize: 10, fontWeight: FontWeight.w600)),
                       ),
                     const SizedBox(width: 8),
@@ -268,7 +260,6 @@ class PlayerControls extends StatelessWidget {
                               _ctrlBtn('${seekStep}s', () => onSeek(Duration(seconds: seekStep))),
                               _ctrlBtn('${speed}x', () => _showSpeedMenu(context)),
                               _ctrlBtn(_aspectLabel(aspectMode), () => _showAspectMenu(context)),
-                              _ctrlBtn(useMpv ? 'MPV' : 'Exo', () => _showEngineMenu(context)),
                               _ctrlBtn('旋转', onRotate),
                               if (qualityCount > 0)
                                 _ctrlBtn(qualityLabels.isNotEmpty ? qualityLabels[qualityIndex] : '画质', () => _showQualityMenu(context)),
@@ -278,7 +269,7 @@ class PlayerControls extends StatelessWidget {
                                 _ctrlBtn('音频', () => _showAudioMenu(context)),
                               if (subtitleStreams != null && subtitleStreams!.isNotEmpty)
                                 _ctrlBtn('字幕', () => _showSubtitlePanel(context))
-                              else if (!useMpv && onLoadExternalSubtitle != null)
+                              else if (onLoadExternalSubtitle != null)
                                 _ctrlBtn('字幕', () => _showSubtitlePanel(context)),
                             ],
                           ),
@@ -387,66 +378,6 @@ class PlayerControls extends StatelessWidget {
             ),
           );
         }),
-      ),
-    );
-  }
-
-  void _showEngineMenu(BuildContext context) {
-    _showCompactPopup(
-      context: context,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Padding(
-            padding: EdgeInsets.only(bottom: 8),
-            child: Text('播放内核', style: TextStyle(color: Colors.white70, fontSize: 13)),
-          ),
-          _engineOption(context, 'MPV', useMpv, () {
-            Navigator.pop(context);
-            if (!useMpv) onEngineSelect('mpv');
-          }),
-          const SizedBox(height: 6),
-          _engineOption(context, 'Exo', !useMpv, () {
-            Navigator.pop(context);
-            if (useMpv) onEngineSelect('exo');
-          }),
-          if (isStrmFile)
-            Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Text(
-                'strm 直链建议 MPV',
-                style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 11),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _engineOption(BuildContext context, String label, bool active, VoidCallback onTap) {
-    return GestureDetector(
-      onTap: () {
-        if (!active) onTap();
-        else Navigator.pop(context);
-      },
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: active ? FnTheme.danmuGreen.withOpacity(0.15) : Colors.transparent,
-          borderRadius: BorderRadius.circular(6),
-        ),
-        child: Row(
-          children: [
-            if (active) const Icon(Icons.check, color: FnTheme.danmuGreen, size: 14),
-            if (active) const SizedBox(width: 4),
-            Text(label, style: TextStyle(
-              color: active ? FnTheme.danmuGreen : Colors.white70,
-              fontSize: 13,
-              fontWeight: active ? FontWeight.bold : FontWeight.normal,
-            )),
-          ],
-        ),
       ),
     );
   }
@@ -646,12 +577,6 @@ class PlayerControls extends StatelessWidget {
           Navigator.pop(context);
           onLoadExternalSubtitle!();
         } : null,
-        useMpv: useMpv,
-        isStrmFile: isStrmFile,
-        onSwitchToMpv: onSwitchToMpv != null ? () {
-          Navigator.pop(context);
-          onSwitchToMpv!();
-        } : null,
       ),
     );
   }
@@ -790,18 +715,12 @@ class _SubtitlePanel extends StatefulWidget {
   final int selectedIndex;
   final void Function(int) onSelect;
   final VoidCallback? onLoadExternal;
-  final bool useMpv;
-  final bool isStrmFile;
-  final VoidCallback? onSwitchToMpv;
 
   const _SubtitlePanel({
     required this.subtitleStreams,
     required this.selectedIndex,
     required this.onSelect,
     this.onLoadExternal,
-    this.useMpv = true,
-    this.isStrmFile = false,
-    this.onSwitchToMpv,
   });
 
   @override
@@ -816,54 +735,6 @@ class _SubtitlePanelState extends State<_SubtitlePanel> {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (!widget.useMpv && widget.isStrmFile && widget.subtitleStreams.isNotEmpty)
-          Container(
-            margin: const EdgeInsets.only(bottom: 10),
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: Colors.orange.withOpacity(0.12),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.orange.withOpacity(0.35)),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Row(
-                  children: [
-                    Icon(Icons.info_outline, color: Colors.orange, size: 16),
-                    SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        '网盘串流 (strm) 无法用 Exo 加载内嵌字幕',
-                        style: TextStyle(color: Colors.orange, fontSize: 11, fontWeight: FontWeight.w600),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                const Text(
-                  '请切换 MPV 内核，由播放器本地解析 mov_text 字幕。',
-                  style: TextStyle(color: Colors.white70, fontSize: 11, height: 1.4),
-                ),
-                if (widget.onSwitchToMpv != null) ...[
-                  const SizedBox(height: 8),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton.icon(
-                      onPressed: widget.onSwitchToMpv,
-                      icon: const Icon(Icons.swap_horiz, size: 16),
-                      label: const Text('切换 MPV 并加载字幕', style: TextStyle(fontSize: 12)),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: FnTheme.danmuGreen,
-                        foregroundColor: Colors.black,
-                        padding: const EdgeInsets.symmetric(vertical: 8),
-                      ),
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
         const Text('字幕轨道', style: TextStyle(
           color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w600)),
         const SizedBox(height: 4),

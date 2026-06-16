@@ -385,10 +385,6 @@ class AppState extends ChangeNotifier {
   double get danmuSpeed => _prefs.getDouble('danmu_speed') ?? 0.6;
   set danmuSpeed(double v) { _prefs.setDouble('danmu_speed', v); notifyListeners(); }
 
-  /// strm 网盘串流 + 内嵌字幕时自动切 MPV
-  bool get autoMpvForStrm => _prefs.getBool('auto_mpv_strm') ?? true;
-  set autoMpvForStrm(bool v) { _prefs.setBool('auto_mpv_strm', v); notifyListeners(); }
-
   bool get danmuOutline => _prefs.getBool('danmu_outline') ?? true;
   set danmuOutline(bool v) { _prefs.setBool('danmu_outline', v); notifyListeners(); }
 
@@ -466,9 +462,6 @@ class AppState extends ChangeNotifier {
     cache[showName] = data;
     danmuSourceCache = cache;
   }
-
-  String get playerEngine => _prefs.getString('player_engine') ?? 'mpv';
-  set playerEngine(String v) { _prefs.setString('player_engine', v); notifyListeners(); }
 
   double get danmuLongPressSpeed => _prefs.getDouble('danmu_lp_speed') ?? 2.0;
   set danmuLongPressSpeed(double v) { _prefs.setDouble('danmu_lp_speed', v); notifyListeners(); }

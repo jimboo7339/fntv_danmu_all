@@ -20,7 +20,6 @@ import '../widgets/subtitle_overlay.dart';
 import '../widgets/player_controls.dart';
 import '../services/video_wrapper.dart';
 import '../services/danmu_service.dart';
-import '../services/subtitle_service.dart';
 import 'package:screen_brightness/screen_brightness.dart';
 import 'package:flutter_volume_controller/flutter_volume_controller.dart';
 import 'package:file_picker/file_picker.dart';
@@ -58,7 +57,6 @@ class PlayerScreen extends StatefulWidget {
 
 class _PlayerScreenState extends State<PlayerScreen> {
   VideoWrapper? _videoCtrl;
-  String _engine = 'mpv';
   bool _isPlaying = false;
   bool _showControls = true;
   bool _isLocked = false;
@@ -92,7 +90,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   int _selectedAudioIndex = 0;
   int _selectedSubtitleIndex = -1; // -1 = off
 
-  // 软件字幕（ExoPlayer 用）
+  // 外部字幕文件（SRT/VTT 等）
   SubtitleData? _softwareSubtitle;
 
   // Direct link
@@ -140,21 +138,18 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Timer? _progressTimer;
 
   late DanmuService _danmuService;
-  late SubtitleService _subtitleService;
 
   @override
   void initState() {
     super.initState();
     _appState = context.read<AppState>(); // Cache before dispose
     _danmuService = DanmuService(api: _appState!.api, appState: _appState!);
-    _subtitleService = SubtitleService(_appState!.api);
     _itemTitle = widget.title;
     _tvTitle = widget.tvTitle;
     _logoUrl = widget.logoUrl;
     _episodeNumber = widget.episodeNumber;
     _parentGuid = widget.parentGuid;
     _danmuOn = _appState!.danmuOn;
-    _engine = _appState!.playerEngine;
     // Initialize brightness and volume from system
     try {
       ScreenBrightness().current.then((v) { _currentBrightness = v; }).catchError((_) {});
@@ -288,14 +283,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
         if (sd.subtitleStreams != null && sd.subtitleStreams!.isNotEmpty) {
           _subtitleStreams = sd.subtitleStreams;
           _selectedSubtitleIndex = -1;
-          if (_isStrmFile && _engine != 'mpv' && _app.autoMpvForStrm) {
-            debugPrint('Strm+subtitle: auto switch to MPV');
-            _engine = 'mpv';
-          } else if (_engine == 'mpv') {
-            // MPV 在 initialize 完成后加载字幕轨
-          } else if (!_isStrmFile) {
-            _autoLoadExoSubtitle();
-          }
         }
       }
     } catch (e) {
@@ -303,113 +290,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
   }
 
-  /// ExoPlayer: 自动加载默认字幕
-  Future<void> _autoLoadExoSubtitle() async {
-    if (_mediaGuid == null) return;
-    final data = await _subtitleService.loadDefault(
-      mediaGuid: _mediaGuid!,
-      subtitleGuid: _subtitleGuid,
-      videoGuid: _videoGuid,
-      streams: _subtitleStreams,
-    );
-    if (mounted && data != null && data.isNotEmpty) {
-      setState(() {
-        _softwareSubtitle = data;
-        _selectedSubtitleIndex = 0;
-      });
-    }
-  }
-
-  /// ExoPlayer: 按索引加载/关闭字幕
-  Future<void> _loadExoSubtitle({required int index}) async {
-    if (_mediaGuid == null) return;
-    if (index < 0) {
-      if (mounted) {
-        setState(() {
-          _selectedSubtitleIndex = -1;
-          _softwareSubtitle = null;
-        });
-      }
-      return;
-    }
-    final streams = _subtitleStreams;
-    if (streams == null || streams.isEmpty) return;
-
-    final stream = index < streams.length ? streams[index] : null;
-    SubtitleData? data = await _subtitleService.loadByStreamIndex(
-      mediaGuid: _mediaGuid!,
-      streamIndex: index,
-      stream: stream,
-      subtitleGuid: _subtitleGuid,
-      videoGuid: _videoGuid,
-    );
-    if (data == null) {
-      data = await _subtitleService.loadDefault(
-        mediaGuid: _mediaGuid!,
-        subtitleGuid: stream?.guid ?? _subtitleGuid,
-        videoGuid: _videoGuid,
-        streams: streams,
-      );
-    }
-
-    if (!mounted) return;
-    if (data != null && data.isNotEmpty) {
-      setState(() {
-        _softwareSubtitle = data;
-        _selectedSubtitleIndex = index;
-      });
-      debugPrint('✅ Exo subtitle ready: ${data.entries.length} entries, index=$index');
-    } else {
-      setState(() {
-        _selectedSubtitleIndex = -1;
-        _softwareSubtitle = null;
-      });
-      FnToast.show(context, '字幕加载失败，可尝试加载外部 SRT/VTT 文件', type: FnToastType.warning, duration: const Duration(seconds: 3));
-      debugPrint('❌ Exo subtitle load failed for index=$index');
-    }
-  }
-
-  Future<void> _onExoSubtitleSelected(int idx) async {
-    if (idx < 0) {
-      setState(() {
-        _selectedSubtitleIndex = -1;
-        _softwareSubtitle = null;
-      });
-      return;
-    }
-    if (_isStrmFile) {
-      await _switchToMpvForSubtitle(subtitleIndex: idx);
-      return;
-    }
-    setState(() => _selectedSubtitleIndex = idx);
-    await _loadExoSubtitle(index: idx);
-  }
-
-  /// strm / 内嵌字幕：切换 MPV 由本地 demux 字幕（API 无法提取）
-  Future<void> _switchToMpvForSubtitle({int subtitleIndex = 0, bool silent = false}) async {
-    final pos = _videoCtrl?.position ?? Duration.zero;
-    final seekTs = pos.inSeconds > 0 ? pos.inSeconds : (widget.seekTs > 0 ? widget.seekTs : _serverSeekTs);
-
-    setState(() {
-      _engine = 'mpv';
-      _softwareSubtitle = null;
-      _selectedSubtitleIndex = subtitleIndex;
-      _isInitialized = false;
-      _serverSeekTs = seekTs;
-    });
-    _videoCtrl?.dispose();
-    _videoCtrl = null;
-    _startPlayback();
-
-    if (!silent && mounted) {
-      FnToast.show(context, '已切换 MPV 内核，正在加载内嵌字幕…', type: FnToastType.success);
-    }
-  }
-
   void _applyMpvSubtitleTrack(int index) {
-    if (_engine != 'mpv' || _videoCtrl == null) return;
+    if (_videoCtrl == null) return;
     if (index < 0) {
       _videoCtrl!.setSubtitleTrack(-1);
+      if (mounted) setState(() => _selectedSubtitleIndex = -1);
       return;
     }
     _videoCtrl!.setSubtitleTrack(index);
@@ -418,8 +303,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   Future<void> _autoLoadMpvSubtitle() async {
-    if (_engine != 'mpv' || _subtitleStreams == null || _subtitleStreams!.isEmpty) return;
-    await Future.delayed(const Duration(milliseconds: 1800));
+    if (_subtitleStreams == null || _subtitleStreams!.isEmpty) return;
+    await Future.delayed(const Duration(milliseconds: 1200));
     if (!mounted || _videoCtrl == null) return;
     _applyMpvSubtitleTrack(_selectedSubtitleIndex >= 0 ? _selectedSubtitleIndex : 0);
   }
@@ -466,39 +351,33 @@ class _PlayerScreenState extends State<PlayerScreen> {
     } else {
       url = _app.api.getMediaUrl(_mediaGuid!);
     }
-    debugPrint('Playing ($_engine): $url');
+    debugPrint('Playing (MPV): $url');
     _initVideo(url);
   }
 
   void _initVideo(String url) {
     _videoCtrl?.dispose();
+    final seekTs = widget.seekTs > 0 ? widget.seekTs : _serverSeekTs;
+    final startAt = seekTs > 0 ? Duration(seconds: seekTs) : null;
+
     _videoCtrl = VideoWrapper(
-      engine: _engine,
       url: url,
       headers: _app!.api.headers,
       decoderMode: _app!.decoderMode,
     );
     _videoCtrl!.addListener(_videoListener);
-    _videoCtrl!.initialize().then((_) {
+    _videoCtrl!.initialize(startAt: startAt).then((_) {
       if (!mounted) return;
       setState(() => _isInitialized = true);
       _videoCtrl!.setSpeed(_speed);
-      // 优先使用 widget.seekTs（详情页传入），其次用 _serverSeekTs（play/info 获取）
-      final seekTs = widget.seekTs > 0 ? widget.seekTs : _serverSeekTs;
-
       _videoCtrl!.play();
       _isPlaying = true;
-      if (_engine == 'mpv' && _subtitleStreams != null && _subtitleStreams!.isNotEmpty) {
+      if (seekTs > 0) {
+        debugPrint('🎯 Resume from ${seekTs}s (pre-seek during init)');
+      }
+      if (_subtitleStreams != null && _subtitleStreams!.isNotEmpty) {
         _autoLoadMpvSubtitle();
       }
-      if (seekTs > 0) {
-        final seekMs = seekTs * 1000;
-        debugPrint('🎯 Will seek to ${seekTs}s (${seekMs}ms) — widget=${widget.seekTs}s, server=${_serverSeekTs}s');
-        _performSeekWithRetry(seekMs, isMpv: _engine == 'mpv');
-      } else {
-        debugPrint('ℹ️ No seek needed: widget.seekTs=${widget.seekTs}s, _serverSeekTs=$_serverSeekTs');
-      }
-      // 立即上报一次进度（不等5秒定时器）
       Future.delayed(const Duration(seconds: 2), () => _saveProgress());
       _startProgressTimer();
       _resetHideTimer();
@@ -520,45 +399,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
         _videoCtrl!.duration.inSeconds > 0) {
       _onPlaybackComplete();
     }
-  }
-
-  /// 带重试的 seek — 解决 MPV 首次 seek 被忽略的问题
-  void _performSeekWithRetry(int seekMs, {required bool isMpv, int attempt = 0}) {
-    if (!mounted || _videoCtrl == null) return;
-    const maxAttempts = 4;
-    // MPV: 800ms / 2000ms / 4000ms / 6000ms
-    // Exo: 200ms / 500ms / 1000ms
-    final delays = isMpv ? [800, 2000, 4000, 6000] : [200, 500, 1000, 1500];
-    if (attempt >= maxAttempts) {
-      debugPrint('❌ Seek failed after $maxAttempts attempts (${seekMs}ms)');
-      return;
-    }
-
-    Future.delayed(Duration(milliseconds: delays[attempt]), () {
-      if (!mounted || _videoCtrl == null) return;
-      final currentPosMs = _videoCtrl!.position.inMilliseconds;
-      final durMs = _videoCtrl!.duration.inMilliseconds;
-      final targetMs = durMs > 0 ? (seekMs.clamp(0, durMs - 1000)).toInt() : seekMs;
-
-      debugPrint('🎯 Seek attempt #${attempt + 1}: target=${targetMs}ms, current=${currentPosMs}ms, dur=${durMs}ms');
-
-      _videoCtrl!.seekTo(Duration(milliseconds: targetMs));
-
-      // 验证 seek 是否生效（仅对 MPV 和后续重试）
-      if (isMpv && attempt < maxAttempts - 1) {
-        Future.delayed(const Duration(milliseconds: 1500), () {
-          if (!mounted || _videoCtrl == null) return;
-          final posAfterSeek = _videoCtrl!.position.inMilliseconds;
-          final tolerance = (seekMs * 0.1).round().clamp(3000, 10000).toInt(); // 10% tolerance, 3~10s
-          final seekWorked = (posAfterSeek - seekMs).abs() < tolerance;
-          debugPrint('🎯 Seek verify: posAfter=${posAfterSeek}ms, expected≈${seekMs}ms, worked=$seekWorked');
-          if (!seekWorked && posAfterSeek < 5000) {
-            // Seek 没生效（位置还在开头），重试
-            _performSeekWithRetry(seekMs, isMpv: isMpv, attempt: attempt + 1);
-          }
-        });
-      }
-    });
   }
 
   void _onPlaybackComplete() {
@@ -736,26 +576,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
     SharedPreferences.getInstance().then((p) => p.setString('aspect_mode', mode));
   }
 
-  Future<void> _switchEngine(String engine) async {
-    if (engine == _engine) return;
-    final pos = _videoCtrl?.position ?? Duration.zero;
-    final seekTs = pos.inSeconds > 0 ? pos.inSeconds : _serverSeekTs;
-    setState(() {
-      _engine = engine;
-      _app.playerEngine = engine;
-      _isInitialized = false;
-      _softwareSubtitle = null;
-      _serverSeekTs = seekTs;
-    });
-    _videoCtrl?.dispose();
-    _videoCtrl = null;
-    await _fetchStreamInfo();
-    _startPlayback();
-    if (mounted) {
-      FnToast.show(context, '已切换 ${engine == 'mpv' ? 'MPV' : 'Exo'} 内核', type: FnToastType.success);
-    }
-  }
-
   void _toggleOrientation() {
     setState(() => _preferPortrait = !_preferPortrait);
     SystemChrome.setPreferredOrientations(_preferPortrait
@@ -811,8 +631,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
   }
 
-  String get _engineLabel {
-    final buf = StringBuffer(_engine == 'mpv' ? 'MPV' : 'Exo');
+  String get _playbackInfoLabel {
+    final buf = StringBuffer('MPV');
     if (_isStrmFile && _cloudDirectUrl.isNotEmpty) buf.write(' · 直链');
     if (_streamVWidth > 0 && _streamVHeight > 0) buf.write(' · ${_streamVWidth}x$_streamVHeight');
     return buf.toString();
@@ -1022,8 +842,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 ),
               ),
 
-            // 软件字幕覆盖层（ExoPlayer 用）
-            if (_engine != 'mpv' && _selectedSubtitleIndex >= 0 && _softwareSubtitle != null && _softwareSubtitle!.isNotEmpty)
+            // 外部字幕覆盖层
+            if (_softwareSubtitle != null && _softwareSubtitle!.isNotEmpty)
               Selector<AppState, _SubtitleStyle>(
                 selector: (_, app) => _SubtitleStyle(
                   size: app.subtitleSize,
@@ -1093,9 +913,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 },
                 onEpisode: _playEpisode,
                 onQuality: (idx) {
+                  final pos = _videoCtrl?.position.inSeconds ?? 0;
                   setState(() {
                     _qualityIndex = idx;
                     _cloudDirectUrl = _qualityUrls[idx];
+                    if (pos > 0) _serverSeekTs = pos;
                   });
                   _videoCtrl?.dispose();
                   _videoCtrl = null;
@@ -1108,15 +930,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 },
                 seekStep: seekStep,
                 onSubtitleSelected: (idx) {
-                  if (_engine == 'mpv') {
-                    if (idx < 0) {
-                      setState(() => _selectedSubtitleIndex = -1);
-                      _videoCtrl?.setSubtitleTrack(-1);
-                    } else {
-                      _applyMpvSubtitleTrack(idx);
-                    }
+                  if (idx < 0) {
+                    setState(() {
+                      _selectedSubtitleIndex = -1;
+                      _softwareSubtitle = null;
+                    });
+                    _videoCtrl?.setSubtitleTrack(-1);
                   } else {
-                    _onExoSubtitleSelected(idx);
+                    setState(() => _softwareSubtitle = null);
+                    _applyMpvSubtitleTrack(idx);
                   }
                 },
                 onSeekChanged: (val) {
@@ -1137,13 +959,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   }
                 },
                 onLoadExternalSubtitle: _loadExternalSubtitle,
-                useMpv: _engine == 'mpv',
-                isStrmFile: _isStrmFile,
-                onSwitchToMpv: (_isStrmFile && _engine != 'mpv')
-                    ? () => _switchToMpvForSubtitle(subtitleIndex: 0)
-                    : null,
-                engineLabel: _engineLabel,
-                onEngineSelect: _switchEngine,
+                playbackInfo: _playbackInfoLabel,
                 aspectMode: _aspectMode,
                 onAspectMode: _setAspectMode,
                 hasPrevEpisode: _currentEpIndex > 0,

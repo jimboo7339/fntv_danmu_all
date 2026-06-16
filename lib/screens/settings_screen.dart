@@ -63,7 +63,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 icon: Icons.play_circle_rounded,
                 color: FnTheme.danmuGreen,
                 title: '播放器设置',
-                subtitle: '${app.playerEngine == 'mpv' ? 'MPV' : 'ExoPlayer'} · ${app.decoderMode == 'hardware' ? '硬解' : '软解'}',
+                subtitle: 'MPV · ${app.decoderMode == 'hardware' ? '硬解' : '软解'}',
                 onTap: () => Navigator.push(context,
                   MaterialPageRoute(builder: (_) => const _PlayerSettingsPage()),
                 ),
@@ -275,38 +275,16 @@ class _PlayerSettingsPage extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          // 播放内核
-          Card(
-            child: ListTile(
-              title: const Text('播放内核'),
-              subtitle: Text(
-                app.playerEngine == 'mpv' ? 'MPV (libmpv) — 解码能力强' : 'ExoPlayer — Android 原生',
-                style: const TextStyle(fontSize: 12, color: FnTheme.textSecondary),
-              ),
-              trailing: const Icon(Icons.chevron_right_rounded),
-              onTap: () => _showEnginePicker(context, app),
-            ),
-          ),
-          const SizedBox(height: 10),
-
           // 解码模式
           Card(
             child: ListTile(
               title: const Text('解码模式'),
-              subtitle: Text(app.decoderMode == 'hardware' ? '硬解' : '软解'),
+              subtitle: Text(
+                app.decoderMode == 'hardware' ? '硬解（推荐）' : '软解',
+                style: const TextStyle(fontSize: 12, color: FnTheme.textSecondary),
+              ),
               trailing: const Icon(Icons.chevron_right_rounded),
               onTap: () => _showDecoderPicker(context, app),
-            ),
-          ),
-          const SizedBox(height: 10),
-
-          Card(
-            child: SwitchListTile(
-              title: const Text('strm 自动切 MPV'),
-              subtitle: const Text('网盘串流检测到内嵌字幕时，自动用 MPV 播放'),
-              value: app.autoMpvForStrm,
-              activeColor: FnTheme.danmuGreen,
-              onChanged: (v) => app.autoMpvForStrm = v,
             ),
           ),
           const SizedBox(height: 10),
@@ -334,26 +312,6 @@ class _PlayerSettingsPage extends StatelessWidget {
         ],
       ),
     );
-  }
-
-  void _showEnginePicker(BuildContext ctx, AppState app) {
-    showDialog(context: ctx, builder: (_) => SimpleDialog(
-      title: const Text('播放内核'),
-      children: [
-        RadioListTile(
-          value: 'mpv', groupValue: app.playerEngine,
-          title: const Text('MPV (libmpv)'),
-          subtitle: const Text('解码能力强，支持内嵌字幕/音轨'),
-          onChanged: (v) { app.playerEngine = v!; Navigator.pop(ctx); },
-        ),
-        RadioListTile(
-          value: 'exo', groupValue: app.playerEngine,
-          title: const Text('ExoPlayer'),
-          subtitle: const Text('Android 原生；strm 网盘串流请用 MPV 加载内嵌字幕'),
-          onChanged: (v) { app.playerEngine = v!; Navigator.pop(ctx); },
-        ),
-      ],
-    ));
   }
 
   void _showDecoderPicker(BuildContext ctx, AppState app) {

@@ -1,29 +1,18 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:video_player/video_player.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
-/// Unified video controller wrapper supporting ExoPlayer and MPV engines.
+/// MPV (libmpv) 视频控制器封装。
 class VideoWrapper {
-  /// Engine type: 'mpv' or 'exo'
-  final String engine;
   final String url;
   final Map<String, String>? headers;
   /// 'hardware' or 'software'
   final String decoderMode;
 
-  bool get useMpv => engine == 'mpv';
-  bool get useExo => engine == 'exo';
-
-  // video_player (ExoPlayer) controller
-  VideoPlayerController? _exoController;
-
-  // media_kit (MPV) controllers
   Player? _mpvPlayer;
   VideoController? _mpvVideoController;
 
-  // Cached state
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
   double _aspectRatio = 16 / 9;
@@ -37,59 +26,21 @@ class VideoWrapper {
   final ValueNotifier<Duration> positionNotifier = ValueNotifier(Duration.zero);
 
   VideoWrapper({
-    required this.engine,
     required this.url,
     this.headers,
     this.decoderMode = 'hardware',
   });
 
-  // ── Public state getters ──────────────────────────────────────────────
+  Duration get position => _position;
+  Duration get duration => _duration;
+  double get aspectRatio => _aspectRatio;
+  bool get isPlaying => _isPlaying;
+  bool get isBuffering => _isBuffering;
+  bool get isInitialized => _isInitialized;
 
-  Duration get position {
-    if (useMpv) return _position;
-    return _exoController?.value.position ?? Duration.zero;
-  }
+  void addListener(VoidCallback listener) => _listeners.add(listener);
 
-  Duration get duration {
-    if (useMpv) return _duration;
-    return _exoController?.value.duration ?? Duration.zero;
-  }
-
-  double get aspectRatio {
-    if (useMpv) return _aspectRatio;
-    return _exoController?.value.aspectRatio ?? 16 / 9;
-  }
-
-  bool get isPlaying {
-    if (useMpv) return _isPlaying;
-    return _exoController?.value.isPlaying ?? false;
-  }
-
-  bool get isBuffering {
-    if (useMpv) return _isBuffering;
-    return _exoController?.value.isBuffering ?? false;
-  }
-
-  bool get isInitialized {
-    if (useMpv) return _isInitialized;
-    return _exoController?.value.isInitialized ?? false;
-  }
-
-  // ── Listener management ───────────────────────────────────────────────
-
-  void addListener(VoidCallback listener) {
-    _listeners.add(listener);
-    if (useExo && _exoController != null) {
-      _exoController!.addListener(listener);
-    }
-  }
-
-  void removeListener(VoidCallback listener) {
-    _listeners.remove(listener);
-    if (useExo && _exoController != null) {
-      _exoController!.removeListener(listener);
-    }
-  }
+  void removeListener(VoidCallback listener) => _listeners.remove(listener);
 
   void _notifyAll() {
     for (final l in _listeners) {
@@ -97,50 +48,10 @@ class VideoWrapper {
     }
   }
 
-  // ── Initialization ────────────────────────────────────────────────────
-
-  Future<void> initialize() async {
-    if (useMpv) {
-      await _initMpv();
-    } else {
-      await _initExo();
-    }
-  }
-
-  Future<void> _initExo() async {
-    _exoController = VideoPlayerController.networkUrl(
-      Uri.parse(url),
-      httpHeaders: headers ?? {},
-    );
-    _exoController!.addListener(_onExoTick);
-    await _exoController!.initialize();
-    _isInitialized = true;
-    _duration = _exoController!.value.duration;
-    positionNotifier.value = _exoController!.value.position;
-    for (final l in _listeners) {
-      _exoController!.addListener(l);
-    }
-    _notifyAll();
-  }
-
-  void _onExoTick() {
-    if (_exoController == null) return;
-    final v = _exoController!.value;
-    _duration = v.duration;
-    final now = DateTime.now();
-    if (now.difference(_lastPositionNotify).inMilliseconds >= 100 ||
-        v.position.inSeconds != _lastNotifiedPosition.inSeconds) {
-      _lastPositionNotify = now;
-      _lastNotifiedPosition = v.position;
-      positionNotifier.value = v.position;
-      _notifyAll();
-    }
-  }
-
-  Future<void> _initMpv() async {
+  Future<void> initialize({Duration? startAt}) async {
     _mpvPlayer = Player(
       configuration: const PlayerConfiguration(
-        bufferSize: 128 * 1024 * 1024,
+        bufferSize: 192 * 1024 * 1024,
         vo: 'gpu',
       ),
     );
@@ -178,33 +89,97 @@ class VideoWrapper {
       }
     });
 
-    await _mpvPlayer!.open(Media(url), play: false);
-    _isInitialized = true;
+    await _mpvPlayer!.open(
+      Media(url, httpHeaders: headers ?? const {}),
+      play: false,
+    );
     _tuneMpvPerformance();
+    await _waitForMetadata();
     _readVideoDimensions();
+
+    if (startAt != null && startAt > Duration.zero) {
+      await _accurateSeek(startAt);
+    }
+
+    _isInitialized = true;
     _notifyAll();
   }
 
-  /// MPV performance tuning
   void _tuneMpvPerformance() {
     try {
       final native = _mpvPlayer!.platform;
-      if (native != null && native is NativePlayer) {
-        native.setProperty('framedrop', 'decoder');
-        native.setProperty('vd-lavc-threads', '4');
-        native.setProperty('audio-sync', 'yes');
-        native.setProperty('video-sync', 'audio');
-        native.setProperty('hwdec', decoderMode == 'software' ? 'no' : 'auto');
-        debugPrint('MPV performance tuning applied (hwdec=${decoderMode == 'software' ? 'no' : 'auto'})');
+      if (native == null || native is! NativePlayer) return;
+
+      final hwdec = decoderMode == 'software' ? 'no' : 'auto-safe';
+      final props = <String, String>{
+        'cache': 'yes',
+        'cache-pause': 'no',
+        'demuxer-readahead-secs': '25',
+        'hr-seek': 'yes',
+        'framedrop': 'decoder',
+        'vd-lavc-threads': '0',
+        'audio-sync': 'yes',
+        'video-sync': 'audio',
+        'hwdec': hwdec,
+        'hwdec-codecs': 'all',
+        'opengl-pbo': 'yes',
+        'interpolation': 'no',
+        'network-timeout': '30',
+      };
+      for (final e in props.entries) {
+        native.setProperty(e.key, e.value);
       }
+      debugPrint('MPV tuning applied (hwdec=$hwdec)');
     } catch (e) {
       debugPrint('MPV tuning error: $e');
     }
   }
 
+  Future<void> _waitForMetadata() async {
+    for (var i = 0; i < 150; i++) {
+      await Future.delayed(const Duration(milliseconds: 100));
+      final dur = _mpvPlayer?.state.duration ?? Duration.zero;
+      if (dur.inMilliseconds > 0) {
+        _duration = dur;
+        return;
+      }
+    }
+  }
+
+  Future<void> _accurateSeek(Duration target) async {
+    if (_mpvPlayer == null) return;
+    final native = _mpvPlayer!.platform;
+    if (native is NativePlayer) {
+      native.setProperty('hr-seek', 'yes');
+    }
+
+    final dur = _duration.inMilliseconds > 0 ? _duration : (_mpvPlayer!.state.duration);
+    final maxMs = dur.inMilliseconds > 1000 ? dur.inMilliseconds - 500 : target.inMilliseconds;
+    final clamped = Duration(milliseconds: target.inMilliseconds.clamp(0, maxMs));
+
+    await _mpvPlayer!.seek(clamped);
+
+    for (var i = 0; i < 40; i++) {
+      await Future.delayed(const Duration(milliseconds: 80));
+      final pos = _mpvPlayer!.state.position;
+      if ((pos - clamped).inMilliseconds.abs() < 1500) {
+        _position = pos;
+        positionNotifier.value = pos;
+        _notifyAll();
+        return;
+      }
+      if (pos.inMilliseconds > 1000) {
+        _position = pos;
+        positionNotifier.value = pos;
+        _notifyAll();
+        return;
+      }
+    }
+  }
+
   void _throttledNotify(Duration pos) {
     final now = DateTime.now();
-    if (now.difference(_lastPositionNotify).inMilliseconds >= 200 ||
+    if (now.difference(_lastPositionNotify).inMilliseconds >= 100 ||
         pos.inSeconds != _lastNotifiedPosition.inSeconds) {
       _lastPositionNotify = now;
       _lastNotifiedPosition = pos;
@@ -230,71 +205,40 @@ class VideoWrapper {
     });
   }
 
-  // ── Playback controls ─────────────────────────────────────────────────
+  Future<void> play() async => _mpvPlayer?.play();
 
-  Future<void> play() async {
-    if (useMpv) {
-      await _mpvPlayer?.play();
-    } else {
-      await _exoController?.play();
-    }
-  }
-
-  Future<void> pause() async {
-    if (useMpv) {
-      await _mpvPlayer?.pause();
-    } else {
-      await _exoController?.pause();
-    }
-  }
+  Future<void> pause() async => _mpvPlayer?.pause();
 
   Future<void> seekTo(Duration position) async {
-    if (useMpv) {
-      await _mpvPlayer?.seek(position);
-    } else {
-      await _exoController?.seekTo(position);
-    }
+    await _accurateSeek(position);
   }
 
-  Future<void> setSpeed(double speed) async {
-    if (useMpv) {
-      await _mpvPlayer?.setRate(speed);
-    } else {
-      await _exoController?.setPlaybackSpeed(speed);
-    }
-  }
+  Future<void> setSpeed(double speed) async => _mpvPlayer?.setRate(speed);
 
-  /// Switch audio track (MPV only)
   Future<void> setAudioTrack(int index) async {
-    if (useMpv && _mpvPlayer != null) {
-      try {
-        final trackId = '${index + 1}';
-        await _mpvPlayer!.setAudioTrack(AudioTrack(trackId, null, null));
-      } catch (e) {
-        debugPrint('setAudioTrack error: $e');
-      }
+    if (_mpvPlayer == null) return;
+    try {
+      await _mpvPlayer!.setAudioTrack(AudioTrack('${index + 1}', null, null));
+    } catch (e) {
+      debugPrint('setAudioTrack error: $e');
     }
   }
 
-  /// Switch subtitle track (MPV only). [listIndex] 为字幕列表序号，-1 关闭。
+  /// [listIndex] 为字幕列表序号，-1 关闭。
   Future<void> setSubtitleTrack(int listIndex) async {
-    if (useMpv && _mpvPlayer != null) {
-      try {
-        if (listIndex < 0) {
-          await _mpvPlayer!.setSubtitleTrack(SubtitleTrack.no());
-          return;
-        }
-        // 先 auto 再指定 sid，兼容 mov_text 等内嵌轨
-        await _mpvPlayer!.setSubtitleTrack(SubtitleTrack.auto());
-        await Future.delayed(const Duration(milliseconds: 400));
-        await _mpvPlayer!.setSubtitleTrack(SubtitleTrack('${listIndex + 1}', null, null));
-      } catch (e) {
-        debugPrint('setSubtitleTrack error: $e');
+    if (_mpvPlayer == null) return;
+    try {
+      if (listIndex < 0) {
+        await _mpvPlayer!.setSubtitleTrack(SubtitleTrack.no());
+        return;
       }
+      await _mpvPlayer!.setSubtitleTrack(SubtitleTrack.auto());
+      await Future.delayed(const Duration(milliseconds: 300));
+      await _mpvPlayer!.setSubtitleTrack(SubtitleTrack('${listIndex + 1}', null, null));
+    } catch (e) {
+      debugPrint('setSubtitleTrack error: $e');
     }
   }
-
-  // ── Widget builder ────────────────────────────────────────────────────
 
   Widget buildVideo({
     double subtitleSize = 18,
@@ -306,47 +250,31 @@ class VideoWrapper {
     final fontWeight = FontWeight.values[
       ((subtitleWeight.clamp(100, 900) - 100) / 100).round().clamp(0, 8)
     ];
-    if (useMpv) {
-      return Video(
-        controller: _mpvVideoController!,
-        controls: (state) => const SizedBox.shrink(),
-        subtitleViewConfiguration: SubtitleViewConfiguration(
-          visible: true,
-          textScaleFactor: subtitleSize / 18.0,
-          style: TextStyle(
-            color: subtitleColor,
-            fontSize: subtitleSize,
-            fontWeight: fontWeight,
-            shadows: [
-              Shadow(blurRadius: subtitleOutline, color: Colors.black),
-              Shadow(blurRadius: subtitleOutline, color: Colors.black),
-              Shadow(blurRadius: subtitleOutline, color: Colors.black),
-            ],
-            backgroundColor: subtitleBackground ? Colors.black54 : Colors.transparent,
-          ),
+    return Video(
+      controller: _mpvVideoController!,
+      controls: (state) => const SizedBox.shrink(),
+      subtitleViewConfiguration: SubtitleViewConfiguration(
+        visible: true,
+        textScaleFactor: subtitleSize / 18.0,
+        style: TextStyle(
+          color: subtitleColor,
+          fontSize: subtitleSize,
+          fontWeight: fontWeight,
+          shadows: [
+            Shadow(blurRadius: subtitleOutline, color: Colors.black),
+            Shadow(blurRadius: subtitleOutline, color: Colors.black),
+            Shadow(blurRadius: subtitleOutline, color: Colors.black),
+          ],
+          backgroundColor: subtitleBackground ? Colors.black54 : Colors.transparent,
         ),
-      );
-    } else {
-      return VideoPlayer(_exoController!);
-    }
+      ),
+    );
   }
 
-  // ── Disposal ──────────────────────────────────────────────────────────
-
   Future<void> dispose() async {
-    if (useMpv) {
-      await _mpvPlayer?.dispose();
-      _mpvPlayer = null;
-      _mpvVideoController = null;
-    } else {
-      _exoController?.removeListener(_onExoTick);
-      for (final l in _listeners) {
-        _exoController?.removeListener(l);
-      }
-      await _exoController?.dispose();
-      _exoController = null;
-    }
-
+    await _mpvPlayer?.dispose();
+    _mpvPlayer = null;
+    _mpvVideoController = null;
     positionNotifier.dispose();
     _listeners.clear();
   }
