@@ -58,6 +58,13 @@ class DanmuSettingsScreen extends StatelessWidget {
                     (v) => app.danmuFontSize = v, (v) => '${v.toInt()}'),
                 _sliderTile('显示区域', app.danmuArea.toDouble(), 10, 100,
                     (v) => app.danmuArea = v.toInt(), (v) => '${v.toInt()}%'),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                  child: Text(
+                    '控制弹幕占屏幕高度（行数）。设为最小约 1 行时，弹幕会在该行排队跟发，不会消失。',
+                    style: TextStyle(fontSize: 11, color: Colors.grey[600], height: 1.35),
+                  ),
+                ),
                 _sliderTile('弹幕速度', app.danmuSpeed, 0.1, 2.0,
                     (v) => app.danmuSpeed = v, (v) => '${v.toStringAsFixed(1)}x'),
                 _sliderTile('顶部边距', app.danmuTopMargin, -100, 200,
@@ -81,8 +88,8 @@ class DanmuSettingsScreen extends StatelessWidget {
             child: Column(
               children: [
                 SwitchListTile(
-                  title: const Text('防止弹幕重叠'),
-                  subtitle: const Text('避免同一时间的弹幕堆叠在一起'),
+                  title: const Text('加大弹幕间距'),
+                  subtitle: const Text('开启后同轨弹幕间距更大；关闭时前一条尾部留约 2～3 字空隙即跟发下一条'),
                   value: app.danmuAntiOverlap,
                   onChanged: (v) => app.danmuAntiOverlap = v,
                   activeColor: FnTheme.danmuGreen,

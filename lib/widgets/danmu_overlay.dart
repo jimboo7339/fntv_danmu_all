@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import '../models/danmu_comment.dart';
 
-/// 弹幕覆盖层：滚动弹幕按**视频时间**定位，与播放进度/倍速同步。
+/// 弹幕覆盖层：轨道队列 + 字间距跟发，显示区域内不丢弹幕、不重叠。
 class DanmuOverlay extends StatefulWidget {
   final List<DanmuComment> comments;
   final Duration Function() getCurrentTime;
@@ -15,7 +15,6 @@ class DanmuOverlay extends StatefulWidget {
   final double fontSize;
   final int areaPercent;
   final bool showOutline;
-  /// 速度倍率：1.0 ≈ 14 秒视频时间横穿屏幕
   final double speed;
   final double danmuDensity;
   final double topMargin;
@@ -48,72 +47,70 @@ class DanmuOverlay extends StatefulWidget {
   State<DanmuOverlay> createState() => _DanmuOverlayState();
 }
 
-class _DanmuOverlayState extends State<DanmuOverlay>
-    with SingleTickerProviderStateMixin {
-  static const _maxActiveScroll = 120;
-  static const _maxParagraphCache = 600;
-  static const _logicEveryNFrames = 2;
-  static const _maxSpawnPerTick = 12;
+class _DanmuOverlayState extends State<DanmuOverlay> with SingleTickerProviderStateMixin {
+  static const _maxActiveScroll = 150;
+  static const _maxParagraphCache = 800;
+  static const _maxLateSec = 8.0;
+  static const _maxPending = 400;
 
-  late AnimationController _animCtrl;
+  late AnimationController _repaintCtrl;
   final List<_DanmuItem> _activeScroll = [];
   final List<_DanmuItem> _activeStatic = [];
-  final Set<int> _firedKeys = {};
+  final List<_PendingDanmu> _pending = [];
+  final Set<int> _queuedIndices = {};
   final Map<String, _DanmuParagraphs> _paragraphCache = {};
 
   Size _size = Size.zero;
   int _lastCommentCount = 0;
-  int _spawnIdx = 0;
-  int _nextRow = 0;
-  int _frameTick = 0;
+  int _scanIdx = 0;
   int _topStaticCount = 0;
   int _bottomStaticCount = 0;
   double _lastCurSec = 0;
-  double _lastLogicSec = 0;
-  double _paintCurSec = 0;
   double _anchorVideoSec = 0;
   double _anchorWallSec = 0;
+  int _lastSyncMs = 0;
 
   @override
   void initState() {
     super.initState();
-    _syncAnchor();
-    _animCtrl = AnimationController(
+    _resetAnchor();
+    _repaintCtrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 16),
-    )..addListener(_onFrame)
+    )..addListener(_onTick)
       ..repeat();
     widget.positionListenable?.addListener(_onPositionTick);
   }
 
-  void _onPositionTick() => _syncAnchor();
+  void _onPositionTick() {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (now - _lastSyncMs < 400) return;
+    _lastSyncMs = now;
+    _softSyncAnchor();
+  }
 
-  void _syncAnchor() {
+  void _resetAnchor() {
+    _anchorVideoSec = widget.getCurrentTime().inMilliseconds / 1000.0;
+    _anchorWallSec = DateTime.now().millisecondsSinceEpoch / 1000.0;
+  }
+
+  /// 仅快退/大偏差时硬同步，避免正常播放时 position 回调造成回弹
+  void _softSyncAnchor() {
     final actual = widget.getCurrentTime().inMilliseconds / 1000.0;
     final wallNow = DateTime.now().millisecondsSinceEpoch / 1000.0;
-
     if (!widget.isPlaying) {
       _anchorVideoSec = actual;
       _anchorWallSec = wallNow;
       return;
     }
-
-    final rate = widget.playbackSpeed.clamp(0.1, 4.0);
-    final extrapolated = _anchorVideoSec + (wallNow - _anchorWallSec) * rate;
-
-    if (actual < extrapolated - 0.5) {
-      _anchorVideoSec = actual;
-      _anchorWallSec = wallNow;
-      return;
-    }
-
-    if (actual >= extrapolated - 0.12) {
+    final extrapolated = _anchorVideoSec + (wallNow - _anchorWallSec) * widget.playbackSpeed.clamp(0.1, 4.0);
+    if (actual < extrapolated - 0.8) {
       _anchorVideoSec = actual;
       _anchorWallSec = wallNow;
     }
   }
 
-  double _interpolatedVideoSec() {
+  double _videoSec() {
     if (!widget.isPlaying) {
       return widget.getCurrentTime().inMilliseconds / 1000.0;
     }
@@ -122,31 +119,35 @@ class _DanmuOverlayState extends State<DanmuOverlay>
     return _anchorVideoSec + (wallNow - _anchorWallSec) * rate;
   }
 
-  void _onFrame() {
+  void _onTick() {
     if (_size.width <= 0 || widget.comments.isEmpty) return;
-
-    _paintCurSec = _interpolatedVideoSec();
-    _frameTick++;
-    if (_frameTick % _logicEveryNFrames != 0) return;
-
-    final staticDt = _lastLogicSec > 0
-        ? (_paintCurSec - _lastLogicSec).clamp(0.001, 0.08)
-        : 0.032;
-    _lastLogicSec = _paintCurSec;
-    _updateDanmu(_paintCurSec, staticDt);
+    final curSec = _videoSec();
+    _updateDanmu(curSec);
   }
 
   void _resetDanmuState() {
     _activeScroll.clear();
     _activeStatic.clear();
-    _firedKeys.clear();
-    _spawnIdx = 0;
-    _nextRow = 0;
+    _pending.clear();
+    _queuedIndices.clear();
+    _scanIdx = 0;
     _topStaticCount = 0;
     _bottomStaticCount = 0;
     _lastCurSec = 0;
-    _lastLogicSec = 0;
     _paragraphCache.clear();
+    _resetAnchor();
+  }
+
+  double _rowGap() {
+    final density = widget.danmuDensity.clamp(0.1, 1.0);
+    final baseChars = 2.5 + (1.0 - density) * 3.5;
+    final gap = widget.fontSize * baseChars;
+    return widget.antiOverlap ? gap * 1.4 : gap;
+  }
+
+  int _maxRows(double lnH) {
+    final areaH = _size.height * widget.areaPercent / 100;
+    return max(1, (areaH / lnH).floor());
   }
 
   void _trimParagraphCache() {
@@ -162,7 +163,7 @@ class _DanmuOverlayState extends State<DanmuOverlay>
     if (comments.isEmpty) return;
     SchedulerBinding.instance.scheduleFrameCallback((_) {
       if (!mounted) return;
-      final step = max(1, comments.length ~/ 150);
+      final step = max(1, comments.length ~/ 200);
       for (var i = 0; i < comments.length; i += step) {
         _measureText(comments[i].text);
       }
@@ -172,8 +173,8 @@ class _DanmuOverlayState extends State<DanmuOverlay>
   @override
   void dispose() {
     widget.positionListenable?.removeListener(_onPositionTick);
-    _animCtrl.removeListener(_onFrame);
-    _animCtrl.dispose();
+    _repaintCtrl.removeListener(_onTick);
+    _repaintCtrl.dispose();
     _paragraphCache.clear();
     super.dispose();
   }
@@ -195,60 +196,35 @@ class _DanmuOverlayState extends State<DanmuOverlay>
       _prewarmParagraphCache();
     }
     if (!widget.isPlaying && oldWidget.isPlaying) {
-      _syncAnchor();
+      _resetAnchor();
+    }
+    if (widget.isPlaying && !oldWidget.isPlaying) {
+      _resetAnchor();
     }
   }
 
-  void _compactSpawnCursor(List<DanmuComment> comments, double curSec, double densityWindow) {
-    while (_spawnIdx < comments.length) {
-      final c = comments[_spawnIdx];
-      if (!_typeVisible(c.type)) {
-        _spawnIdx++;
-        continue;
-      }
-      final diff = curSec - c.time;
-      if (diff < -0.05) break;
-      if (diff > densityWindow || diff < 0) {
-        _spawnIdx++;
-        continue;
-      }
-      final key = (c.time * 1000).round();
-      if (_firedKeys.contains(key)) {
-        _spawnIdx++;
-        continue;
-      }
-      break;
-    }
-  }
-
-  void _updateDanmu(double curSec, double staticDt) {
+  void _updateDanmu(double curSec) {
     final comments = widget.comments;
     final lnH = widget.fontSize * 1.5;
-    final areaH = _size.height * widget.areaPercent / 100;
-    final maxRow = max(1, (areaH / lnH).floor());
-    final densityWindow = 0.35 * widget.danmuDensity.clamp(0.1, 1.0);
+    final maxRow = _maxRows(lnH);
     final pxPerSec = _DanmuPainter.pixelsPerVideoSecond(_size.width, widget.speed);
-    final windowStart = curSec - densityWindow;
+    final gap = _rowGap();
 
     if (curSec < _lastCurSec - 0.8) {
-      _activeScroll.clear();
-      _activeStatic.clear();
-      _firedKeys.clear();
-      _topStaticCount = 0;
-      _bottomStaticCount = 0;
-      _spawnIdx = _lowerBound(comments, windowStart - 0.5);
+      _resetDanmuState();
+      _scanIdx = _lowerBound(comments, curSec - 1.0);
     }
     _lastCurSec = curSec;
 
     _activeScroll.removeWhere((a) {
-      final elapsed = curSec - a.time;
+      final elapsed = curSec - a.spawnSec;
       if (elapsed < 0) return true;
       final x = _size.width - elapsed * pxPerSec;
-      return x + a.tw < -80;
+      return x + a.tw < -120;
     });
 
     _activeStatic.removeWhere((a) {
-      a.ttl -= staticDt;
+      a.ttl -= 1 / 60.0;
       if (a.ttl <= 0) {
         if (a.type == 5) {
           _topStaticCount = max(0, _topStaticCount - 1);
@@ -260,45 +236,44 @@ class _DanmuOverlayState extends State<DanmuOverlay>
       return false;
     });
 
-    while (_spawnIdx < comments.length && comments[_spawnIdx].time < windowStart - 0.5) {
-      _spawnIdx++;
+    while (_scanIdx < comments.length && comments[_scanIdx].time < curSec - _maxLateSec) {
+      _scanIdx++;
     }
 
-    if (_activeScroll.length >= _maxActiveScroll) return;
-
-    if (_firedKeys.length > 4000) {
-      final thresholdMs = ((curSec - 30) * 1000).round();
-      _firedKeys.removeWhere((k) => k < thresholdMs);
-    }
-
-    _compactSpawnCursor(comments, curSec, densityWindow);
-
-    var spawned = 0;
-    for (var i = _spawnIdx; i < comments.length && spawned < _maxSpawnPerTick; i++) {
-      final c = comments[i];
+    while (_scanIdx < comments.length) {
+      final c = comments[_scanIdx];
+      if (c.time > curSec + 0.05) break;
       if (!_typeVisible(c.type)) {
-        _spawnIdx = i + 1;
+        _scanIdx++;
         continue;
       }
+      if (!_queuedIndices.contains(_scanIdx)) {
+        if (_pending.length < _maxPending) {
+          _pending.add(_PendingDanmu(index: _scanIdx, comment: c));
+          _queuedIndices.add(_scanIdx);
+        }
+      }
+      _scanIdx++;
+    }
 
-      final diff = curSec - c.time;
-      if (diff < -0.05) break;
-      if (diff > densityWindow || diff < 0) {
-        _spawnIdx = i + 1;
-        continue;
-      }
+    if (_pending.isEmpty || _activeScroll.length >= _maxActiveScroll) return;
 
-      final key = (c.time * 1000).round();
-      if (_firedKeys.contains(key)) {
-        _spawnIdx = i + 1;
-        continue;
-      }
-      _firedKeys.add(key);
-      _spawnIdx = i + 1;
-      spawned++;
+    var progressed = true;
+    while (progressed && _pending.isNotEmpty && _activeScroll.length < _maxActiveScroll) {
+      progressed = false;
+      final p = _pending.first;
+      final c = p.comment;
 
       if (c.type == 4 || c.type == 5) {
-        final item = _DanmuItem(text: c.text, time: c.time, color: c.color, type: c.type);
+        _pending.removeAt(0);
+        progressed = true;
+        final item = _DanmuItem(
+          text: c.text,
+          videoTime: c.time,
+          spawnSec: curSec,
+          color: c.color,
+          type: c.type,
+        );
         item.tw = _measureText(c.text);
         item.x = (_size.width - item.tw) / 2;
         if (c.type == 5) {
@@ -309,48 +284,59 @@ class _DanmuOverlayState extends State<DanmuOverlay>
           _bottomStaticCount++;
         }
         _activeStatic.add(item);
-      } else {
-        if (_activeScroll.length >= _maxActiveScroll) break;
+        continue;
+      }
 
-        final item = _DanmuItem(text: c.text, time: c.time, color: c.color, type: c.type);
-        item.tw = _measureText(c.text);
-
-        int? selectedRow;
-        if (!widget.antiOverlap) {
-          selectedRow = _nextRow;
-          _nextRow = (_nextRow + 1) % maxRow;
-        } else {
-          for (int r = 0; r < maxRow; r++) {
-            if (_rowHasOverlap(r, lnH, item.tw, curSec, pxPerSec)) continue;
-            selectedRow = r;
-            break;
-          }
-        }
-
-        if (selectedRow != null) {
-          item.y = widget.topMargin + lnH + selectedRow * lnH;
-          _activeScroll.add(item);
+      final tw = _measureText(c.text);
+      int? row;
+      for (var r = 0; r < maxRow; r++) {
+        if (_rowCanRelease(r, tw, curSec, pxPerSec, gap)) {
+          row = r;
+          break;
         }
       }
+
+      if (row == null) break;
+
+      _pending.removeAt(0);
+      progressed = true;
+      final item = _DanmuItem(
+        text: c.text,
+        videoTime: c.time,
+        spawnSec: curSec,
+        color: c.color,
+        type: c.type,
+        row: row,
+      );
+      item.tw = tw;
+      item.y = widget.topMargin + lnH + row * lnH;
+      _activeScroll.add(item);
     }
+  }
+
+  /// 该行尾部已留出 [gap] 空隙，可从右侧跟发下一条
+  bool _rowCanRelease(int row, double tw, double curSec, double pxPerSec, double gap) {
+    double maxRight = 0;
+    var has = false;
+    for (final a in _activeScroll) {
+      if (a.row != row) continue;
+      final elapsed = curSec - a.spawnSec;
+      if (elapsed < 0) continue;
+      final x = _size.width - elapsed * pxPerSec;
+      final right = x + a.tw;
+      if (!has || right > maxRight) {
+        maxRight = right;
+        has = true;
+      }
+    }
+    if (!has) return true;
+    return maxRight + gap <= _size.width + 2;
   }
 
   bool _typeVisible(int type) {
     if (type == 4) return widget.showBottom;
     if (type == 5) return widget.showTop;
     return widget.showScroll;
-  }
-
-  bool _rowHasOverlap(int row, double lnH, double tw, double curSec, double pxPerSec) {
-    final y = widget.topMargin + lnH + row * lnH;
-    for (final a in _activeScroll) {
-      if ((a.y - y).abs() > lnH * 0.5) continue;
-      final elapsed = curSec - a.time;
-      if (elapsed < 0) continue;
-      final x = _size.width - elapsed * pxPerSec;
-      if (x < _size.width && x + a.tw > _size.width - tw * 0.4) return true;
-    }
-    return false;
   }
 
   double _measureText(String text) => _getParagraphs(text, 0xFFFFFFFF).width;
@@ -430,12 +416,12 @@ class _DanmuOverlayState extends State<DanmuOverlay>
           return RepaintBoundary(
             child: CustomPaint(
               painter: _DanmuPainter(
-                curSec: () => _paintCurSec,
+                videoSec: _videoSec,
                 speed: widget.speed,
                 getParagraphs: _getParagraphs,
                 activeScroll: _activeScroll,
                 activeStatic: _activeStatic,
-                repaint: _animCtrl,
+                repaint: _repaintCtrl,
               ),
               size: Size.infinite,
             ),
@@ -444,6 +430,12 @@ class _DanmuOverlayState extends State<DanmuOverlay>
       ),
     );
   }
+}
+
+class _PendingDanmu {
+  final int index;
+  final DanmuComment comment;
+  _PendingDanmu({required this.index, required this.comment});
 }
 
 class _DanmuParagraphs {
@@ -456,30 +448,40 @@ class _DanmuParagraphs {
 
 class _DanmuItem {
   String text;
-  double time;
+  double videoTime;
+  double spawnSec;
   int color;
   int type;
+  int row;
   double x = 0, y = 0, tw = 0;
   double ttl = 6.0;
-  _DanmuItem({required this.text, required this.time, this.color = 0xFFFFFFFF, this.type = 1});
+
+  _DanmuItem({
+    required this.text,
+    required this.videoTime,
+    required this.spawnSec,
+    this.color = 0xFFFFFFFF,
+    this.type = 1,
+    this.row = 0,
+  });
 }
 
 class _DanmuPainter extends CustomPainter {
   static const _crossBaseSeconds = 14.0;
 
-  final double Function() curSec;
+  final double Function() videoSec;
   final double speed;
   final _DanmuParagraphs Function(String text, int colorValue) getParagraphs;
   final List<_DanmuItem> activeScroll;
   final List<_DanmuItem> activeStatic;
 
   _DanmuPainter({
-    required this.curSec,
+    required this.videoSec,
     required this.speed,
     required this.getParagraphs,
     required this.activeScroll,
     required this.activeStatic,
-    Listenable? repaint,
+    required Listenable repaint,
   }) : super(repaint: repaint);
 
   static double pixelsPerVideoSecond(double screenWidth, double speed) {
@@ -491,31 +493,32 @@ class _DanmuPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     if (size.width <= 0) return;
 
-    final t = curSec();
+    final t = videoSec();
     final pxPerSec = pixelsPerVideoSecond(size.width, speed);
     final right = size.width + 80;
-    final left = -160.0;
+    const left = -160.0;
 
     for (final a in activeScroll) {
-      final elapsed = t - a.time;
+      final elapsed = t - a.spawnSec;
       if (elapsed < 0) continue;
       final x = size.width - elapsed * pxPerSec;
       if (x < left || x > right) continue;
-      _drawDanmu(canvas, a, x);
+      final paras = getParagraphs(a.text, a.color);
+      final offset = Offset(x, a.y);
+      if (paras.outline != null) {
+        canvas.drawParagraph(paras.outline!, offset);
+      }
+      canvas.drawParagraph(paras.fill, offset);
     }
 
     for (final a in activeStatic) {
-      _drawDanmu(canvas, a, a.x);
+      final paras = getParagraphs(a.text, a.color);
+      final offset = Offset(a.x, a.y);
+      if (paras.outline != null) {
+        canvas.drawParagraph(paras.outline!, offset);
+      }
+      canvas.drawParagraph(paras.fill, offset);
     }
-  }
-
-  void _drawDanmu(Canvas canvas, _DanmuItem a, double x) {
-    final paras = getParagraphs(a.text, a.color);
-    final offset = Offset(x, a.y);
-    if (paras.outline != null) {
-      canvas.drawParagraph(paras.outline!, offset);
-    }
-    canvas.drawParagraph(paras.fill, offset);
   }
 
   @override
