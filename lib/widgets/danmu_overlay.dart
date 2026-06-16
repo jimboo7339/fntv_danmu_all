@@ -4,7 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import '../models/danmu_comment.dart';
 
-/// 弹幕覆盖层：轨道队列 + 字间距跟发，显示区域内不丢弹幕、不重叠。
+/// 弹幕覆盖层（参考 canvas_danmaku / NSDanmaku 轨道碰撞算法）。
+/// 位置由播放器时间轴驱动，暂停时冻结画面，恢复后从当前位置继续。
 class DanmuOverlay extends StatefulWidget {
   final List<DanmuComment> comments;
   final Duration Function() getCurrentTime;
@@ -48,238 +49,130 @@ class DanmuOverlay extends StatefulWidget {
 }
 
 class _DanmuOverlayState extends State<DanmuOverlay> with SingleTickerProviderStateMixin {
-  static const _maxActiveScroll = 150;
+  static const _maxActiveScroll = 200;
   static const _maxParagraphCache = 800;
-  static const _maxLateSec = 8.0;
-  static const _maxPending = 400;
+  static const _maxLateSec = 12.0;
+  static const _maxPending = 500;
+  static const _crossBaseSeconds = 12.0;
 
-  late AnimationController _repaintCtrl;
-  final List<_DanmuItem> _activeScroll = [];
-  final List<_DanmuItem> _activeStatic = [];
+  late final Ticker _ticker;
+  final ValueNotifier<int> _frameTick = ValueNotifier(0);
+  final List<_ScrollDanmu> _scroll = [];
+  final List<_StaticDanmu> _static = [];
   final List<_PendingDanmu> _pending = [];
-  final Set<int> _queuedIndices = {};
+  final Set<int> _queued = {};
   final Map<String, _DanmuParagraphs> _paragraphCache = {};
 
   Size _size = Size.zero;
   int _lastCommentCount = 0;
   int _scanIdx = 0;
-  int _topStaticCount = 0;
-  int _bottomStaticCount = 0;
-  double _lastCurSec = 0;
-  double _anchorVideoSec = 0;
-  double _anchorWallSec = 0;
-  int _lastSyncMs = 0;
-  double? _pauseFrozenSec;
+  double _lastVideoSec = 0;
+  double? _frozenVideoSec;
+  int _staticTopSlots = 0;
+  int _staticBottomSlots = 0;
 
   @override
   void initState() {
     super.initState();
-    _resetAnchor();
-    _repaintCtrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 16),
-    )..addListener(_onTick);
-    if (widget.isPlaying) {
-      _repaintCtrl.repeat();
-    }
-    widget.positionListenable?.addListener(_onPositionTick);
+    _ticker = createTicker(_onFrame);
+    if (widget.isPlaying) _ticker.start();
+    widget.positionListenable?.addListener(_onPositionJump);
   }
 
-  void _onPositionTick() {
+  void _onPositionJump() {
     if (!widget.isPlaying) return;
-    final now = DateTime.now().millisecondsSinceEpoch;
-    if (now - _lastSyncMs < 400) return;
-    _lastSyncMs = now;
-    _softSyncAnchor();
-  }
-
-  void _resetAnchor() {
-    _anchorVideoSec = widget.getCurrentTime().inMilliseconds / 1000.0;
-    _anchorWallSec = DateTime.now().millisecondsSinceEpoch / 1000.0;
-  }
-
-  /// 仅快退/大偏差时硬同步，避免正常播放时 position 回调造成回弹
-  void _softSyncAnchor() {
-    final actual = widget.getCurrentTime().inMilliseconds / 1000.0;
-    final wallNow = DateTime.now().millisecondsSinceEpoch / 1000.0;
-    if (!widget.isPlaying) return;
-    final extrapolated = _anchorVideoSec + (wallNow - _anchorWallSec) * widget.playbackSpeed.clamp(0.1, 4.0);
-    if (actual < extrapolated - 0.8) {
-      _anchorVideoSec = actual;
-      _anchorWallSec = wallNow;
-    } else if (actual > extrapolated + 1.2) {
-      _anchorVideoSec = actual;
-      _anchorWallSec = wallNow;
+    final sec = _videoSec();
+    if (sec < _lastVideoSec - 0.6) {
+      _resetEngine(keepCache: true);
+      _scanIdx = _lowerBound(widget.comments, sec - 0.5);
+      _lastVideoSec = sec;
     }
   }
 
   double _videoSec() {
     if (!widget.isPlaying) {
-      return _pauseFrozenSec ??
-          widget.getCurrentTime().inMilliseconds / 1000.0;
+      return _frozenVideoSec ?? _secFromPlayer();
     }
-    final wallNow = DateTime.now().millisecondsSinceEpoch / 1000.0;
-    final rate = widget.playbackSpeed.clamp(0.1, 4.0);
-    return _anchorVideoSec + (wallNow - _anchorWallSec) * rate;
+    return _secFromPlayer();
   }
 
-  void _onTick() {
-    if (_size.width <= 0 || widget.comments.isEmpty) return;
-    if (!widget.isPlaying) return;
-    final curSec = _videoSec();
-    _updateDanmu(curSec);
+  double _secFromPlayer() =>
+      widget.getCurrentTime().inMilliseconds / 1000.0;
+
+  double _pxPerSec() {
+    final rate = widget.speed.clamp(0.08, 3.0);
+    return (_size.width / _crossBaseSeconds) * rate;
   }
 
-  void _resetDanmuState() {
-    _activeScroll.clear();
-    _activeStatic.clear();
-    _pending.clear();
-    _queuedIndices.clear();
-    _scanIdx = 0;
-    _topStaticCount = 0;
-    _bottomStaticCount = 0;
-    _lastCurSec = 0;
-    _pauseFrozenSec = null;
-    _paragraphCache.clear();
-    _resetAnchor();
-  }
-
-  double _rowGap() {
+  double _rowGapPx() {
     final density = widget.danmuDensity.clamp(0.1, 1.0);
-    final baseChars = 2.5 + (1.0 - density) * 3.5;
-    final gap = widget.fontSize * baseChars;
+    final chars = 2.5 + (1.0 - density) * 3.5;
+    final gap = widget.fontSize * chars;
     return widget.antiOverlap ? gap * 1.4 : gap;
   }
 
-  int _maxRows(double lnH) {
-    final areaH = _size.height * widget.areaPercent / 100;
-    return max(1, (areaH / lnH).floor());
+  double _lineHeight() => widget.fontSize * 1.5;
+
+  int _trackCount() {
+    final h = _size.height * widget.areaPercent / 100;
+    return max(1, (h / _lineHeight()).floor());
   }
 
-  void _trimParagraphCache() {
-    if (_paragraphCache.length <= _maxParagraphCache) return;
-    final keys = _paragraphCache.keys.toList(growable: false);
-    for (var i = 0; i < keys.length ~/ 2; i++) {
-      _paragraphCache.remove(keys[i]);
-    }
+  void _onFrame(Duration _) {
+    if (_size.width <= 0 || widget.comments.isEmpty) return;
+    if (!widget.isPlaying) return;
+    _step(_videoSec());
+    _frameTick.value++;
   }
 
-  void _prewarmParagraphCache() {
+  void _step(double videoSec) {
     final comments = widget.comments;
-    if (comments.isEmpty) return;
-    SchedulerBinding.instance.scheduleFrameCallback((_) {
-      if (!mounted) return;
-      final step = max(1, comments.length ~/ 200);
-      for (var i = 0; i < comments.length; i += step) {
-        _measureText(comments[i].text);
-      }
-    });
-  }
+    final px = _pxPerSec();
+    final sw = _size.width;
+    final lnH = _lineHeight();
+    final tracks = _trackCount();
+    final gap = _rowGapPx();
 
-  @override
-  void dispose() {
-    widget.positionListenable?.removeListener(_onPositionTick);
-    _repaintCtrl.removeListener(_onTick);
-    _repaintCtrl.dispose();
-    _paragraphCache.clear();
-    super.dispose();
-  }
-
-  @override
-  void didUpdateWidget(covariant DanmuOverlay oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (widget.positionListenable != oldWidget.positionListenable) {
-      oldWidget.positionListenable?.removeListener(_onPositionTick);
-      widget.positionListenable?.addListener(_onPositionTick);
+    if (videoSec < _lastVideoSec - 0.6) {
+      _resetEngine(keepCache: true);
+      _scanIdx = _lowerBound(comments, videoSec - 0.5);
     }
-    if (widget.comments.length != oldWidget.comments.length ||
-        widget.fontSize != oldWidget.fontSize ||
-        widget.showOutline != oldWidget.showOutline ||
-        widget.opacity != oldWidget.opacity ||
-        widget.speed != oldWidget.speed) {
-      _resetDanmuState();
-      _lastCommentCount = widget.comments.length;
-      _prewarmParagraphCache();
-    }
-    if (!widget.isPlaying && oldWidget.isPlaying) {
-      _pauseFrozenSec = _videoSec();
-      _repaintCtrl.stop();
-      setState(() {});
-    } else if (widget.isPlaying && !oldWidget.isPlaying) {
-      final resumeSec = widget.getCurrentTime().inMilliseconds / 1000.0;
-      _anchorVideoSec = resumeSec;
-      _anchorWallSec = DateTime.now().millisecondsSinceEpoch / 1000.0;
-      _pauseFrozenSec = null;
-      if (!_repaintCtrl.isAnimating) _repaintCtrl.repeat();
-    }
-  }
+    _lastVideoSec = videoSec;
 
-  double _scrollX(_DanmuItem a, double curSec, double pxPerSec) {
-    final elapsed = max(0.0, curSec - a.spawnSec);
-    return _size.width - elapsed * pxPerSec;
-  }
-
-  bool _isFullyOffScreen(_DanmuItem a, double curSec, double pxPerSec) {
-    final x = _scrollX(a, curSec, pxPerSec);
-    return x + a.tw < -24;
-  }
-
-  void _updateDanmu(double curSec) {
-    final comments = widget.comments;
-    final lnH = widget.fontSize * 1.5;
-    final maxRow = _maxRows(lnH);
-    final pxPerSec = _DanmuPainter.pixelsPerVideoSecond(_size.width, widget.speed);
-    final gap = _rowGap();
-
-    if (curSec < _lastCurSec - 0.8) {
-      _resetDanmuState();
-      _scanIdx = _lowerBound(comments, curSec - 1.0);
-      _lastCurSec = curSec;
-      return;
-    }
-    _lastCurSec = curSec;
-
-    _activeScroll.removeWhere((a) => _isFullyOffScreen(a, curSec, pxPerSec));
+    _scroll.removeWhere((d) => d.isOffLeft(videoSec, sw, px));
 
     if (widget.isPlaying) {
-      _activeStatic.removeWhere((a) {
-        a.ttl -= 1 / 60.0;
-        if (a.ttl <= 0) {
-          if (a.type == 5) {
-            _topStaticCount = max(0, _topStaticCount - 1);
-          } else if (a.type == 4) {
-            _bottomStaticCount = max(0, _bottomStaticCount - 1);
-          }
+      _static.removeWhere((d) {
+        d.ttl -= 1 / 60.0;
+        if (d.ttl <= 0) {
+          if (d.type == 5) _staticTopSlots = max(0, _staticTopSlots - 1);
+          if (d.type == 4) _staticBottomSlots = max(0, _staticBottomSlots - 1);
           return true;
         }
         return false;
       });
     }
 
-    while (_scanIdx < comments.length && comments[_scanIdx].time < curSec - _maxLateSec) {
+    while (_scanIdx < comments.length && comments[_scanIdx].time < videoSec - _maxLateSec) {
       _scanIdx++;
     }
 
     while (_scanIdx < comments.length) {
       final c = comments[_scanIdx];
-      if (c.time > curSec + 0.05) break;
-      if (!_typeVisible(c.type)) {
-        _scanIdx++;
-        continue;
-      }
-      if (!_queuedIndices.contains(_scanIdx)) {
+      if (c.time > videoSec + 0.08) break;
+      if (_typeVisible(c.type) && !_queued.contains(_scanIdx)) {
         if (_pending.length < _maxPending) {
           _pending.add(_PendingDanmu(index: _scanIdx, comment: c));
-          _queuedIndices.add(_scanIdx);
+          _queued.add(_scanIdx);
         }
       }
       _scanIdx++;
     }
 
-    if (!widget.isPlaying || _pending.isEmpty || _activeScroll.length >= _maxActiveScroll) return;
+    if (_pending.isEmpty || _scroll.length >= _maxActiveScroll) return;
 
     var progressed = true;
-    while (progressed && _pending.isNotEmpty && _activeScroll.length < _maxActiveScroll) {
+    while (progressed && _pending.isNotEmpty && _scroll.length < _maxActiveScroll) {
       progressed = false;
       final p = _pending.first;
       final c = p.comment;
@@ -287,68 +180,81 @@ class _DanmuOverlayState extends State<DanmuOverlay> with SingleTickerProviderSt
       if (c.type == 4 || c.type == 5) {
         _pending.removeAt(0);
         progressed = true;
-        final item = _DanmuItem(
+        final w = _measureText(c.text);
+        final item = _StaticDanmu(
           text: c.text,
-          videoTime: c.time,
-          spawnSec: curSec,
           color: c.color,
           type: c.type,
+          width: w,
         );
-        item.tw = _measureText(c.text);
-        item.x = (_size.width - item.tw) / 2;
         if (c.type == 5) {
-          item.y = widget.topMargin + lnH + _topStaticCount * lnH;
-          _topStaticCount++;
+          item.y = widget.topMargin + lnH + _staticTopSlots * lnH;
+          item.x = (sw - w) / 2;
+          _staticTopSlots++;
         } else {
-          item.y = _size.height - lnH * 0.2 - _bottomStaticCount * lnH;
-          _bottomStaticCount++;
+          item.y = _size.height - lnH * 0.2 - _staticBottomSlots * lnH;
+          item.x = (sw - w) / 2;
+          _staticBottomSlots++;
         }
-        _activeStatic.add(item);
+        _static.add(item);
         continue;
       }
 
       final tw = _measureText(c.text);
       int? row;
-      for (var r = 0; r < maxRow; r++) {
-        if (_rowCanRelease(r, tw, curSec, pxPerSec, gap)) {
+      for (var r = 0; r < tracks; r++) {
+        if (_canAddScroll(r, tw, videoSec, px, gap)) {
           row = r;
           break;
         }
       }
-
       if (row == null) break;
 
       _pending.removeAt(0);
       progressed = true;
-      final item = _DanmuItem(
-        text: c.text,
+      final late = videoSec > c.time + 0.15;
+      _scroll.add(_ScrollDanmu(
+        comment: c,
+        sourceIndex: p.index,
         videoTime: c.time,
-        spawnSec: curSec,
-        color: c.color,
-        type: c.type,
+        releaseSec: late ? videoSec : null,
         row: row,
-      );
-      item.tw = tw;
-      item.y = widget.topMargin + lnH + row * lnH;
-      _activeScroll.add(item);
+        width: tw,
+        y: widget.topMargin + lnH + row * lnH,
+      ));
     }
   }
 
-  /// 该行尾部已留出 [gap] 空隙，可从右侧跟发下一条
-  bool _rowCanRelease(int row, double tw, double curSec, double pxPerSec, double gap) {
-    double maxRight = 0;
-    var has = false;
-    for (final a in _activeScroll) {
-      if (a.row != row) continue;
-      final x = _scrollX(a, curSec, pxPerSec);
-      final right = x + a.tw;
-      if (!has || right > maxRight) {
-        maxRight = right;
-        has = true;
+  /// canvas_danmaku / B 站轨道碰撞：入屏不重叠，且长弹幕不追尾短弹幕
+  bool _canAddScroll(int row, double newW, double videoSec, double px, double gap) {
+    final sw = _size.width;
+    for (final d in _scroll) {
+      if (d.row != row) continue;
+      final x = d.xAt(videoSec, sw, px);
+      final end = x + d.width;
+      if (sw - end < gap) return false;
+      if (d.width < newW) {
+        final traveled = sw - x;
+        final total = d.width + sw;
+        final progress = traveled / total;
+        final newRatio = sw / (sw + newW);
+        if (progress > 1 - newRatio) return false;
       }
     }
-    if (!has) return true;
-    return maxRight + gap <= _size.width + 2;
+    return true;
+  }
+
+  void _resetEngine({bool keepCache = false}) {
+    _scroll.clear();
+    _static.clear();
+    _pending.clear();
+    _queued.clear();
+    _scanIdx = 0;
+    _staticTopSlots = 0;
+    _staticBottomSlots = 0;
+    _lastVideoSec = 0;
+    _frozenVideoSec = null;
+    if (!keepCache) _paragraphCache.clear();
   }
 
   bool _typeVisible(int type) {
@@ -357,18 +263,20 @@ class _DanmuOverlayState extends State<DanmuOverlay> with SingleTickerProviderSt
     return widget.showScroll;
   }
 
-  double _measureText(String text) => _getParagraphs(text, 0xFFFFFFFF).width;
+  double _measureText(String text) => _paragraphs(text, 0xFFFFFFFF).width;
 
-  _DanmuParagraphs _getParagraphs(String text, int colorValue) {
+  _DanmuParagraphs _paragraphs(String text, int colorValue) {
     final key = '${widget.fontSize}_${widget.showOutline}_${widget.opacity}_${colorValue}_$text';
-    final cached = _paragraphCache[key];
-    if (cached != null) return cached;
+    final hit = _paragraphCache[key];
+    if (hit != null) return hit;
 
-    _trimParagraphCache();
+    if (_paragraphCache.length > _maxParagraphCache) {
+      _paragraphCache.remove(_paragraphCache.keys.first);
+    }
 
     ui.Paragraph? outlineP;
     if (widget.showOutline) {
-      final outlineBuilder = ui.ParagraphBuilder(
+      final b = ui.ParagraphBuilder(
         ui.ParagraphStyle(fontSize: widget.fontSize, fontWeight: FontWeight.bold),
       )
         ..pushStyle(ui.TextStyle(
@@ -379,19 +287,17 @@ class _DanmuOverlayState extends State<DanmuOverlay> with SingleTickerProviderSt
             ..color = Colors.black.withAlpha((widget.opacity * 255).toInt().clamp(0, 255)),
         ))
         ..addText(text);
-      outlineP = outlineBuilder.build()
-        ..layout(const ui.ParagraphConstraints(width: double.infinity));
+      outlineP = b.build()..layout(const ui.ParagraphConstraints(width: double.infinity));
     }
 
     final c = Color(colorValue);
     final alpha = (c.alpha * widget.opacity).toInt().clamp(0, 255);
-    final fillBuilder = ui.ParagraphBuilder(
+    final fillB = ui.ParagraphBuilder(
       ui.ParagraphStyle(fontSize: widget.fontSize, fontWeight: FontWeight.bold),
     )
       ..pushStyle(ui.TextStyle(color: c.withAlpha(alpha), fontSize: widget.fontSize))
       ..addText(text);
-    final fillP = fillBuilder.build()
-      ..layout(const ui.ParagraphConstraints(width: double.infinity));
+    final fillP = fillB.build()..layout(const ui.ParagraphConstraints(width: double.infinity));
 
     final result = _DanmuParagraphs(
       fill: fillP,
@@ -402,11 +308,23 @@ class _DanmuOverlayState extends State<DanmuOverlay> with SingleTickerProviderSt
     return result;
   }
 
-  static int _lowerBound(List<DanmuComment> comments, double target) {
-    int lo = 0, hi = comments.length;
+  void _prewarmCache() {
+    final list = widget.comments;
+    if (list.isEmpty) return;
+    SchedulerBinding.instance.scheduleFrameCallback((_) {
+      if (!mounted) return;
+      final step = max(1, list.length ~/ 200);
+      for (var i = 0; i < list.length; i += step) {
+        _measureText(list[i].text);
+      }
+    });
+  }
+
+  static int _lowerBound(List<DanmuComment> list, double t) {
+    int lo = 0, hi = list.length;
     while (lo < hi) {
       final mid = (lo + hi) ~/ 2;
-      if (comments[mid].time < target) {
+      if (list[mid].time < t) {
         lo = mid + 1;
       } else {
         hi = mid;
@@ -416,31 +334,65 @@ class _DanmuOverlayState extends State<DanmuOverlay> with SingleTickerProviderSt
   }
 
   @override
+  void dispose() {
+    widget.positionListenable?.removeListener(_onPositionJump);
+    _ticker.dispose();
+    _frameTick.dispose();
+    _paragraphCache.clear();
+    super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(covariant DanmuOverlay old) {
+    super.didUpdateWidget(old);
+    if (widget.positionListenable != old.positionListenable) {
+      old.positionListenable?.removeListener(_onPositionJump);
+      widget.positionListenable?.addListener(_onPositionJump);
+    }
+    if (widget.comments.length != old.comments.length ||
+        widget.fontSize != old.fontSize ||
+        widget.showOutline != old.showOutline ||
+        widget.opacity != old.opacity ||
+        widget.speed != old.speed) {
+      _resetEngine();
+      _lastCommentCount = widget.comments.length;
+      _prewarmCache();
+    }
+    if (!widget.isPlaying && old.isPlaying) {
+      _frozenVideoSec = _videoSec();
+      if (_ticker.isActive) _ticker.stop();
+      setState(() {});
+    } else if (widget.isPlaying && !old.isPlaying) {
+      _frozenVideoSec = null;
+      _lastVideoSec = _secFromPlayer();
+      if (!_ticker.isActive) _ticker.start();
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     if (widget.comments.length != _lastCommentCount) {
-      _resetDanmuState();
+      _resetEngine();
       _lastCommentCount = widget.comments.length;
-      _prewarmParagraphCache();
+      _prewarmCache();
     }
 
     return IgnorePointer(
       child: LayoutBuilder(
-        builder: (context, constraints) {
-          final w = constraints.maxWidth;
-          final h = constraints.maxHeight;
-          if (w > 0 && h > 0 && (w != _size.width || h != _size.height)) {
-            _size = Size(w, h);
-          }
+        builder: (context, c) {
+          final w = c.maxWidth;
+          final h = c.maxHeight;
+          if (w > 0 && h > 0) _size = Size(w, h);
+
           return RepaintBoundary(
             child: CustomPaint(
               painter: _DanmuPainter(
                 videoSec: _videoSec,
-                speed: widget.speed,
-                screenWidth: _size.width,
-                getParagraphs: _getParagraphs,
-                activeScroll: _activeScroll,
-                activeStatic: _activeStatic,
-                repaint: _repaintCtrl,
+                pxPerSec: _pxPerSec,
+                getParagraphs: _paragraphs,
+                scroll: _scroll,
+                staticItems: _static,
+                repaint: _frameTick,
               ),
               size: Size.infinite,
             ),
@@ -454,92 +406,103 @@ class _DanmuOverlayState extends State<DanmuOverlay> with SingleTickerProviderSt
 class _PendingDanmu {
   final int index;
   final DanmuComment comment;
-  _PendingDanmu({required this.index, required this.comment});
+  const _PendingDanmu({required this.index, required this.comment});
+}
+
+class _ScrollDanmu {
+  final DanmuComment comment;
+  final int sourceIndex;
+  final double videoTime;
+  final double? releaseSec;
+  final int row;
+  final double width;
+  final double y;
+
+  _ScrollDanmu({
+    required this.comment,
+    required this.sourceIndex,
+    required this.videoTime,
+    required this.releaseSec,
+    required this.row,
+    required this.width,
+    required this.y,
+  });
+
+  double get _startSec => releaseSec ?? videoTime;
+
+  double xAt(double videoSec, double screenW, double pxPerSec) {
+    final elapsed = max(0.0, videoSec - _startSec);
+    return screenW - elapsed * pxPerSec;
+  }
+
+  bool isOffLeft(double videoSec, double screenW, double pxPerSec) =>
+      xAt(videoSec, screenW, pxPerSec) + width < -8;
+}
+
+class _StaticDanmu {
+  final String text;
+  final int color;
+  final int type;
+  final double width;
+  double x = 0;
+  double y = 0;
+  double ttl = 6.0;
+
+  _StaticDanmu({
+    required this.text,
+    required this.color,
+    required this.type,
+    required this.width,
+  });
 }
 
 class _DanmuParagraphs {
   final ui.Paragraph fill;
   final ui.Paragraph? outline;
   final double width;
-
-  _DanmuParagraphs({required this.fill, this.outline, required this.width});
-}
-
-class _DanmuItem {
-  String text;
-  double videoTime;
-  double spawnSec;
-  int color;
-  int type;
-  int row;
-  double x = 0, y = 0, tw = 0;
-  double ttl = 6.0;
-
-  _DanmuItem({
-    required this.text,
-    required this.videoTime,
-    required this.spawnSec,
-    this.color = 0xFFFFFFFF,
-    this.type = 1,
-    this.row = 0,
-  });
+  const _DanmuParagraphs({required this.fill, this.outline, required this.width});
 }
 
 class _DanmuPainter extends CustomPainter {
-  static const _crossBaseSeconds = 16.0;
-
   final double Function() videoSec;
-  final double speed;
-  final double screenWidth;
-  final _DanmuParagraphs Function(String text, int colorValue) getParagraphs;
-  final List<_DanmuItem> activeScroll;
-  final List<_DanmuItem> activeStatic;
+  final double Function() pxPerSec;
+  final _DanmuParagraphs Function(String, int) getParagraphs;
+  final List<_ScrollDanmu> scroll;
+  final List<_StaticDanmu> staticItems;
 
   _DanmuPainter({
     required this.videoSec,
-    required this.speed,
-    required this.screenWidth,
+    required this.pxPerSec,
     required this.getParagraphs,
-    required this.activeScroll,
-    required this.activeStatic,
+    required this.scroll,
+    required this.staticItems,
     required Listenable repaint,
   }) : super(repaint: repaint);
-
-  static double pixelsPerVideoSecond(double screenWidth, double speed) {
-    final rate = speed.clamp(0.08, 3.0);
-    return (screenWidth / _crossBaseSeconds) * rate;
-  }
 
   @override
   void paint(Canvas canvas, Size size) {
     if (size.width <= 0) return;
-
     final t = videoSec();
-    final pxPerSec = pixelsPerVideoSecond(screenWidth > 0 ? screenWidth : size.width, speed);
-    final right = size.width + 80;
+    final px = pxPerSec();
+    final sw = size.width;
 
-    for (final a in activeScroll) {
-      final elapsed = max(0.0, t - a.spawnSec);
-      final x = size.width - elapsed * pxPerSec;
-      if (x > right) continue;
-      final paras = getParagraphs(a.text, a.color);
-      final offset = Offset(x, a.y);
-      if (paras.outline != null) {
-        canvas.drawParagraph(paras.outline!, offset);
-      }
+    for (final d in scroll) {
+      final x = d.xAt(t, sw, px);
+      if (x > sw + 4) continue;
+      final paras = getParagraphs(d.comment.text, d.comment.color);
+      final offset = Offset(x, d.y);
+      if (paras.outline != null) canvas.drawParagraph(paras.outline!, offset);
       canvas.drawParagraph(paras.fill, offset);
     }
 
-    for (final a in activeStatic) {
-      final paras = getParagraphs(a.text, a.color);
-      final offset = Offset(a.x, a.y);
-      if (paras.outline != null) {
-        canvas.drawParagraph(paras.outline!, offset);
-      }
+    for (final d in staticItems) {
+      final paras = getParagraphs(d.text, d.color);
+      final offset = Offset(d.x, d.y);
+      if (paras.outline != null) canvas.drawParagraph(paras.outline!, offset);
       canvas.drawParagraph(paras.fill, offset);
     }
   }
 
   @override
-  bool shouldRepaint(covariant _DanmuPainter oldDelegate) => false;
+  bool shouldRepaint(covariant _DanmuPainter old) => false;
 }

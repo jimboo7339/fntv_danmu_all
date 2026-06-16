@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import '../models/mpv_player_settings.dart';
+import '../models/stream_response.dart';
 
 /// MPV (libmpv) 视频控制器封装。
 class VideoWrapper {
@@ -21,6 +22,7 @@ class VideoWrapper {
   bool _isBuffering = false;
   bool _isInitialized = false;
   bool _isSeeking = false;
+  bool _mpvSubtitleActive = false;
   DateTime _lastPositionNotify = DateTime.fromMillisecondsSinceEpoch(0);
   Duration _lastNotifiedPosition = Duration.zero;
   Timer? _networkSpeedTimer;
@@ -45,6 +47,7 @@ class VideoWrapper {
   bool get isPlaying => _isPlaying;
   bool get isBuffering => _isBuffering;
   bool get isInitialized => _isInitialized;
+  bool get mpvSubtitleActive => _mpvSubtitleActive;
 
   void addListener(VoidCallback listener) => _listeners.add(listener);
 
@@ -109,7 +112,114 @@ class VideoWrapper {
     _isInitialized = true;
     _lastStablePosition = _position;
     _startNetworkSpeedPolling();
+    await _waitForMpvTracks();
+    await prepareCleanPlayback();
+    await _applyMpvProperties();
     _notifyAll();
+  }
+
+  /// 多音轨/字幕容器：默认关闭 MPV 字幕解码，避免干扰音画同步与进度。
+  Future<void> prepareCleanPlayback() async {
+    if (_mpvPlayer == null) return;
+    try {
+      await _mpvPlayer!.setSubtitleTrack(SubtitleTrack.no());
+      _mpvSubtitleActive = false;
+      final native = _mpvPlayer!.platform;
+      if (native is NativePlayer) {
+        await native.setProperty('sid', 'no');
+        await native.setProperty('sub-visibility', 'no');
+        await native.setProperty('sub-forced-only', 'no');
+      }
+    } catch (e) {
+      debugPrint('prepareCleanPlayback error: $e');
+    }
+  }
+
+  Future<void> _waitForMpvTracks({int attempts = 80}) async {
+    for (var i = 0; i < attempts; i++) {
+      final tracks = _mpvPlayer?.state.tracks;
+      if (tracks != null &&
+          (tracks.audio.length > 2 || tracks.subtitle.length > 2 || i > 30)) {
+        return;
+      }
+      await Future.delayed(const Duration(milliseconds: 100));
+    }
+  }
+
+  List<AudioTrack> get _embedAudioTracks => _mpvPlayer?.state.tracks.audio
+          .where((t) => t.id != 'auto' && t.id != 'no' && !t.uri)
+          .toList(growable: false) ??
+      const [];
+
+  List<SubtitleTrack> get _embedSubtitleTracks =>
+      _mpvPlayer?.state.tracks.subtitle
+          .where((t) => t.id != 'auto' && t.id != 'no' && !t.uri && !t.data)
+          .toList(growable: false) ??
+      const [];
+
+  AudioTrack? _resolveAudioTrack(int listIndex, AudioStreamInfo? info) {
+    final tracks = _embedAudioTracks;
+    if (tracks.isEmpty) return null;
+
+    if (info != null) {
+      final lang = info.language?.trim().toLowerCase();
+      if (lang != null && lang.isNotEmpty) {
+        for (final t in tracks) {
+          final tl = t.language?.trim().toLowerCase();
+          if (tl != null && tl == lang) return t;
+        }
+      }
+      final title = info.title?.trim().toLowerCase();
+      if (title != null && title.isNotEmpty) {
+        for (final t in tracks) {
+          final tt = t.title?.trim().toLowerCase();
+          if (tt != null && (tt == title || tt.contains(title) || title.contains(tt))) {
+            return t;
+          }
+        }
+      }
+    }
+
+    if (listIndex >= 0 && listIndex < tracks.length) return tracks[listIndex];
+    return tracks.first;
+  }
+
+  SubtitleTrack? _resolveSubtitleTrack(int listIndex, SubtitleStreamInfo? info) {
+    final tracks = _embedSubtitleTracks;
+    if (tracks.isEmpty) return null;
+
+    if (info != null) {
+      final lang = info.language?.trim().toLowerCase();
+      if (lang != null && lang.isNotEmpty) {
+        for (final t in tracks) {
+          final tl = t.language?.trim().toLowerCase();
+          if (tl != null && tl == lang) return t;
+        }
+      }
+      final title = info.title?.trim().toLowerCase();
+      if (title != null && title.isNotEmpty) {
+        for (final t in tracks) {
+          final tt = t.title?.trim().toLowerCase();
+          if (tt != null && (tt == title || tt.contains(title) || title.contains(tt))) {
+            return t;
+          }
+        }
+      }
+    }
+
+    if (listIndex >= 0 && listIndex < tracks.length) return tracks[listIndex];
+    return tracks.first;
+  }
+
+  /// 仅多音轨时按服务端列表索引切换，使用 MPV 真实 track id。
+  Future<void> applyInitialAudioIfNeeded({
+    List<AudioStreamInfo>? audioStreams,
+    int preferredListIndex = 0,
+  }) async {
+    if (_mpvPlayer == null || audioStreams == null || audioStreams.length <= 1) return;
+    await _waitForMpvTracks();
+    final idx = preferredListIndex.clamp(0, audioStreams.length - 1);
+    await setAudioTrackByInfo(listIndex: idx, info: audioStreams[idx]);
   }
 
   Future<void> _applyMpvProperties() async {
@@ -120,6 +230,7 @@ class VideoWrapper {
       final props = <String, String>{
         'cache': 'yes',
         'cache-pause': 'yes',
+        'cache-secs': '${settings.cacheSecs}',
         'demuxer-readahead-secs': '${settings.cacheSecs}',
         'demuxer-max-bytes': '${settings.bufferMb}MiB',
         'demuxer-thread': 'yes',
@@ -127,25 +238,28 @@ class VideoWrapper {
         'framedrop': 'no',
         'vd-lavc-threads': '0',
         'audio-sync': 'yes',
-        'video-sync': 'audio',
+        'video-sync': settings.videoSync,
         'hwdec': settings.hwdec,
         'hwdec-codecs': 'all',
         'opengl-pbo': 'yes',
         'interpolation': settings.interpolation ? 'yes' : 'no',
         'network-timeout': '60',
-        'stream-buffer-size': '4MiB',
+        'stream-buffer-size': '8MiB',
         'force-seekable': 'yes',
         'sub-fix-timing': 'yes',
         'sub-delay': '0',
         'sub-scale-with-window': 'yes',
-        'audio-buffer': '0.25',
-        'video-latency-hacks': 'yes',
+        'sub-ass-override': 'no',
+        'audio-buffer': '0.2',
+        'video-latency-hacks': 'no',
+        'correct-pts': 'yes',
+        'untimed': 'no',
       };
       for (final e in props.entries) {
         await native.setProperty(e.key, e.value);
       }
       debugPrint('MPV props: hwdec=${settings.hwdec}, vo=${settings.vo}, '
-          'buffer=${settings.bufferMb}MB, cache=${settings.cacheSecs}s');
+          'sync=${settings.videoSync}, buffer=${settings.bufferMb}MB');
     } catch (e) {
       debugPrint('MPV tuning error: $e');
     }
@@ -290,7 +404,10 @@ class VideoWrapper {
     });
   }
 
-  Future<void> play() async => _mpvPlayer?.play();
+  Future<void> play() async {
+    await _mpvPlayer?.play();
+    await _applyMpvProperties();
+  }
 
   Future<void> pause() async => _mpvPlayer?.pause();
 
@@ -302,9 +419,25 @@ class VideoWrapper {
   Future<void> setSpeed(double speed) async => _mpvPlayer?.setRate(speed);
 
   Future<void> setAudioTrack(int index) async {
+    await setAudioTrackByInfo(listIndex: index);
+  }
+
+  Future<void> setAudioTrackByInfo({
+    required int listIndex,
+    AudioStreamInfo? info,
+  }) async {
     if (_mpvPlayer == null) return;
     try {
-      await _mpvPlayer!.setAudioTrack(AudioTrack('${index + 1}', null, null));
+      await _waitForMpvTracks();
+      final track = _resolveAudioTrack(listIndex, info);
+      if (track == null) {
+        debugPrint('setAudioTrack: no MPV track for listIndex=$listIndex');
+        return;
+      }
+      debugPrint('setAudioTrack: list=$listIndex -> mpv aid=${track.id} '
+          '(${track.language ?? track.title ?? ""})');
+      await _mpvPlayer!.setAudioTrack(track);
+      await _applyMpvProperties();
     } catch (e) {
       debugPrint('setAudioTrack error: $e');
     }
@@ -312,28 +445,36 @@ class VideoWrapper {
 
   /// [listIndex] 为字幕列表序号，-1 关闭。
   Future<void> setSubtitleTrack(int listIndex) async {
+    await setSubtitleTrackByInfo(listIndex: listIndex);
+  }
+
+  Future<void> setSubtitleTrackByInfo({
+    required int listIndex,
+    SubtitleStreamInfo? info,
+  }) async {
     if (_mpvPlayer == null) return;
     try {
       if (listIndex < 0) {
-        await _mpvPlayer!.setSubtitleTrack(SubtitleTrack.no());
+        await prepareCleanPlayback();
         return;
       }
-      await _mpvPlayer!.setSubtitleTrack(SubtitleTrack('${listIndex + 1}', null, null));
-      await _syncSubtitleTiming();
-    } catch (e) {
-      debugPrint('setSubtitleTrack error: $e');
-    }
-  }
-
-  Future<void> _syncSubtitleTiming() async {
-    try {
-      final native = _mpvPlayer?.platform;
+      await _waitForMpvTracks();
+      final track = _resolveSubtitleTrack(listIndex, info);
+      if (track == null) {
+        debugPrint('setSubtitleTrack: no MPV track for listIndex=$listIndex');
+        return;
+      }
+      debugPrint('setSubtitleTrack: list=$listIndex -> mpv sid=${track.id}');
+      await _mpvPlayer!.setSubtitleTrack(track);
+      _mpvSubtitleActive = true;
+      final native = _mpvPlayer!.platform;
       if (native is NativePlayer) {
+        await native.setProperty('sub-visibility', 'yes');
         await native.setProperty('sub-delay', '0');
         await native.setProperty('sub-fix-timing', 'yes');
       }
     } catch (e) {
-      debugPrint('subtitle sync error: $e');
+      debugPrint('setSubtitleTrack error: $e');
     }
   }
 
@@ -343,6 +484,7 @@ class VideoWrapper {
     bool subtitleBackground = false,
     Color subtitleColor = Colors.white,
     double subtitleWeight = 600,
+    bool subtitleVisible = false,
   }) {
     final fontWeight = FontWeight.values[
       ((subtitleWeight.clamp(100, 900) - 100) / 100).round().clamp(0, 8)
@@ -351,7 +493,7 @@ class VideoWrapper {
       controller: _mpvVideoController!,
       controls: (state) => const SizedBox.shrink(),
       subtitleViewConfiguration: SubtitleViewConfiguration(
-        visible: true,
+        visible: subtitleVisible && _mpvSubtitleActive,
         textScaleFactor: subtitleSize / 18.0,
         padding: EdgeInsets.zero,
         style: TextStyle(

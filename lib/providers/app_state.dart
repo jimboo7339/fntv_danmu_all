@@ -381,17 +381,20 @@ class AppState extends ChangeNotifier {
   }
 
   String get decoderMode => mpvHwdec == 'no' ? 'software' : 'hardware';
-  set decoderMode(String v) { mpvHwdec = v == 'software' ? 'no' : 'auto-safe'; }
+  set decoderMode(String v) { mpvHwdec = v == 'software' ? 'no' : 'auto-copy'; }
 
   String get mpvHwdec {
     final saved = _prefs.getString('mpv_hwdec');
     if (saved != null) return saved;
-    return _prefs.getString('decoder_mode') == 'software' ? 'no' : 'auto-safe';
+    return _prefs.getString('decoder_mode') == 'software' ? 'no' : 'auto-copy';
   }
   set mpvHwdec(String v) { _prefs.setString('mpv_hwdec', v); notifyListeners(); }
 
   String get mpvVo => _prefs.getString('mpv_vo') ?? 'gpu';
   set mpvVo(String v) { _prefs.setString('mpv_vo', v); notifyListeners(); }
+
+  String get mpvVideoSync => _prefs.getString('mpv_video_sync') ?? 'display-resample';
+  set mpvVideoSync(String v) { _prefs.setString('mpv_video_sync', v); notifyListeners(); }
 
   int get mpvBufferMb => _prefs.getInt('mpv_buffer_mb') ?? 192;
   set mpvBufferMb(int v) { _prefs.setInt('mpv_buffer_mb', v.clamp(50, 512)); notifyListeners(); }
@@ -405,6 +408,7 @@ class AppState extends ChangeNotifier {
   MpvPlayerSettings get mpvSettings => MpvPlayerSettings(
         hwdec: mpvHwdec,
         vo: mpvVo,
+        videoSync: mpvVideoSync,
         bufferMb: mpvBufferMb,
         cacheSecs: mpvCacheSecs,
         interpolation: mpvInterpolation,

@@ -20,6 +20,7 @@ import '../widgets/subtitle_overlay.dart';
 import '../widgets/player_controls.dart';
 import '../services/video_wrapper.dart';
 import '../services/danmu_service.dart';
+import '../services/subtitle_service.dart';
 import 'package:screen_brightness/screen_brightness.dart';
 import 'package:flutter_volume_controller/flutter_volume_controller.dart';
 import 'package:file_picker/file_picker.dart';
@@ -291,26 +292,51 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
   }
 
-  void _applyMpvSubtitleTrack(int index) {
+  Future<void> _selectSubtitleTrack(int index) async {
     if (_videoCtrl == null) return;
     if (index < 0) {
-      _videoCtrl!.setSubtitleTrack(-1);
-      if (mounted) setState(() => _selectedSubtitleIndex = -1);
+      await _videoCtrl!.setSubtitleTrack(-1);
+      if (mounted) {
+        setState(() {
+          _selectedSubtitleIndex = -1;
+          _softwareSubtitle = null;
+        });
+      }
       return;
     }
-    _videoCtrl!.setSubtitleTrack(index);
+
+    final streams = _subtitleStreams;
+    await _videoCtrl!.prepareCleanPlayback();
+
+    // 多轨字幕：优先走软件字幕层，避免 MPV 解码字幕干扰音画同步
+    if (_mediaGuid != null && streams != null && index < streams.length) {
+      final svc = SubtitleService(_app.api);
+      final data = await svc.loadByStreamIndex(
+        mediaGuid: _mediaGuid!,
+        streamIndex: index,
+        stream: streams[index],
+        subtitleGuid: _subtitleGuid,
+        videoGuid: _videoGuid,
+      );
+      if (data != null && mounted) {
+        setState(() {
+          _softwareSubtitle = data;
+          _selectedSubtitleIndex = index;
+        });
+        debugPrint('✅ Software subtitle $index: ${data.entries.length} entries');
+        return;
+      }
+    }
+
+    if (mounted) setState(() => _softwareSubtitle = null);
+    await _videoCtrl!.setSubtitleTrackByInfo(
+      listIndex: index,
+      info: streams != null && index < streams.length ? streams[index] : null,
+    );
     if (mounted) setState(() => _selectedSubtitleIndex = index);
-    debugPrint('✅ MPV subtitle track index=$index');
+    debugPrint('✅ MPV fallback subtitle index=$index');
   }
 
-  Future<void> _autoLoadMpvSubtitle() async {
-    if (_subtitleStreams == null || _subtitleStreams!.isEmpty) return;
-    await Future.delayed(const Duration(milliseconds: 600));
-    if (!mounted || _videoCtrl == null) return;
-    _applyMpvSubtitleTrack(_selectedSubtitleIndex >= 0 ? _selectedSubtitleIndex : 0);
-  }
-
-  /// 加载外部 SRT/VTT 字幕文件
   Future<void> _loadExternalSubtitle() async {
     try {
       final result = await FilePicker.platform.pickFiles(
@@ -331,7 +357,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
       if (data == null || data.entries.isEmpty) return;
 
       if (mounted) {
-        setState(() => _softwareSubtitle = data);
+        await _videoCtrl?.prepareCleanPlayback();
+        setState(() {
+          _softwareSubtitle = data;
+          _selectedSubtitleIndex = -1;
+        });
         debugPrint('✅ Loaded ${data.entries.length} subtitle entries from ${file.name}');
         if (mounted) {
           FnToast.show(context, '已加载 ${data.entries.length} 条字幕', type: FnToastType.success);
@@ -379,7 +409,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _networkSpeedBps = 0;
     _videoCtrl!.networkSpeedBps.addListener(_onNetworkSpeedUpdate);
     _videoCtrl!.addListener(_videoListener);
-    _videoCtrl!.initialize(startAt: startAt).then((_) {
+    _videoCtrl!.initialize(startAt: startAt).then((_) async {
+      if (!mounted) return;
+      await _videoCtrl!.applyInitialAudioIfNeeded(
+        audioStreams: _audioStreams,
+        preferredListIndex: _selectedAudioIndex,
+      );
       if (!mounted) return;
       setState(() => _isInitialized = true);
       _videoCtrl!.setSpeed(_speed);
@@ -387,9 +422,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _isPlaying = true;
       if (seekTs > 0) {
         debugPrint('🎯 Resume from ${seekTs}s (pre-seek during init)');
-      }
-      if (_subtitleStreams != null && _subtitleStreams!.isNotEmpty) {
-        _autoLoadMpvSubtitle();
       }
       Future.delayed(const Duration(seconds: 2), () => _saveProgress());
       _startProgressTimer();
@@ -639,6 +671,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       subtitleBackground: style.background,
       subtitleColor: Color(style.color),
       subtitleWeight: style.weight,
+      subtitleVisible: _softwareSubtitle == null && _videoCtrl!.mpvSubtitleActive,
     );
     switch (_aspectMode) {
       case 'fill':
@@ -963,23 +996,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   setState(() => _isInitialized = false);
                   _startPlayback();
                 },
-                onAudioSelected: (idx) {
+                onAudioSelected: (idx) async {
                   setState(() => _selectedAudioIndex = idx);
-                  _videoCtrl?.setAudioTrack(idx);
+                  final streams = _audioStreams;
+                  await _videoCtrl?.setAudioTrackByInfo(
+                    listIndex: idx,
+                    info: streams != null && idx < streams.length ? streams[idx] : null,
+                  );
                 },
                 seekStep: seekStep,
-                onSubtitleSelected: (idx) {
-                  if (idx < 0) {
-                    setState(() {
-                      _selectedSubtitleIndex = -1;
-                      _softwareSubtitle = null;
-                    });
-                    _videoCtrl?.setSubtitleTrack(-1);
-                  } else {
-                    setState(() => _softwareSubtitle = null);
-                    _applyMpvSubtitleTrack(idx);
-                  }
-                },
+                onSubtitleSelected: (idx) => _selectSubtitleTrack(idx),
                 onSeekChanged: (val) {
                   _videoCtrl?.seekTo(Duration(milliseconds: val.toInt()));
                 },
