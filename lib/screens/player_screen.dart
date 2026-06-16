@@ -295,7 +295,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
   }
 
-  Future<void> _selectSubtitleTrack(int index) async {
+  Future<void> _selectSubtitleTrack(int index, {bool fallbackToEmbedded = true}) async {
     if (_videoCtrl == null) return;
     if (index < 0) {
       await _videoCtrl!.setSubtitleTrack(-1);
@@ -332,6 +332,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
 
     if (mounted) setState(() => _softwareSubtitle = null);
+    // init 阶段软件字幕失败时不 fallback 到内嵌字幕，避免触发解码器重配导致音画不同步
+    if (!fallbackToEmbedded) {
+      debugPrint('⚠️ Software subtitle $index failed, skip embedded fallback during init');
+      return;
+    }
     await _videoCtrl!.setSubtitleTrackByInfo(
       listIndex: index,
       info: streams != null && index < streams.length ? streams[index] : null,
@@ -418,7 +423,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       final i = streams.indexWhere((s) => s.guid == _subtitleGuid);
       if (i >= 0) idx = i;
     }
-    await _selectSubtitleTrack(idx);
+    await _selectSubtitleTrack(idx, fallbackToEmbedded: false);
   }
 
   void _initVideo(String url) {
