@@ -123,12 +123,13 @@ class VideoWrapper {
     await _waitForMetadata();
     _readVideoDimensions();
 
+    // 先等轨加载完、关掉字幕解码器，让解码器安顿好再去 seek
+    await _waitForMpvTracks();
+    await _disableEmbeddedSubtitles();
+
     if (startAt != null && startAt > Duration.zero) {
       await _accurateSeek(startAt);
     }
-
-    await _waitForMpvTracks();
-    await _disableEmbeddedSubtitles();
 
     _isInitialized = true;
     _lastStablePosition = _position;
@@ -154,14 +155,14 @@ class VideoWrapper {
 
   Future<void> prepareCleanPlayback() => _disableEmbeddedSubtitles();
 
-  Future<void> _waitForMpvTracks({int attempts = 80}) async {
+  Future<void> _waitForMpvTracks({int attempts = 50}) async {
     for (var i = 0; i < attempts; i++) {
       final tracks = _mpvPlayer?.state.tracks;
       if (tracks != null &&
-          (tracks.audio.length > 2 || tracks.subtitle.length > 2 || i > 30)) {
+          (tracks.audio.length > 2 || tracks.subtitle.length > 2 || i > 20)) {
         return;
       }
-      await Future.delayed(const Duration(milliseconds: 100));
+      await Future.delayed(const Duration(milliseconds: 50));
     }
   }
 
@@ -264,7 +265,7 @@ class VideoWrapper {
       'network-timeout': '60',
       'stream-buffer-size': '8MiB',
       'force-seekable': 'yes',
-      'audio-buffer': '0.5',
+      'audio-buffer': '0.8',
       'video-latency-hacks': 'no',
       'untimed': 'no',
       'no-sub': 'yes',
