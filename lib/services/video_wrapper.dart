@@ -108,7 +108,7 @@ class VideoWrapper {
     // 解码/同步相关属性必须在 open 前设置
     await _applyInitProperties();
 
-    // open 前通过属性关闭字幕解码器（setSubtitleTrack 需要文件已打开）
+    // open 前关闭字幕解码器，避免字幕 demux 干扰音画同步
     final nativePre = _native;
     if (nativePre != null) {
       await nativePre.setProperty('sid', 'no');
@@ -123,7 +123,7 @@ class VideoWrapper {
     await _waitForMetadata();
     _readVideoDimensions();
 
-    // 先等轨加载完、关掉字幕解码器，让解码器安顿好再去 seek
+    // 先等轨加载完、关字幕解码器，解码器安顿好再 seek
     await _waitForMpvTracks();
     await _disableEmbeddedSubtitles();
 
@@ -256,7 +256,7 @@ class VideoWrapper {
       'demuxer-max-bytes': '${settings.bufferMb}MiB',
       'demuxer-thread': 'yes',
       'hr-seek': 'yes',
-      'framedrop': 'decoder',
+      'framedrop': 'no',
       'vd-lavc-threads': '0',
       'hwdec': settings.hwdec,
       'hwdec-codecs': 'all',
@@ -265,10 +265,9 @@ class VideoWrapper {
       'network-timeout': '60',
       'stream-buffer-size': '8MiB',
       'force-seekable': 'yes',
-      'audio-buffer': '0.8',
-      'video-latency-hacks': 'no',
+      'audio-buffer': '0.15',
+      'video-latency-hacks': 'yes',
       'untimed': 'no',
-      'no-sub': 'yes',
       'video-sync': syncMode,
       'video-sync-max-video-change': '5',
       'video-sync-max-audio-change': '0.125',
@@ -276,8 +275,6 @@ class VideoWrapper {
       'sub-fix-timing': 'yes',
       'sub-delay': '0',
       'sub-ass-override': 'no',
-      'demuxer-lavf-analyzeduration': '2',
-      'demuxer-lavf-probesize': '5000000',
     };
     try {
       for (final e in props.entries) {

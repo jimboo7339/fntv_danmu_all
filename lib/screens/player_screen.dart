@@ -332,17 +332,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
 
     if (mounted) setState(() => _softwareSubtitle = null);
-    // init 阶段软件字幕失败时不 fallback 到内嵌字幕，避免触发解码器重配导致音画不同步
-    if (!fallbackToEmbedded) {
-      debugPrint('⚠️ Software subtitle $index failed, skip embedded fallback during init');
-      return;
+    // 内嵌字幕解码器与当前播放配置不兼容（mediacodec-copy + 网络流），会导致音画不同步
+    // 仅支持软件字幕，不 fallback 到 MPV 内嵌字幕
+    if (fallbackToEmbedded) {
+      debugPrint('⚠️ Embedded subtitle disabled to prevent A/V desync');
     }
-    await _videoCtrl!.setSubtitleTrackByInfo(
-      listIndex: index,
-      info: streams != null && index < streams.length ? streams[index] : null,
-    );
-    if (mounted) setState(() => _selectedSubtitleIndex = index);
-    debugPrint('✅ MPV fallback subtitle index=$index');
+    return;
   }
 
   Future<void> _loadExternalSubtitle() async {
