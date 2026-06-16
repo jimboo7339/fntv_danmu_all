@@ -363,7 +363,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _videoCtrl = VideoWrapper(
       url: url,
       headers: _app!.api.headers,
-      decoderMode: _app!.decoderMode,
+      settings: _app!.mpvSettings,
     );
     _videoCtrl!.addListener(_videoListener);
     _videoCtrl!.initialize(startAt: startAt).then((_) {

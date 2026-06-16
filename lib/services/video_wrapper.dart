@@ -2,13 +2,13 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
+import '../models/mpv_player_settings.dart';
 
 /// MPV (libmpv) 视频控制器封装。
 class VideoWrapper {
   final String url;
   final Map<String, String>? headers;
-  /// 'hardware' or 'software'
-  final String decoderMode;
+  final MpvPlayerSettings settings;
 
   Player? _mpvPlayer;
   VideoController? _mpvVideoController;
@@ -28,8 +28,8 @@ class VideoWrapper {
   VideoWrapper({
     required this.url,
     this.headers,
-    this.decoderMode = 'hardware',
-  });
+    MpvPlayerSettings? settings,
+  }) : settings = settings ?? const MpvPlayerSettings();
 
   Duration get position => _position;
   Duration get duration => _duration;
@@ -50,9 +50,9 @@ class VideoWrapper {
 
   Future<void> initialize({Duration? startAt}) async {
     _mpvPlayer = Player(
-      configuration: const PlayerConfiguration(
-        bufferSize: 192 * 1024 * 1024,
-        vo: 'gpu',
+      configuration: PlayerConfiguration(
+        bufferSize: settings.bufferBytes,
+        vo: settings.vo,
       ),
     );
     _mpvVideoController = VideoController(_mpvPlayer!);
@@ -93,7 +93,7 @@ class VideoWrapper {
       Media(url, httpHeaders: headers ?? const {}),
       play: false,
     );
-    _tuneMpvPerformance();
+    _applyMpvProperties();
     await _waitForMetadata();
     _readVideoDimensions();
 
@@ -105,31 +105,32 @@ class VideoWrapper {
     _notifyAll();
   }
 
-  void _tuneMpvPerformance() {
+  void _applyMpvProperties() {
     try {
       final native = _mpvPlayer!.platform;
       if (native == null || native is! NativePlayer) return;
 
-      final hwdec = decoderMode == 'software' ? 'no' : 'auto-safe';
       final props = <String, String>{
         'cache': 'yes',
         'cache-pause': 'no',
-        'demuxer-readahead-secs': '25',
+        'demuxer-readahead-secs': '${settings.cacheSecs}',
+        'demuxer-max-bytes': '${settings.bufferMb}MiB',
         'hr-seek': 'yes',
         'framedrop': 'decoder',
         'vd-lavc-threads': '0',
         'audio-sync': 'yes',
         'video-sync': 'audio',
-        'hwdec': hwdec,
+        'hwdec': settings.hwdec,
         'hwdec-codecs': 'all',
         'opengl-pbo': 'yes',
-        'interpolation': 'no',
+        'interpolation': settings.interpolation ? 'yes' : 'no',
         'network-timeout': '30',
       };
       for (final e in props.entries) {
         native.setProperty(e.key, e.value);
       }
-      debugPrint('MPV tuning applied (hwdec=$hwdec)');
+      debugPrint('MPV props: hwdec=${settings.hwdec}, vo=${settings.vo}, '
+          'buffer=${settings.bufferMb}MB, cache=${settings.cacheSecs}s');
     } catch (e) {
       debugPrint('MPV tuning error: $e');
     }

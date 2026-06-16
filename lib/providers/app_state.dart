@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/watch_record.dart';
+import '../models/mpv_player_settings.dart';
 import '../services/api_client.dart';
 import '../utils/secure_storage.dart';
 import '../utils/log_buffer.dart';
@@ -357,8 +358,35 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  String get decoderMode => _prefs.getString('decoder_mode') ?? 'hardware';
-  set decoderMode(String v) { _prefs.setString('decoder_mode', v); notifyListeners(); }
+  String get decoderMode => mpvHwdec == 'no' ? 'software' : 'hardware';
+  set decoderMode(String v) { mpvHwdec = v == 'software' ? 'no' : 'auto-safe'; }
+
+  String get mpvHwdec {
+    final saved = _prefs.getString('mpv_hwdec');
+    if (saved != null) return saved;
+    return _prefs.getString('decoder_mode') == 'software' ? 'no' : 'auto-safe';
+  }
+  set mpvHwdec(String v) { _prefs.setString('mpv_hwdec', v); notifyListeners(); }
+
+  String get mpvVo => _prefs.getString('mpv_vo') ?? 'gpu';
+  set mpvVo(String v) { _prefs.setString('mpv_vo', v); notifyListeners(); }
+
+  int get mpvBufferMb => _prefs.getInt('mpv_buffer_mb') ?? 192;
+  set mpvBufferMb(int v) { _prefs.setInt('mpv_buffer_mb', v.clamp(50, 512)); notifyListeners(); }
+
+  int get mpvCacheSecs => _prefs.getInt('mpv_cache_secs') ?? 25;
+  set mpvCacheSecs(int v) { _prefs.setInt('mpv_cache_secs', v.clamp(10, 300)); notifyListeners(); }
+
+  bool get mpvInterpolation => _prefs.getBool('mpv_interpolation') ?? false;
+  set mpvInterpolation(bool v) { _prefs.setBool('mpv_interpolation', v); notifyListeners(); }
+
+  MpvPlayerSettings get mpvSettings => MpvPlayerSettings(
+        hwdec: mpvHwdec,
+        vo: mpvVo,
+        bufferMb: mpvBufferMb,
+        cacheSecs: mpvCacheSecs,
+        interpolation: mpvInterpolation,
+      );
 
   int get seekStep => _prefs.getInt('seek_step') ?? 10;
   set seekStep(int v) { _prefs.setInt('seek_step', v); notifyListeners(); }

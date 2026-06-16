@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
+import '../models/mpv_player_settings.dart';
 import '../providers/app_state.dart';
 import '../utils/theme.dart';
 import '../utils/toast.dart';
@@ -63,7 +64,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 icon: Icons.play_circle_rounded,
                 color: FnTheme.danmuGreen,
                 title: '播放器设置',
-                subtitle: 'MPV · ${app.decoderMode == 'hardware' ? '硬解' : '软解'}',
+                subtitle: 'MPV · ${MpvPlayerSettings.hwdecLabel(app.mpvHwdec)}',
                 onTap: () => Navigator.push(context,
                   MaterialPageRoute(builder: (_) => const _PlayerSettingsPage()),
                 ),
@@ -275,21 +276,108 @@ class _PlayerSettingsPage extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          // 解码模式
+          _buildMpvInfoCard(),
+          const SizedBox(height: 12),
           Card(
-            child: ListTile(
-              title: const Text('解码模式'),
-              subtitle: Text(
-                app.decoderMode == 'hardware' ? '硬解（推荐）' : '软解',
-                style: const TextStyle(fontSize: 12, color: FnTheme.textSecondary),
-              ),
-              trailing: const Icon(Icons.chevron_right_rounded),
-              onTap: () => _showDecoderPicker(context, app),
+            child: Column(
+              children: [
+                ListTile(
+                  title: const Text('硬件解码器'),
+                  subtitle: Text(
+                    MpvPlayerSettings.hwdecLabel(app.mpvHwdec),
+                    style: const TextStyle(fontSize: 12, color: FnTheme.textSecondary),
+                  ),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: () => _showOptionSheet(
+                    context,
+                    title: '硬件解码器',
+                    options: MpvPlayerSettings.hwdecOptions,
+                    current: app.mpvHwdec,
+                    label: MpvPlayerSettings.hwdecLabel,
+                    description: MpvPlayerSettings.hwdecDescription,
+                    onSelect: (v) => app.mpvHwdec = v,
+                  ),
+                ),
+                const Divider(height: 1, indent: 16, endIndent: 16),
+                ListTile(
+                  title: const Text('视频渲染器'),
+                  subtitle: Text(
+                    MpvPlayerSettings.voLabel(app.mpvVo),
+                    style: const TextStyle(fontSize: 12, color: FnTheme.textSecondary),
+                  ),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: () => _showOptionSheet(
+                    context,
+                    title: '视频渲染器',
+                    options: MpvPlayerSettings.voOptions,
+                    current: app.mpvVo,
+                    label: MpvPlayerSettings.voLabel,
+                    description: MpvPlayerSettings.voDescription,
+                    onSelect: (v) => app.mpvVo = v,
+                  ),
+                ),
+              ],
             ),
           ),
           const SizedBox(height: 10),
-
-          // 快进步长
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Expanded(child: Text('最大缓冲大小')),
+                      Text('${app.mpvBufferMb} MB',
+                        style: const TextStyle(color: FnTheme.danmuGreen, fontWeight: FontWeight.w600)),
+                    ],
+                  ),
+                  Slider(
+                    value: app.mpvBufferMb.toDouble(),
+                    min: 50,
+                    max: 512,
+                    divisions: 23,
+                    activeColor: FnTheme.danmuGreen,
+                    label: '${app.mpvBufferMb} MB',
+                    onChanged: (v) => app.mpvBufferMb = v.round(),
+                  ),
+                  const Text('增大可缓解卡顿，但会占用更多内存',
+                    style: TextStyle(fontSize: 11, color: FnTheme.textMuted)),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      const Expanded(child: Text('预读缓冲时长')),
+                      Text('${app.mpvCacheSecs} s',
+                        style: const TextStyle(color: FnTheme.danmuGreen, fontWeight: FontWeight.w600)),
+                    ],
+                  ),
+                  Slider(
+                    value: app.mpvCacheSecs.toDouble(),
+                    min: 10,
+                    max: 300,
+                    divisions: 29,
+                    activeColor: FnTheme.danmuGreen,
+                    label: '${app.mpvCacheSecs} s',
+                    onChanged: (v) => app.mpvCacheSecs = v.round(),
+                  ),
+                  const Text('网络流建议 60s 以上，局域网可适当降低',
+                    style: TextStyle(fontSize: 11, color: FnTheme.textMuted)),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Card(
+            child: SwitchListTile(
+              title: const Text('画面插帧'),
+              subtitle: const Text('开启后运动画面更顺滑，部分设备可能增加延迟'),
+              value: app.mpvInterpolation,
+              activeColor: FnTheme.danmuGreen,
+              onChanged: (v) => app.mpvInterpolation = v,
+            ),
+          ),
+          const SizedBox(height: 10),
           Card(
             child: Column(
               children: [
@@ -309,21 +397,106 @@ class _PlayerSettingsPage extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 10),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 4),
+            child: Text(
+              '修改解码/渲染/缓冲设置后，需重新进入播放页生效',
+              style: TextStyle(fontSize: 12, color: FnTheme.textMuted, height: 1.4),
+            ),
+          ),
         ],
       ),
     );
   }
 
-  void _showDecoderPicker(BuildContext ctx, AppState app) {
-    showDialog(context: ctx, builder: (_) => SimpleDialog(
-      title: const Text('解码模式'),
-      children: [
-        RadioListTile(value: 'hardware', groupValue: app.decoderMode,
-          title: const Text('硬解'), onChanged: (v) { app.decoderMode = v!; Navigator.pop(ctx); }),
-        RadioListTile(value: 'software', groupValue: app.decoderMode,
-          title: const Text('软解'), onChanged: (v) { app.decoderMode = v!; Navigator.pop(ctx); }),
-      ],
-    ));
+  Widget _buildMpvInfoCard() {
+    return Card(
+      color: FnTheme.danmuGreen.withValues(alpha: 0.08),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(Icons.play_circle_fill_rounded, color: FnTheme.danmuGreen.withValues(alpha: 0.9), size: 28),
+            const SizedBox(width: 12),
+            const Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('MPV 播放内核', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                  SizedBox(height: 4),
+                  Text(
+                    '开源跨平台引擎，支持广泛格式、内嵌字幕与多音轨。'
+                    '可按设备情况调整硬解与缓冲策略。',
+                    style: TextStyle(fontSize: 12, color: FnTheme.textSecondary, height: 1.45),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showOptionSheet(
+    BuildContext context, {
+    required String title,
+    required List<String> options,
+    required String current,
+    required String Function(String) label,
+    required String Function(String) description,
+    required void Function(String) onSelect,
+  }) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1E1E1E),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+              child: Row(
+                children: [
+                  Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                  const Spacer(),
+                  IconButton(
+                    icon: const Icon(Icons.close, size: 20),
+                    onPressed: () => Navigator.pop(ctx),
+                  ),
+                ],
+              ),
+            ),
+            ...options.map((opt) {
+              final selected = opt == current;
+              return ListTile(
+                title: Text(label(opt),
+                  style: TextStyle(
+                    color: selected ? FnTheme.danmuGreen : FnTheme.textPrimary,
+                    fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
+                  )),
+                subtitle: description(opt).isNotEmpty
+                    ? Text(description(opt),
+                        style: const TextStyle(fontSize: 11, color: FnTheme.textMuted))
+                    : null,
+                trailing: selected
+                    ? const Icon(Icons.check_rounded, color: FnTheme.danmuGreen, size: 20)
+                    : null,
+                onTap: () {
+                  onSelect(opt);
+                  Navigator.pop(ctx);
+                },
+              );
+            }),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
   }
 
   void _showSeekStepPicker(BuildContext ctx, AppState app) {
