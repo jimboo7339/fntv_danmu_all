@@ -108,6 +108,9 @@ class VideoWrapper {
     // 解码/同步相关属性必须在 open 前设置
     await _applyInitProperties();
 
+    // open 前关闭字幕解码，避免字幕 demux 干扰音画同步建立
+    await _disableEmbeddedSubtitles();
+
     await _mpvPlayer!.open(
       Media(url, httpHeaders: headers ?? const {}),
       play: false,
@@ -256,16 +259,20 @@ class VideoWrapper {
       'network-timeout': '60',
       'stream-buffer-size': '8MiB',
       'force-seekable': 'yes',
-      'audio-buffer': '0.15',
-      'video-latency-hacks': 'yes',
+      'audio-buffer': '0.5',
+      'video-latency-hacks': 'no',
+      'correct-pts': 'yes',
       'untimed': 'no',
       'video-sync': syncMode,
-      'video-sync-max-video-change': '5',
+      'video-sync-max-video-change': '0.5',
       'video-sync-max-audio-change': '0.125',
       'audio-pitch-correction': 'yes',
       'sub-fix-timing': 'yes',
       'sub-delay': '0',
       'sub-ass-override': 'no',
+      'demuxer-lavf-analyzeduration': '1',
+      'demuxer-lavf-probesize': '5000000',
+      'demuxer-lavf-o': 'skip_sub=1',
     };
     try {
       for (final e in props.entries) {
