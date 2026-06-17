@@ -9,11 +9,12 @@ class FnTheme {
       brightness: Brightness.dark,
       surface: const Color(0xFF121212),
     );
+    final base = ThemeData(useMaterial3: true, colorScheme: colorScheme);
     return ThemeData(
       useMaterial3: true,
       colorScheme: colorScheme,
       scaffoldBackgroundColor: const Color(0xFF121212),
-      cardTheme: CardThemeData(
+      cardTheme: base.cardTheme.copyWith(
         color: const Color(0xFF1E1E1E),
         elevation: 0,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
