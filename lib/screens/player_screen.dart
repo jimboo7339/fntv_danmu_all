@@ -97,6 +97,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   // 外部字幕文件（SRT/VTT 等）
   SubtitleData? _softwareSubtitle;
+  final Set<String> _subtitleServerFailed = {};
 
   // Direct link
   String _cloudDirectUrl = '';
@@ -304,8 +305,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
     return 0;
   }
 
+  bool get _preferEmbeddedSubtitle =>
+      _cloudDirectUrl.isNotEmpty || _isStrmFile;
+
   MpvPlayerSettings _mpvSettingsForPlayback() {
     final base = _app.mpvSettings;
+    // 云直链保持用户硬解设置，强制 audio 同步
+    if (_preferEmbeddedSubtitle) {
+      return base.copyWith(videoSync: 'audio');
+    }
     final hasSubs = _subtitleStreams != null && _subtitleStreams!.isNotEmpty;
     if (!hasSubs) return base;
     final hw = base.hwdec;
@@ -337,7 +345,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
       });
     }
 
-    if (_mediaGuid != null && streams != null && index < streams.length) {
+    final preferEmbedded = _preferEmbeddedSubtitle;
+    final cacheKey = '${_mediaGuid ?? ''}:$index';
+
+    if (!preferEmbedded &&
+        _mediaGuid != null &&
+        streams != null &&
+        index < streams.length &&
+        !_subtitleServerFailed.contains(cacheKey)) {
       final svc = SubtitleService(_app.api);
       final data = await svc.loadByStreamIndex(
         mediaGuid: _mediaGuid!,
@@ -354,14 +369,27 @@ class _PlayerScreenState extends State<PlayerScreen> {
         debugPrint('✅ Software subtitle $index: ${data.entries.length} entries');
         return;
       }
+      _subtitleServerFailed.add(cacheKey);
+      debugPrint('⚠️ Server subtitle extract failed, fallback to MPV embedded');
+    } else if (preferEmbedded) {
+      debugPrint('📺 Cloud direct: use MPV embedded subtitle');
     }
 
-    if (mounted) {
+    final ok = await _videoCtrl!.enableEmbeddedSubtitleDeferred(
+      listIndex: index,
+      info: streams != null && index < streams.length ? streams[index] : null,
+      delay: preferEmbedded
+          ? const Duration(milliseconds: 800)
+          : const Duration(milliseconds: 400),
+    );
+    if (ok && mounted) {
       setState(() {
         _softwareSubtitle = null;
         _selectedSubtitleIndex = index;
       });
-      debugPrint('⚠️ Subtitle track $index: server extract failed');
+      debugPrint('✅ MPV embedded subtitle $index');
+    } else if (mounted) {
+      debugPrint('⚠️ Subtitle track $index: all methods failed');
     }
   }
 
@@ -436,35 +464,21 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   Future<void> _autoLoadDefaultSubtitle() async {
     final streams = _subtitleStreams;
-    if (streams == null || streams.isEmpty || _mediaGuid == null) return;
+    if (streams == null || streams.isEmpty) return;
     final idx = _selectedSubtitleIndex >= 0
         ? _selectedSubtitleIndex
         : _defaultSubtitleListIndex(streams);
-
     if (mounted && _selectedSubtitleIndex < 0) {
       setState(() => _selectedSubtitleIndex = idx);
     }
-
-    final svc = SubtitleService(_app.api);
-    final data = await svc.loadDefault(
-      mediaGuid: _mediaGuid!,
-      subtitleGuid: _subtitleGuid,
-      videoGuid: _videoGuid,
-      streams: streams,
-    );
-    if (data != null && mounted) {
-      setState(() {
-        _softwareSubtitle = data;
-        _selectedSubtitleIndex = idx;
-      });
-      debugPrint('✅ Auto subtitle $idx: ${data.entries.length} entries');
-    }
+    await _selectSubtitleTrack(idx);
   }
 
   void _initVideo(String url) {
     _disposeVideoCtrl();
     final seekTs = _resolveSeekTs();
     final startAt = seekTs > 0 ? Duration(seconds: seekTs) : null;
+    final deferSeek = _preferEmbeddedSubtitle && seekTs > 0;
 
     _videoCtrl = VideoWrapper(
       url: url,
@@ -472,15 +486,24 @@ class _PlayerScreenState extends State<PlayerScreen> {
       settings: _mpvSettingsForPlayback(),
     );
     _videoCtrl!.onPositionRegression = (lastStable) {
-      debugPrint('🔄 Recovering playback position to ${lastStable.inSeconds}s');
+      debugPrint('🔄 Position regression at ${lastStable.inSeconds}s');
     };
     _networkSpeedBps = 0;
     _videoCtrl!.networkSpeedBps.addListener(_onNetworkSpeedUpdate);
     _videoCtrl!.addListener(_videoListener);
-    _videoCtrl!.initialize(startAt: startAt).then((_) async {
+    _videoCtrl!.initialize(startAt: startAt, deferSeek: deferSeek).then((_) async {
       if (!mounted) return;
       setState(() => _isInitialized = true);
       await _videoCtrl!.play();
+      await _videoCtrl!.waitUntilFirstFrame();
+
+      if (deferSeek && seekTs > 0) {
+        await _videoCtrl!.resumeAfterPlay(Duration(seconds: seekTs));
+        debugPrint('🎯 Cloud resume from ${seekTs}s (post-play seek)');
+      } else if (seekTs > 0) {
+        debugPrint('🎯 Resume from ${seekTs}s');
+      }
+
       await _videoCtrl!.setSpeed(_speed);
       _isPlaying = true;
 
@@ -494,10 +517,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
       }
 
       _autoLoadDefaultSubtitle();
-
-      if (seekTs > 0) {
-        debugPrint('🎯 Resume from ${seekTs}s');
-      }
       Future.delayed(const Duration(seconds: 2), () => _saveProgress());
       _startProgressTimer();
       _resetHideTimer();
@@ -682,6 +701,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _isInitialized = false;
       _danmuItems.clear();
       _softwareSubtitle = null;
+      _subtitleServerFailed.clear();
       _audioStreams = null;
       _subtitleStreams = null;
       _selectedAudioIndex = 0;

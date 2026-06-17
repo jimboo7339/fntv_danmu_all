@@ -66,7 +66,7 @@ class VideoWrapper {
     return p is NativePlayer ? p : null;
   }
 
-  Future<void> initialize({Duration? startAt}) async {
+  Future<void> initialize({Duration? startAt, bool deferSeek = false}) async {
     _playbackRate = 1.0;
     _initPropertiesApplied = false;
     _mpvPlayer = Player(
@@ -118,7 +118,7 @@ class VideoWrapper {
     await _waitUntilPlayable();
     _readVideoDimensions();
 
-    if (startAt != null && startAt > Duration.zero) {
+    if (!deferSeek && startAt != null && startAt > Duration.zero) {
       await _fastSeek(startAt);
     }
 
@@ -126,6 +126,59 @@ class VideoWrapper {
     _lastStablePosition = _position;
     _startNetworkSpeedPolling();
     _notifyAll();
+  }
+
+  /// 云直链 / 网络流：起播后再 seek 更准，减少音画漂移。
+  Future<void> resumeAfterPlay(Duration target) async {
+    if (_mpvPlayer == null || target <= Duration.zero) return;
+    await waitUntilFirstFrame();
+    await _fastSeek(target);
+    _lastStablePosition = _position;
+    await _applyPlaybackRate();
+  }
+
+  /// 等待首帧渲染（用于起播后再 seek / 设倍速）。
+  Future<void> waitUntilFirstFrame({int maxMs = 8000}) async {
+    final deadline = DateTime.now().add(Duration(milliseconds: maxMs));
+    while (DateTime.now().isBefore(deadline)) {
+      final w = _mpvPlayer?.state.width;
+      final h = _mpvPlayer?.state.height;
+      if (w != null && h != null && w > 0 && h > 0) return;
+      await Future.delayed(const Duration(milliseconds: 50));
+    }
+  }
+
+  /// 播放稳定后再启用 MPV 内嵌字幕，避免初始化阶段重配解码器。
+  Future<bool> enableEmbeddedSubtitleDeferred({
+    required int listIndex,
+    SubtitleStreamInfo? info,
+    Duration delay = const Duration(seconds: 1),
+  }) async {
+    if (_mpvPlayer == null) return false;
+    await Future.delayed(delay);
+    if (_mpvPlayer == null) return false;
+    await _waitForMpvTracks(attempts: 40);
+    final track = _resolveSubtitleTrack(listIndex, info);
+    if (track == null) {
+      debugPrint('enableEmbeddedSubtitle: no track list=$listIndex '
+          '(mpv subs=${_embedSubtitleTracks.length})');
+      return false;
+    }
+    debugPrint('enableEmbeddedSubtitle: list=$listIndex -> sid=${track.id}');
+    try {
+      await _mpvPlayer!.setSubtitleTrack(track);
+      _mpvSubtitleActive = true;
+      final native = _native;
+      if (native != null) {
+        await native.setProperty('sub-visibility', 'yes');
+        await native.setProperty('sub-delay', '0');
+      }
+      _notifyAll();
+      return true;
+    } catch (e) {
+      debugPrint('enableEmbeddedSubtitle error: $e');
+      return false;
+    }
   }
 
   Future<void> _lockSubtitleDecoderOff() async {
@@ -153,6 +206,7 @@ class VideoWrapper {
     try {
       await _mpvPlayer!.setSubtitleTrack(SubtitleTrack.no());
       await _lockSubtitleDecoderOff();
+      _notifyAll();
     } catch (e) {
       debugPrint('disableEmbeddedSubtitles error: $e');
     }
@@ -502,7 +556,7 @@ class VideoWrapper {
         await native.setProperty('sub-visibility', 'yes');
         await native.setProperty('sub-delay', '0');
       }
-      await _applyPlaybackRate();
+      _notifyAll();
     } catch (e) {
       debugPrint('setSubtitleTrack error: $e');
     }
