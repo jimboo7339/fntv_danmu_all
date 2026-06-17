@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/watch_record.dart';
 import '../models/mpv_player_settings.dart';
 import '../services/api_client.dart';
+import '../services/player_adapter.dart';
 import '../utils/secure_storage.dart';
 import '../utils/log_buffer.dart';
 
@@ -415,6 +416,17 @@ class AppState extends ChangeNotifier {
 
   String get mpvVideoSync => _prefs.getString('mpv_video_sync') ?? 'audio';
   set mpvVideoSync(String v) { _prefs.setString('mpv_video_sync', v); notifyListeners(); }
+
+  /// 播放器内核：mpv（默认）/ exo（Android 原生，后续支持）
+  PlayerCoreType get playerCore {
+    final v = _prefs.getString('player_core') ?? 'mpv';
+    return v == 'exo' ? PlayerCoreType.exo : PlayerCoreType.mpv;
+  }
+
+  set playerCore(PlayerCoreType v) {
+    _prefs.setString('player_core', v == PlayerCoreType.exo ? 'exo' : 'mpv');
+    notifyListeners();
+  }
 
   int get mpvBufferMb => _prefs.getInt('mpv_buffer_mb') ?? 192;
   set mpvBufferMb(int v) { _prefs.setInt('mpv_buffer_mb', v.clamp(50, 512)); notifyListeners(); }
