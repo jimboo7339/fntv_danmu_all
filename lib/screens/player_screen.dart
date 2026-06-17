@@ -314,6 +314,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _disposeVideoCtrl();
     final seekTs = _resolveSeekTs();
     final startAt = seekTs > 0 ? Duration(seconds: seekTs) : null;
+    final deferSeek = _preferEmbeddedSubtitle && seekTs > 0;
 
     _videoCtrl = VideoWrapper(
       url: url,
@@ -326,11 +327,22 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _networkSpeedBps = 0;
     _videoCtrl!.networkSpeedBps.addListener(_onNetworkSpeedUpdate);
     _videoCtrl!.addListener(_videoListener);
-    _videoCtrl!.initialize(startAt: startAt, initialSpeed: _speed).then((_) async {
+    _videoCtrl!.initialize(
+      startAt: startAt,
+      initialSpeed: _speed,
+      deferSeek: deferSeek,
+    ).then((_) async {
       if (!mounted) return;
       setState(() => _isInitialized = true);
       await _videoCtrl!.play();
       _isPlaying = true;
+
+      if (deferSeek && startAt != null) {
+        await _videoCtrl!.resumeAfterPlay(startAt);
+        debugPrint('🎯 Cloud resume from ${seekTs}s (post-play seek)');
+      } else if (seekTs > 0) {
+        debugPrint('🎯 Resume from ${seekTs}s');
+      }
 
       if (_audioStreams != null &&
           _audioStreams!.length > 1 &&
@@ -342,10 +354,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
       }
 
       _autoLoadDefaultSubtitle();
-
-      if (seekTs > 0) {
-        debugPrint('🎯 Resume from ${seekTs}s');
-      }
       Future.delayed(const Duration(seconds: 2), () => _saveProgress());
       _startProgressTimer();
       _resetHideTimer();
@@ -401,10 +409,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _subtitleServerFailed.add(cacheKey);
     }
 
+    if (preferEmbedded) {
+      debugPrint('📺 Cloud direct: use MPV embedded subtitle');
+    }
     final ok = await _videoCtrl!.selectEmbeddedSubtitleWhenReady(
       listIndex: index,
       info: streamInfo,
-      delay: _isPlaying ? const Duration(milliseconds: 400) : const Duration(milliseconds: 800),
+      delay: preferEmbedded
+          ? const Duration(milliseconds: 800)
+          : (_isPlaying ? const Duration(milliseconds: 400) : const Duration(milliseconds: 800)),
     );
     if (ok && mounted) {
       setState(() {

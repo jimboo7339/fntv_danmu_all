@@ -33,6 +33,7 @@ class VideoWrapper implements PlayerAdapter {
   bool _isInitialized = false;
   bool _isSeeking = false;
   bool _mpvSubtitleActive = false;
+  bool _deferResumePending = false;
   bool _initPropertiesApplied = false;
   DateTime _lastPositionNotify = DateTime.fromMillisecondsSinceEpoch(0);
   Duration _lastNotifiedPosition = Duration.zero;
@@ -88,12 +89,21 @@ class VideoWrapper implements PlayerAdapter {
     }
   }
 
+  void _invalidateVideoWidget() {
+    _cachedVideoWidget = null;
+  }
+
   @override
-  Future<void> initialize({Duration? startAt, double initialSpeed = 1.0}) async {
+  Future<void> initialize({
+    Duration? startAt,
+    double initialSpeed = 1.0,
+    bool deferSeek = false,
+  }) async {
     _playbackRate = initialSpeed.clamp(0.25, 4.0);
     _initPropertiesApplied = false;
-    _cachedVideoWidget = null;
+    _invalidateVideoWidget();
     _mpvSubtitleActive = false;
+    _deferResumePending = deferSeek && startAt != null && startAt > Duration.zero;
 
     _mpvPlayer = Player(
       configuration: PlayerConfiguration(
@@ -138,7 +148,12 @@ class VideoWrapper implements PlayerAdapter {
     await _applyInitProperties();
 
     final resume = (startAt != null && startAt > Duration.zero) ? startAt : null;
-    await _openVideoSource(resumePosition: resume);
+    await _openVideoSource(
+      resumePosition: _deferResumePending ? null : resume,
+    );
+    if (resume == null && !_deferResumePending) {
+      await _applyPlaybackRate();
+    }
 
     _isInitialized = true;
     _position = _mpvPlayer?.state.position ?? Duration.zero;
@@ -196,7 +211,6 @@ class VideoWrapper implements PlayerAdapter {
       'audio-buffer': '0.15',
       'video-sync': syncMode,
       'audio-pitch-correction': 'yes',
-      'blend-subtitles': 'no',
       'sub-visibility': 'yes',
       'secondary-sub-visibility': 'no',
       'sub-fix-timing': 'yes',
@@ -380,15 +394,46 @@ class VideoWrapper implements PlayerAdapter {
     await setAudioTrackByInfo(listIndex: idx, info: audioStreams[idx]);
   }
 
+  /// 等待首帧后再 seek / 设倍速，云直链续播更稳
+  Future<void> waitUntilFirstFrame({int maxMs = 8000}) async {
+    final deadline = DateTime.now().add(Duration(milliseconds: maxMs));
+    while (DateTime.now().isBefore(deadline)) {
+      final w = _mpvPlayer?.state.width;
+      final h = _mpvPlayer?.state.height;
+      if (w != null && h != null && w > 0 && h > 0) return;
+      await Future.delayed(const Duration(milliseconds: 50));
+    }
+  }
+
+  /// 云直链：起播后再 seek，减少 HTTP 预 seek 导致的音画漂移
+  Future<void> resumeAfterPlay(Duration target) async {
+    if (_mpvPlayer == null || target <= Duration.zero) return;
+    await waitUntilFirstFrame();
+    await _applyStartupSeek(target);
+    _deferResumePending = false;
+    await _applyPlaybackRate();
+  }
+
   Future<bool> selectEmbeddedSubtitleWhenReady({
     required int listIndex,
     SubtitleStreamInfo? info,
     Duration delay = const Duration(milliseconds: 600),
   }) async {
     if (_mpvPlayer == null) return false;
+    await waitUntilFirstFrame();
     await Future.delayed(delay);
-    final track = await setSubtitleTrackByInfo(listIndex: listIndex, info: info);
-    return track != null;
+    for (var attempt = 1; attempt <= 3; attempt++) {
+      final track = await setSubtitleTrackByInfo(listIndex: listIndex, info: info);
+      if (track != null) {
+        _invalidateVideoWidget();
+        _notifyAll();
+        return true;
+      }
+      if (attempt < 3) {
+        await Future.delayed(const Duration(milliseconds: 400));
+      }
+    }
+    return false;
   }
 
   Future<void> _applyPlaybackRate() async {
@@ -470,7 +515,9 @@ class VideoWrapper implements PlayerAdapter {
   @override
   Future<void> play() async {
     await _mpvPlayer?.play();
-    await _applyPlaybackRate();
+    if (!_deferResumePending) {
+      await _applyPlaybackRate();
+    }
   }
 
   @override
@@ -530,6 +577,7 @@ class VideoWrapper implements PlayerAdapter {
         final native = _native;
         if (native != null) await native.setProperty('sid', 'no');
         _mpvSubtitleActive = false;
+        _invalidateVideoWidget();
         _notifyAll();
         return null;
       }
@@ -544,14 +592,18 @@ class VideoWrapper implements PlayerAdapter {
 
       debugPrint('setSubtitleTrack: list=$listIndex -> sid=${track.id}');
       await _mpvPlayer!.setSubtitleTrack(track);
-      await _ensureSubtitleSid(track.id);
+      final sidOk = await _ensureSubtitleSid(track.id);
       _mpvSubtitleActive = true;
       final native = _native;
       if (native != null) {
         await native.setProperty('sub-visibility', 'yes');
-        await native.setProperty('blend-subtitles', 'no');
+        await native.setProperty('sub-delay', '0');
       }
+      _invalidateVideoWidget();
       _notifyAll();
+      if (!sidOk) {
+        debugPrint('⚠️ sid verify failed for ${track.id}');
+      }
       return track;
     } catch (e) {
       debugPrint('setSubtitleTrack error: $e');
@@ -577,7 +629,7 @@ class VideoWrapper implements PlayerAdapter {
       controller: _mpvVideoController!,
       controls: (state) => const SizedBox.shrink(),
       subtitleViewConfiguration: SubtitleViewConfiguration(
-        visible: subtitleVisible && _mpvSubtitleActive,
+        visible: _mpvSubtitleActive,
         textScaleFactor: subtitleSize / 18.0,
         padding: EdgeInsets.zero,
         style: TextStyle(
@@ -599,7 +651,7 @@ class VideoWrapper implements PlayerAdapter {
   @override
   Future<void> dispose() async {
     _networkSpeedTimer?.cancel();
-    _cachedVideoWidget = null;
+    _invalidateVideoWidget();
     await _mpvPlayer?.dispose();
     _mpvPlayer = null;
     _mpvVideoController = null;
