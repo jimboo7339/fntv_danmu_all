@@ -37,7 +37,6 @@ jobs:
         run: |
           python3 .github/scripts/apply_android_config.py
           python3 .github/scripts/patch_project_gradle.py
-          python3 .github/scripts/patch_exo_player.py
 
           # Restore committed resources (icon, colors)
           cp -r /tmp/fntv_backup/res/* android/app/src/main/res/ 2>/dev/null || true
@@ -48,6 +47,9 @@ jobs:
 
       - name: Write signed build.gradle
         run: python3 .github/scripts/patch_signing.py
+
+      - name: Patch ExoPlayer integration
+        run: python3 .github/scripts/patch_exo_player.py
 
       - name: Install Android SDK 35 (for gsy_video_player)
         run: |
