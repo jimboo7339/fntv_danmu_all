@@ -326,11 +326,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _networkSpeedBps = 0;
     _videoCtrl!.networkSpeedBps.addListener(_onNetworkSpeedUpdate);
     _videoCtrl!.addListener(_videoListener);
-    _videoCtrl!.initialize(startAt: startAt).then((_) async {
+    _videoCtrl!.initialize(startAt: startAt, initialSpeed: _speed).then((_) async {
       if (!mounted) return;
       setState(() => _isInitialized = true);
       await _videoCtrl!.play();
-      await _videoCtrl!.setSpeed(_speed);
       _isPlaying = true;
 
       if (_audioStreams != null &&

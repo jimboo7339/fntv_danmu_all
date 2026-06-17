@@ -32,7 +32,7 @@ abstract class PlayerAdapter {
   void addListener(VoidCallback listener);
   void removeListener(VoidCallback listener);
 
-  Future<void> initialize({Duration? startAt});
+  Future<void> initialize({Duration? startAt, double initialSpeed = 1.0});
   Future<void> play();
   Future<void> pause();
   Future<void> seekTo(Duration position);

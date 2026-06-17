@@ -89,8 +89,8 @@ class VideoWrapper implements PlayerAdapter {
   }
 
   @override
-  Future<void> initialize({Duration? startAt}) async {
-    _playbackRate = 1.0;
+  Future<void> initialize({Duration? startAt, double initialSpeed = 1.0}) async {
+    _playbackRate = initialSpeed.clamp(0.25, 4.0);
     _initPropertiesApplied = false;
     _cachedVideoWidget = null;
     _mpvSubtitleActive = false;
@@ -161,6 +161,8 @@ class VideoWrapper implements PlayerAdapter {
 
     if (resumePosition != null) {
       await _applyStartupSeek(resumePosition);
+      // 续播 seek 落位后再设倍速，避免 1.0x seek 后切 1.5x 导致音频超前
+      await _applyPlaybackRate();
     }
 
     if (resumePosition != null && native != null) {
@@ -394,14 +396,21 @@ class VideoWrapper implements PlayerAdapter {
     if (player == null) return;
     final rate = _playbackRate.clamp(0.25, 4.0);
     try {
-      await player.setRate(rate);
       final native = _native;
       if (native != null) {
-        await native.setProperty('speed', rate.toStringAsFixed(3));
+        // 倍速时强制跟随音频时钟，避免云直链 HTTP seek 后音画漂移
         if (rate != 1.0) {
           await native.setProperty('video-sync', 'audio');
+        } else {
+          await native.setProperty('video-sync', settings.videoSync);
         }
+        await native.setProperty('audio-pitch-correction', 'yes');
       }
+      await player.setRate(rate);
+      if (native != null) {
+        await native.setProperty('speed', rate.toStringAsFixed(3));
+      }
+      debugPrint('MPV speed: ${rate}x (sync=${rate != 1.0 ? 'audio' : settings.videoSync})');
     } catch (e) {
       debugPrint('applyPlaybackRate error: $e');
     }
@@ -496,7 +505,11 @@ class VideoWrapper implements PlayerAdapter {
       await _waitForMpvTracks();
       final track = _resolveAudioTrack(listIndex, info);
       if (track == null) return;
+      debugPrint('setAudioTrack: list=$listIndex -> mpv aid=${track.id}');
       await _mpvPlayer!.setAudioTrack(track);
+      // 切音轨后短暂等待再恢复倍速，减少时钟重置
+      await Future.delayed(const Duration(milliseconds: 150));
+      await _applyPlaybackRate();
     } catch (e) {
       debugPrint('setAudioTrack error: $e');
     }
