@@ -37,6 +37,7 @@ jobs:
         run: |
           python3 .github/scripts/apply_android_config.py
           python3 .github/scripts/patch_project_gradle.py
+          python3 .github/scripts/patch_exo_player.py
 
           # Restore committed resources (icon, colors)
           cp -r /tmp/fntv_backup/res/* android/app/src/main/res/ 2>/dev/null || true

@@ -6,10 +6,11 @@ import 'package:path_provider/path_provider.dart';
 import '../models/mpv_player_settings.dart';
 import '../models/stream_response.dart';
 import 'player_adapter.dart';
+import 'app_video_player.dart';
 import 'subtitle_track_matcher.dart';
 
 /// MPV 播放器（参考 LinPlayer MpvPlayerAdapter 实现）
-class VideoWrapper implements PlayerAdapter {
+class VideoWrapper extends AppVideoPlayer {
   static const _startupSeekAttempts = 8;
   static const _startupSeekRetry = Duration(milliseconds: 120);
   static const _startupSeekPoll = Duration(milliseconds: 40);
@@ -66,6 +67,8 @@ class VideoWrapper implements PlayerAdapter {
   @override
   bool get isInitialized => _isInitialized;
   bool get mpvSubtitleActive => _mpvSubtitleActive;
+  @override
+  PlayerCoreType get coreType => PlayerCoreType.mpv;
   @override
   bool get nativeSubtitleActive => _mpvSubtitleActive;
 

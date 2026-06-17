@@ -137,6 +137,10 @@ class PlayerControls extends StatelessWidget {
                   Expanded(
                     child: _buildHeaderBrand(context),
                   ),
+                  if (showNetworkSpeed) ...[
+                    _CompactNetworkBadge(networkSpeedBps: networkSpeedBps),
+                    const SizedBox(width: 8),
+                  ],
                   GestureDetector(
                     onTap: () => _showDanmuPanel(context),
                     child: Container(
@@ -199,14 +203,10 @@ class PlayerControls extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 6),
-                if (showNetworkSpeed)
-                  _NetworkInfoBar(networkSpeedBps: networkSpeedBps),
-                if (showNetworkSpeed) const SizedBox(height: 4),
                 if (danmuComments.isNotEmpty)
                   DanmuHeatmap(
                     comments: danmuComments,
                     duration: duration,
-                    position: position,
                     onSeekTap: (ratio) {
                       final ms = (duration.inMilliseconds * ratio).round();
                       onSeekChanged(ms.toDouble());
@@ -654,6 +654,63 @@ class PlayerControls extends StatelessWidget {
     );
   }
 
+}
+
+class _CompactNetworkBadge extends StatefulWidget {
+  final int networkSpeedBps;
+  const _CompactNetworkBadge({required this.networkSpeedBps});
+
+  @override
+  State<_CompactNetworkBadge> createState() => _CompactNetworkBadgeState();
+}
+
+class _CompactNetworkBadgeState extends State<_CompactNetworkBadge> {
+  Timer? _clockTimer;
+  String _clockText = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _tick();
+    _clockTimer = Timer.periodic(const Duration(seconds: 1), (_) => _tick());
+  }
+
+  void _tick() {
+    final now = DateTime.now();
+    final t = '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
+    if (t != _clockText && mounted) setState(() => _clockText = t);
+  }
+
+  @override
+  void dispose() {
+    _clockTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.black45,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.white12),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.speed_rounded, size: 12, color: Colors.white54),
+          const SizedBox(width: 4),
+          Text(
+            formatNetworkSpeed(widget.networkSpeedBps),
+            style: const TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(width: 6),
+          Text(_clockText, style: const TextStyle(color: Colors.white38, fontSize: 10)),
+        ],
+      ),
+    );
+  }
 }
 
 class _NetworkInfoBar extends StatefulWidget {

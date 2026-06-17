@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import 'package:dio/dio.dart';
 import 'package:open_filex/open_filex.dart';
 import '../models/mpv_player_settings.dart';
+import '../services/player_adapter.dart';
 import '../models/update_mirror.dart';
 import '../models/app_release_info.dart';
 import '../providers/app_state.dart';
@@ -12,6 +13,7 @@ import '../services/update_service.dart';
 import '../utils/theme.dart';
 import '../utils/toast.dart';
 import '../utils/log_buffer.dart';
+import '../widgets/mpv_hwdec_guide_dialog.dart';
 import 'danmu_settings_screen.dart';
 import 'login_screen.dart';
 
@@ -70,7 +72,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 icon: Icons.play_circle_rounded,
                 color: FnTheme.danmuGreen,
                 title: '播放器设置',
-                subtitle: 'MPV · ${MpvPlayerSettings.hwdecLabel(app.mpvHwdec)}',
+                subtitle: '${app.playerCore.label} · ${MpvPlayerSettings.hwdecLabel(app.mpvHwdec)}',
                 onTap: () => Navigator.push(context,
                   MaterialPageRoute(builder: (_) => const _PlayerSettingsPage()),
                 ),
@@ -288,12 +290,46 @@ class _PlayerSettingsPage extends StatelessWidget {
             child: Column(
               children: [
                 ListTile(
+                  title: const Text('播放内核'),
+                  subtitle: Text(
+                    app.playerCore.label,
+                    style: const TextStyle(fontSize: 12, color: FnTheme.textSecondary),
+                  ),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: () => _showOptionSheet(
+                    context,
+                    title: '播放内核',
+                    options: const ['exo', 'mpv'],
+                    current: app.playerCore == PlayerCoreType.mpv ? 'mpv' : 'exo',
+                    label: (v) => v == 'mpv'
+                        ? PlayerCoreType.mpv.label
+                        : PlayerCoreType.exo.label,
+                    description: (v) => v == 'mpv'
+                        ? PlayerCoreType.mpv.description
+                        : PlayerCoreType.exo.description,
+                    onSelect: (v) => app.playerCore =
+                        v == 'mpv' ? PlayerCoreType.mpv : PlayerCoreType.exo,
+                  ),
+                ),
+                const Divider(height: 1, indent: 16, endIndent: 16),
+                ListTile(
                   title: const Text('硬件解码器'),
                   subtitle: Text(
                     MpvPlayerSettings.hwdecLabel(app.mpvHwdec),
                     style: const TextStyle(fontSize: 12, color: FnTheme.textSecondary),
                   ),
-                  trailing: const Icon(Icons.chevron_right_rounded),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.help_outline_rounded, size: 22),
+                        color: FnTheme.danmuGreen.withOpacity(0.85),
+                        tooltip: '查看说明',
+                        onPressed: () => _showHwdecGuide(context, app),
+                      ),
+                      const Icon(Icons.chevron_right_rounded),
+                    ],
+                  ),
                   onTap: () => _showOptionSheet(
                     context,
                     title: '硬件解码器',
@@ -302,6 +338,7 @@ class _PlayerSettingsPage extends StatelessWidget {
                     label: MpvPlayerSettings.hwdecLabel,
                     description: MpvPlayerSettings.hwdecDescription,
                     onSelect: (v) => app.mpvHwdec = v,
+                    onHelp: () => _showHwdecGuide(context, app),
                   ),
                 ),
                 const Divider(height: 1, indent: 16, endIndent: 16),
@@ -412,6 +449,18 @@ class _PlayerSettingsPage extends StatelessWidget {
                   onTap: () => _showSeekStepPicker(context, app),
                 ),
                 ListTile(
+                  title: const Text('双击左侧'),
+                  subtitle: Text(app.doubleTapLeft == 'pause' ? '暂停/播放' : '快退'),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: () => _showDoubleTapPicker(context, app, isLeft: true),
+                ),
+                ListTile(
+                  title: const Text('双击右侧'),
+                  subtitle: Text(app.doubleTapRight == 'pause' ? '暂停/播放' : '快进'),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: () => _showDoubleTapPicker(context, app, isLeft: false),
+                ),
+                ListTile(
                   title: const Text('长按倍速'),
                   subtitle: Text('${app.danmuLongPressSpeed}x'),
                   trailing: const Icon(Icons.chevron_right_rounded),
@@ -458,8 +507,8 @@ class _PlayerSettingsPage extends StatelessWidget {
                   Text('MPV 播放内核', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
                   SizedBox(height: 4),
                   Text(
-                    '开源跨平台引擎，支持广泛格式、内嵌字幕与多音轨。'
-                    '可按设备情况调整硬解与缓冲策略。',
+                    'Exo 为 Android 默认内核；云直链内嵌字幕将自动切换 MPV。'
+                    '下方硬解/缓冲等仅对 MPV 生效。',
                     style: TextStyle(fontSize: 12, color: FnTheme.textSecondary, height: 1.45),
                   ),
                 ],
@@ -471,6 +520,14 @@ class _PlayerSettingsPage extends StatelessWidget {
     );
   }
 
+  void _showHwdecGuide(BuildContext context, AppState app) {
+    showMpvHwdecGuideDialog(
+      context,
+      current: app.mpvHwdec,
+      onSelect: (v) => app.mpvHwdec = v,
+    );
+  }
+
   void _showOptionSheet(
     BuildContext context, {
     required String title,
@@ -479,6 +536,7 @@ class _PlayerSettingsPage extends StatelessWidget {
     required String Function(String) label,
     required String Function(String) description,
     required void Function(String) onSelect,
+    VoidCallback? onHelp,
   }) {
     showModalBottomSheet(
       context: context,
@@ -496,6 +554,16 @@ class _PlayerSettingsPage extends StatelessWidget {
                 children: [
                   Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                   const Spacer(),
+                  if (onHelp != null)
+                    TextButton.icon(
+                      onPressed: () {
+                        Navigator.pop(ctx);
+                        onHelp();
+                      },
+                      icon: const Icon(Icons.menu_book_outlined, size: 16),
+                      label: const Text('详细说明', style: TextStyle(fontSize: 12)),
+                      style: TextButton.styleFrom(foregroundColor: FnTheme.danmuGreen),
+                    ),
                   IconButton(
                     icon: const Icon(Icons.close, size: 20),
                     onPressed: () => Navigator.pop(ctx),
@@ -550,6 +618,43 @@ class _PlayerSettingsPage extends StatelessWidget {
         title: Text('${s}x'),
         onChanged: (v) { app.danmuLongPressSpeed = v!; Navigator.pop(ctx); },
       )).toList(),
+    ));
+  }
+
+  void _showDoubleTapPicker(BuildContext ctx, AppState app, {required bool isLeft}) {
+    final current = isLeft ? app.doubleTapLeft : app.doubleTapRight;
+    showDialog(context: ctx, builder: (_) => SimpleDialog(
+      title: Text(isLeft ? '双击左侧' : '双击右侧'),
+      children: [
+        RadioListTile<String>(
+          value: 'seek',
+          groupValue: current,
+          title: Text(isLeft ? '快退' : '快进'),
+          onChanged: (v) {
+            if (v == null) return;
+            if (isLeft) {
+              app.doubleTapLeft = v;
+            } else {
+              app.doubleTapRight = v;
+            }
+            Navigator.pop(ctx);
+          },
+        ),
+        RadioListTile<String>(
+          value: 'pause',
+          groupValue: current,
+          title: const Text('暂停/播放'),
+          onChanged: (v) {
+            if (v == null) return;
+            if (isLeft) {
+              app.doubleTapLeft = v;
+            } else {
+              app.doubleTapRight = v;
+            }
+            Navigator.pop(ctx);
+          },
+        ),
+      ],
     ));
   }
 }

@@ -19,6 +19,9 @@ import '../utils/toast.dart';
 import '../widgets/danmu_overlay.dart';
 import '../widgets/subtitle_overlay.dart';
 import '../widgets/player_controls.dart';
+import '../services/app_video_player.dart';
+import '../services/player_factory.dart';
+import '../services/player_adapter.dart';
 import '../services/video_wrapper.dart';
 import '../services/danmu_service.dart';
 import '../services/subtitle_service.dart';
@@ -58,7 +61,12 @@ class PlayerScreen extends StatefulWidget {
 }
 
 class _PlayerScreenState extends State<PlayerScreen> {
-  VideoWrapper? _videoCtrl;
+  VideoWrapper? get _mpvCtrl =>
+      _videoCtrl is VideoWrapper ? _videoCtrl as VideoWrapper : null;
+
+  AppVideoPlayer? _videoCtrl;
+  PlayerCoreType _activeCore = PlayerCoreType.exo;
+  String _lastPlaybackUrl = '';
   bool _isPlaying = false;
   bool _showControls = true;
   bool _isLocked = false;
@@ -324,29 +332,43 @@ class _PlayerScreenState extends State<PlayerScreen> {
     return base;
   }
 
-  void _initVideo(String url) {
+  void _initVideo(String url, {bool forceMpv = false}) {
+    _lastPlaybackUrl = url;
     _disposeVideoCtrl();
     final seekTs = _resolveSeekTs();
     final startAt = seekTs > 0 ? Duration(seconds: seekTs) : null;
-    final deferSeek = _preferEmbeddedSubtitle && seekTs > 0;
 
-    _videoCtrl = VideoWrapper(
+    final core = PlayerFactory.resolveCore(
+      userPreference: _app.playerCore,
+      preferEmbedded: _preferEmbeddedSubtitle,
+      subtitleStreams: _subtitleStreams,
+      forceMpv: forceMpv,
+    );
+    _activeCore = core;
+
+    _videoCtrl = PlayerFactory.create(
+      core: core,
       url: url,
       headers: _app!.api.headers,
-      settings: _mpvSettingsForPlayback(),
+      mpvSettings: _mpvSettingsForPlayback(),
     );
-    _videoCtrl!.onPositionRegression = (lastStable) {
+    _mpvCtrl?.onPositionRegression = (lastStable) {
       debugPrint('🔄 Position regression at ${lastStable.inSeconds}s');
     };
+
+    final deferSeek = core == PlayerCoreType.mpv &&
+        _preferEmbeddedSubtitle &&
+        seekTs > 0;
+
     _networkSpeedBps = 0;
     _videoCtrl!.networkSpeedBps.addListener(_onNetworkSpeedUpdate);
     _videoCtrl!.addListener(_videoListener);
     _videoCtrl!.initialize(
-      startAt: startAt,
+      startAt: deferSeek ? null : startAt,
       initialSpeed: _speed,
       deferSeek: deferSeek,
     ).then((_) async {
-      if (!mounted) return;
+      if (!mounted || _videoCtrl == null) return;
       setState(() => _isInitialized = true);
       await _videoCtrl!.play();
       _isPlaying = true;
@@ -354,7 +376,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       if (deferSeek && startAt != null) {
         await _videoCtrl!.resumeAfterPlay(startAt);
         debugPrint('🎯 Cloud resume from ${seekTs}s (post-play seek)');
-      } else if (seekTs > 0) {
+      } else if (startAt != null && startAt > Duration.zero) {
         debugPrint('🎯 Resume from ${seekTs}s');
       }
 
@@ -368,10 +390,39 @@ class _PlayerScreenState extends State<PlayerScreen> {
       }
 
       await _autoLoadDefaultSubtitle();
+
+      if (!forceMpv &&
+          _activeCore == PlayerCoreType.mpv &&
+          _app.playerCore == PlayerCoreType.exo &&
+          PlayerFactory.needsMpvForEmbeddedSubtitles(
+            preferEmbedded: _preferEmbeddedSubtitle,
+            subtitleStreams: _subtitleStreams,
+          ) &&
+          mounted) {
+        FnToast.show(context, '内嵌字幕已自动切换 MPV', type: FnToastType.info);
+      }
+
       Future.delayed(const Duration(seconds: 2), () => _saveProgress());
       _startProgressTimer();
       _resetHideTimer();
+    }).catchError((e) {
+      debugPrint('Player init error: $e');
+      if (!forceMpv && _app.playerCore == PlayerCoreType.exo && mounted) {
+        FnToast.show(context, 'Exo 播放失败，切换 MPV', type: FnToastType.info);
+        _initVideo(url, forceMpv: true);
+      }
     });
+  }
+
+  Future<void> _fallbackToMpv() async {
+    if (_activeCore == PlayerCoreType.mpv || _lastPlaybackUrl.isEmpty) return;
+    final pos = _videoCtrl?.position.inSeconds ?? 0;
+    _explicitSeekTs = pos > 0 ? pos : 0;
+    if (mounted) {
+      FnToast.show(context, '内嵌字幕已切换 MPV 播放', type: FnToastType.info);
+    }
+    setState(() => _isInitialized = false);
+    _initVideo(_lastPlaybackUrl, forceMpv: true);
   }
 
   Future<void> _selectSubtitleTrack(int index) async {
@@ -441,6 +492,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
       debugPrint('✅ MPV embedded subtitle $index');
     } else if (mounted) {
       debugPrint('⚠️ Subtitle track $index failed');
+      if (_activeCore == PlayerCoreType.exo && preferEmbedded) {
+        await _fallbackToMpv();
+      }
     }
   }
 
@@ -488,7 +542,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     } else {
       url = _app.api.getMediaUrl(_mediaGuid!);
     }
-    debugPrint('Playing (MPV): $url');
+    debugPrint('Playing (${_app.playerCore.label}): $url');
     _initVideo(url);
   }
 
@@ -696,6 +750,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _fetchServerSeekOnLoad = true;
     } else {
       _explicitSeekTs = 0;
+      _serverSeekTs = 0;
       _fetchServerSeekOnLoad = false;
     }
     setState(() {
@@ -823,7 +878,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   String get _playbackInfoLabel {
-    final buf = StringBuffer('MPV');
+    final buf = StringBuffer(_activeCore.label);
     if (_isStrmFile && _cloudDirectUrl.isNotEmpty) buf.write(' · 直链');
     if (_streamVWidth > 0 && _streamVHeight > 0) buf.write(' · ${_streamVWidth}x$_streamVHeight');
     return buf.toString();
@@ -909,10 +964,20 @@ class _PlayerScreenState extends State<PlayerScreen> {
           if (_isLocked) return;
           final w = MediaQuery.of(context).size.width;
           final dx = details.globalPosition.dx;
+          final leftAction = _app.doubleTapLeft;
+          final rightAction = _app.doubleTapRight;
           if (dx < w / 3) {
-            _seek(Duration(seconds: -seekStep));
+            if (leftAction == 'pause') {
+              _togglePlay();
+            } else {
+              _seek(Duration(seconds: -seekStep));
+            }
           } else if (dx > w * 2 / 3) {
-            _seek(Duration(seconds: seekStep));
+            if (rightAction == 'pause') {
+              _togglePlay();
+            } else {
+              _seek(Duration(seconds: seekStep));
+            }
           } else {
             _togglePlay();
           }

@@ -2,18 +2,16 @@ import 'package:flutter/material.dart';
 import '../models/danmu_comment.dart';
 import '../utils/theme.dart';
 
-/// 进度条上方的弹幕密度热力图。
+/// 进度条上方的弹幕密度折线图（点击可 seek）
 class DanmuHeatmap extends StatelessWidget {
   final List<DanmuComment> comments;
   final Duration duration;
-  final Duration position;
   final ValueChanged<double>? onSeekTap;
 
   const DanmuHeatmap({
     super.key,
     required this.comments,
     required this.duration,
-    required this.position,
     this.onSeekTap,
   });
 
@@ -39,7 +37,6 @@ class DanmuHeatmap extends StatelessWidget {
       return const SizedBox(height: 4);
     }
     final bins = _buildBins();
-    final playRatio = (position.inMilliseconds / duration.inMilliseconds).clamp(0.0, 1.0);
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -51,13 +48,10 @@ class DanmuHeatmap extends StatelessWidget {
                   onSeekTap!(ratio);
                 },
           child: SizedBox(
-            height: 22,
+            height: 18,
             child: CustomPaint(
-              size: Size(constraints.maxWidth, 22),
-              painter: _HeatmapPainter(
-                bins: bins,
-                playRatio: playRatio,
-              ),
+              size: Size(constraints.maxWidth, 18),
+              painter: _LineHeatmapPainter(bins: bins),
             ),
           ),
         );
@@ -66,42 +60,54 @@ class DanmuHeatmap extends StatelessWidget {
   }
 }
 
-class _HeatmapPainter extends CustomPainter {
+class _LineHeatmapPainter extends CustomPainter {
   final List<double> bins;
-  final double playRatio;
 
-  _HeatmapPainter({required this.bins, required this.playRatio});
+  _LineHeatmapPainter({required this.bins});
 
   @override
   void paint(Canvas canvas, Size size) {
-    final barW = size.width / bins.length;
+    if (bins.isEmpty) return;
+    final stepX = size.width / (bins.length - 1).clamp(1, bins.length);
+    final path = Path();
     for (var i = 0; i < bins.length; i++) {
-      final h = (bins[i] * size.height * 0.92).clamp(1.0, size.height);
-      final x = i * barW;
-      final opacity = (0.15 + bins[i] * 0.85).clamp(0.0, 1.0);
-      final paint = Paint()
-        ..color = FnTheme.danmuGreen.withOpacity(opacity)
-        ..style = PaintingStyle.fill;
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(
-          Rect.fromLTWH(x + 0.5, size.height - h, barW - 1, h),
-          const Radius.circular(1),
-        ),
-        paint,
-      );
+      final x = i * stepX;
+      final y = size.height - (bins[i] * size.height * 0.88).clamp(1.0, size.height);
+      if (i == 0) {
+        path.moveTo(x, y);
+      } else {
+        path.lineTo(x, y);
+      }
     }
 
-    final playX = playRatio * size.width;
-    canvas.drawLine(
-      Offset(playX, 0),
-      Offset(playX, size.height),
+    final fillPath = Path.from(path)
+      ..lineTo(size.width, size.height)
+      ..lineTo(0, size.height)
+      ..close();
+    canvas.drawPath(
+      fillPath,
       Paint()
-        ..color = Colors.white.withOpacity(0.85)
-        ..strokeWidth = 1.5,
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            FnTheme.danmuGreen.withOpacity(0.35),
+            FnTheme.danmuGreen.withOpacity(0.04),
+          ],
+        ).createShader(Rect.fromLTWH(0, 0, size.width, size.height)),
+    );
+
+    canvas.drawPath(
+      path,
+      Paint()
+        ..color = FnTheme.danmuGreen.withOpacity(0.85)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.5
+        ..strokeJoin = StrokeJoin.round
+        ..strokeCap = StrokeCap.round,
     );
   }
 
   @override
-  bool shouldRepaint(covariant _HeatmapPainter old) =>
-      old.playRatio != playRatio || old.bins != bins;
+  bool shouldRepaint(covariant _LineHeatmapPainter old) => old.bins != bins;
 }

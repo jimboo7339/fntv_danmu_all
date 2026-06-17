@@ -417,14 +417,32 @@ class AppState extends ChangeNotifier {
   String get mpvVideoSync => _prefs.getString('mpv_video_sync') ?? 'audio';
   set mpvVideoSync(String v) { _prefs.setString('mpv_video_sync', v); notifyListeners(); }
 
-  /// 播放器内核：mpv（默认）/ exo（Android 原生，后续支持）
+  /// 播放器内核：exo（Android 默认）/ mpv
   PlayerCoreType get playerCore {
-    final v = _prefs.getString('player_core') ?? 'mpv';
-    return v == 'exo' ? PlayerCoreType.exo : PlayerCoreType.mpv;
+    final v = _prefs.getString('player_core');
+    if (v != null) {
+      return v == 'mpv' ? PlayerCoreType.mpv : PlayerCoreType.exo;
+    }
+    if (!kIsWeb && Platform.isAndroid) return PlayerCoreType.exo;
+    return PlayerCoreType.mpv;
   }
 
   set playerCore(PlayerCoreType v) {
-    _prefs.setString('player_core', v == PlayerCoreType.exo ? 'exo' : 'mpv');
+    _prefs.setString('player_core', v == PlayerCoreType.mpv ? 'mpv' : 'exo');
+    notifyListeners();
+  }
+
+  /// 双击左侧：seek=快退 / pause=暂停
+  String get doubleTapLeft => _prefs.getString('double_tap_left') ?? 'seek';
+  set doubleTapLeft(String v) {
+    _prefs.setString('double_tap_left', v == 'pause' ? 'pause' : 'seek');
+    notifyListeners();
+  }
+
+  /// 双击右侧：seek=快进 / pause=暂停
+  String get doubleTapRight => _prefs.getString('double_tap_right') ?? 'seek';
+  set doubleTapRight(String v) {
+    _prefs.setString('double_tap_right', v == 'pause' ? 'pause' : 'seek');
     notifyListeners();
   }
 
