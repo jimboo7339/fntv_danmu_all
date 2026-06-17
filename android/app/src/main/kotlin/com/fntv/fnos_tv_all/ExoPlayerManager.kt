@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
@@ -104,7 +105,7 @@ object ExoPlayerManager {
             "positionMs" to p.currentPosition.coerceAtLeast(0),
             "durationMs" to p.duration.coerceAtLeast(0),
             "isPlaying" to p.isPlaying,
-            "isBuffering" to p.playbackState == androidx.media3.common.Player.STATE_BUFFERING,
+            "isBuffering" to (p.playbackState == Player.STATE_BUFFERING),
             "videoWidth" to p.videoSize.width,
             "videoHeight" to p.videoSize.height,
             "bitrateEstimate" to 0,
