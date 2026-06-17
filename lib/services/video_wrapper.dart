@@ -22,7 +22,6 @@ class VideoWrapper implements PlayerAdapter {
 
   Player? _mpvPlayer;
   VideoController? _mpvVideoController;
-  Widget? _cachedVideoWidget;
 
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
@@ -34,6 +33,7 @@ class VideoWrapper implements PlayerAdapter {
   bool _isSeeking = false;
   bool _mpvSubtitleActive = false;
   bool _deferResumePending = false;
+  int _videoWidgetGeneration = 0;
   bool _initPropertiesApplied = false;
   DateTime _lastPositionNotify = DateTime.fromMillisecondsSinceEpoch(0);
   Duration _lastNotifiedPosition = Duration.zero;
@@ -90,8 +90,10 @@ class VideoWrapper implements PlayerAdapter {
   }
 
   void _invalidateVideoWidget() {
-    _cachedVideoWidget = null;
+    _videoWidgetGeneration++;
   }
+
+  int get videoWidgetGeneration => _videoWidgetGeneration;
 
   @override
   Future<void> initialize({
@@ -107,7 +109,6 @@ class VideoWrapper implements PlayerAdapter {
 
     _mpvPlayer = Player(
       configuration: PlayerConfiguration(
-        libass: true,
         vo: settings.vo,
         bufferSize: settings.bufferBytes,
         logLevel: MPVLogLevel.warn,
@@ -146,6 +147,7 @@ class VideoWrapper implements PlayerAdapter {
     });
 
     await _applyInitProperties();
+    await _lockSubtitleDecoderOff();
 
     final resume = (startAt != null && startAt > Duration.zero) ? startAt : null;
     await _openVideoSource(
@@ -195,7 +197,7 @@ class VideoWrapper implements PlayerAdapter {
     final native = _native;
     if (native == null) return;
 
-    final hwdec = _isNetworkUrl ? 'auto-safe' : settings.hwdec;
+    final hwdec = settings.hwdec;
     final syncMode = _playbackRate != 1.0 ? 'audio' : settings.videoSync;
 
     final props = <String, String>{
@@ -209,14 +211,26 @@ class VideoWrapper implements PlayerAdapter {
       'interpolation': settings.interpolation ? 'yes' : 'no',
       'force-seekable': 'yes',
       'audio-buffer': '0.15',
+      'video-latency-hacks': 'yes',
+      'untimed': 'no',
       'video-sync': syncMode,
+      'video-sync-max-video-change': '5',
+      'video-sync-max-audio-change': '0.125',
       'audio-pitch-correction': 'yes',
-      'sub-visibility': 'yes',
-      'secondary-sub-visibility': 'no',
+      'sub-visibility': 'no',
+      'sub-auto': 'no',
+      'subs-fallback': 'no',
+      'sub-forced-only': 'no',
+      'mkv-subtitle-preroll': 'no',
       'sub-fix-timing': 'yes',
       'sub-delay': '0',
       'sub-ass-override': 'no',
     };
+
+    // PGS/ASS 内嵌字幕需混入视频帧，由 MPV 原生 surface 渲染（非 Flutter 文本层）
+    if (hwdec != 'no') {
+      props['blend-subtitles'] = 'yes';
+    }
 
     if (_isNetworkUrl) {
       props.addAll({
@@ -251,9 +265,56 @@ class VideoWrapper implements PlayerAdapter {
         await native.setProperty(e.key, e.value);
       }
       _initPropertiesApplied = true;
-      debugPrint('MPV init (LinPlayer-style): hwdec=$hwdec, sync=$syncMode, net=$_isNetworkUrl');
+      debugPrint('MPV init: hwdec=$hwdec, vo=${settings.vo}, sync=$syncMode, net=$_isNetworkUrl');
     } catch (e) {
       debugPrint('MPV init props error: $e');
+    }
+  }
+
+  Future<void> _lockSubtitleDecoderOff() async {
+    final native = _native;
+    if (native == null) return;
+    try {
+      for (final e in const {
+        'sid': 'no',
+        'sub-visibility': 'no',
+        'sub-auto': 'no',
+        'subs-fallback': 'no',
+        'sub-forced-only': 'no',
+      }.entries) {
+        await native.setProperty(e.key, e.value);
+      }
+      _mpvSubtitleActive = false;
+    } catch (e) {
+      debugPrint('lockSubtitleDecoderOff error: $e');
+    }
+  }
+
+  Future<void> _fastSeek(Duration target) async {
+    if (_mpvPlayer == null) return;
+    _isSeeking = true;
+    try {
+      final dur = _duration.inMilliseconds > 0 ? _duration : (_mpvPlayer!.state.duration);
+      final maxMs = dur.inMilliseconds > 1000 ? dur.inMilliseconds - 500 : target.inMilliseconds;
+      final clamped = Duration(milliseconds: target.inMilliseconds.clamp(0, maxMs));
+      await _mpvPlayer!.seek(clamped);
+      for (var i = 0; i < 8; i++) {
+        await Future.delayed(const Duration(milliseconds: 50));
+        final pos = _mpvPlayer!.state.position;
+        if ((pos - clamped).inMilliseconds.abs() < 2000 || pos >= clamped) {
+          _position = pos;
+          positionNotifier.value = pos;
+          debugPrint('✅ Seek ${clamped.inSeconds}s (pos=${pos.inSeconds}s)');
+          return;
+        }
+      }
+      _position = _mpvPlayer!.state.position;
+      positionNotifier.value = _position;
+      debugPrint('⚠️ Seek ${clamped.inSeconds}s (pos=${_position.inSeconds}s)');
+    } catch (e) {
+      debugPrint('fastSeek error: $e');
+    } finally {
+      _isSeeking = false;
     }
   }
 
@@ -409,51 +470,52 @@ class VideoWrapper implements PlayerAdapter {
   Future<void> resumeAfterPlay(Duration target) async {
     if (_mpvPlayer == null || target <= Duration.zero) return;
     await waitUntilFirstFrame();
-    await _applyStartupSeek(target);
+    await _fastSeek(target);
+    await Future.delayed(const Duration(milliseconds: 350));
     _deferResumePending = false;
     await _applyPlaybackRate();
+  }
+
+  /// 播放稳定后再启用内嵌字幕（PGS/ASS 由 MPV 原生 surface 渲染）
+  Future<bool> enableEmbeddedSubtitleDeferred({
+    required int listIndex,
+    SubtitleStreamInfo? info,
+    Duration delay = const Duration(seconds: 1),
+  }) async {
+    if (_mpvPlayer == null) return false;
+    await Future.delayed(delay);
+    if (_mpvPlayer == null) return false;
+    await _waitForMpvTracks();
+    final track = await setSubtitleTrackByInfo(listIndex: listIndex, info: info);
+    return track != null;
   }
 
   Future<bool> selectEmbeddedSubtitleWhenReady({
     required int listIndex,
     SubtitleStreamInfo? info,
-    Duration delay = const Duration(milliseconds: 600),
-  }) async {
-    if (_mpvPlayer == null) return false;
-    await waitUntilFirstFrame();
-    await Future.delayed(delay);
-    for (var attempt = 1; attempt <= 3; attempt++) {
-      final track = await setSubtitleTrackByInfo(listIndex: listIndex, info: info);
-      if (track != null) {
-        _invalidateVideoWidget();
-        _notifyAll();
-        return true;
-      }
-      if (attempt < 3) {
-        await Future.delayed(const Duration(milliseconds: 400));
-      }
-    }
-    return false;
-  }
+    Duration delay = const Duration(seconds: 1),
+  }) =>
+      enableEmbeddedSubtitleDeferred(
+        listIndex: listIndex,
+        info: info,
+        delay: delay,
+      );
 
   Future<void> _applyPlaybackRate() async {
     final player = _mpvPlayer;
     if (player == null) return;
     final rate = _playbackRate.clamp(0.25, 4.0);
     try {
+      await player.setRate(rate);
       final native = _native;
       if (native != null) {
-        // 倍速时强制跟随音频时钟，避免云直链 HTTP seek 后音画漂移
+        await native.setProperty('speed', rate.toStringAsFixed(3));
         if (rate != 1.0) {
           await native.setProperty('video-sync', 'audio');
         } else {
           await native.setProperty('video-sync', settings.videoSync);
         }
         await native.setProperty('audio-pitch-correction', 'yes');
-      }
-      await player.setRate(rate);
-      if (native != null) {
-        await native.setProperty('speed', rate.toStringAsFixed(3));
       }
       debugPrint('MPV speed: ${rate}x (sync=${rate != 1.0 ? 'audio' : settings.videoSync})');
     } catch (e) {
@@ -592,18 +654,18 @@ class VideoWrapper implements PlayerAdapter {
 
       debugPrint('setSubtitleTrack: list=$listIndex -> sid=${track.id}');
       await _mpvPlayer!.setSubtitleTrack(track);
-      final sidOk = await _ensureSubtitleSid(track.id);
+      await _ensureSubtitleSid(track.id);
       _mpvSubtitleActive = true;
       final native = _native;
       if (native != null) {
         await native.setProperty('sub-visibility', 'yes');
         await native.setProperty('sub-delay', '0');
+        if (settings.hwdec != 'no') {
+          await native.setProperty('blend-subtitles', 'yes');
+        }
       }
       _invalidateVideoWidget();
       _notifyAll();
-      if (!sidOk) {
-        debugPrint('⚠️ sid verify failed for ${track.id}');
-      }
       return track;
     } catch (e) {
       debugPrint('setSubtitleTrack error: $e');
@@ -620,16 +682,16 @@ class VideoWrapper implements PlayerAdapter {
     Color subtitleColor = Colors.white,
     double subtitleWeight = 600,
   }) {
-    if (_cachedVideoWidget != null) return _cachedVideoWidget!;
-
+    // 内嵌字幕由 MPV 原生 surface 渲染；不缓存 Video 以免字幕/样式状态冻结
     final fontWeight = FontWeight.values[
       ((subtitleWeight.clamp(100, 900) - 100) / 100).round().clamp(0, 8)
     ];
-    _cachedVideoWidget = Video(
+    return Video(
+      key: ValueKey('mpv-video-$_videoWidgetGeneration'),
       controller: _mpvVideoController!,
       controls: (state) => const SizedBox.shrink(),
       subtitleViewConfiguration: SubtitleViewConfiguration(
-        visible: _mpvSubtitleActive,
+        visible: subtitleVisible && _mpvSubtitleActive,
         textScaleFactor: subtitleSize / 18.0,
         padding: EdgeInsets.zero,
         style: TextStyle(
@@ -645,7 +707,6 @@ class VideoWrapper implements PlayerAdapter {
         ),
       ),
     );
-    return _cachedVideoWidget!;
   }
 
   @override

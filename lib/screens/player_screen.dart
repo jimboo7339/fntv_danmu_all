@@ -64,6 +64,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   bool _isLocked = false;
   bool _isBuffering = false;
   bool _isInitialized = false;
+  bool _mpvSubUiActive = false;
 
   // Stream info
   String? _mediaGuid;
@@ -308,7 +309,20 @@ class _PlayerScreenState extends State<PlayerScreen> {
   bool get _preferEmbeddedSubtitle =>
       _cloudDirectUrl.isNotEmpty || _isStrmFile;
 
-  MpvPlayerSettings _mpvSettingsForPlayback() => _app.mpvSettings;
+  MpvPlayerSettings _mpvSettingsForPlayback() {
+    final base = _app.mpvSettings;
+    if (_preferEmbeddedSubtitle) {
+      return base.copyWith(videoSync: 'audio');
+    }
+    final hasSubs = _subtitleStreams != null && _subtitleStreams!.isNotEmpty;
+    if (!hasSubs) return base;
+    final hw = base.hwdec;
+    if (hw == 'no') return base;
+    if (hw == 'mediacodec' || hw == 'mediacodec-copy' || hw == 'auto-copy') {
+      return base.copyWith(hwdec: 'auto-safe');
+    }
+    return base;
+  }
 
   void _initVideo(String url) {
     _disposeVideoCtrl();
@@ -347,13 +361,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
       if (_audioStreams != null &&
           _audioStreams!.length > 1 &&
           _selectedAudioIndex > 0) {
-        _videoCtrl!.applyInitialAudioIfNeeded(
+        await _videoCtrl!.applyInitialAudioIfNeeded(
           audioStreams: _audioStreams,
           preferredListIndex: _selectedAudioIndex,
         );
       }
 
-      _autoLoadDefaultSubtitle();
+      await _autoLoadDefaultSubtitle();
       Future.delayed(const Duration(seconds: 2), () => _saveProgress());
       _startProgressTimer();
       _resetHideTimer();
@@ -412,11 +426,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (preferEmbedded) {
       debugPrint('📺 Cloud direct: use MPV embedded subtitle');
     }
-    final ok = await _videoCtrl!.selectEmbeddedSubtitleWhenReady(
+    final ok = await _videoCtrl!.enableEmbeddedSubtitleDeferred(
       listIndex: index,
       info: streamInfo,
       delay: preferEmbedded
-          ? const Duration(milliseconds: 800)
+          ? const Duration(milliseconds: 1000)
           : (_isPlaying ? const Duration(milliseconds: 400) : const Duration(milliseconds: 800)),
     );
     if (ok && mounted) {
@@ -523,10 +537,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (_videoCtrl == null || !mounted) return;
     final isBuffering = _videoCtrl!.isBuffering;
     final isPlaying = _videoCtrl!.isPlaying;
-    if (isBuffering != _isBuffering || isPlaying != _isPlaying) {
+    final subActive = _videoCtrl!.mpvSubtitleActive;
+    if (isBuffering != _isBuffering ||
+        isPlaying != _isPlaying ||
+        subActive != _mpvSubUiActive) {
       setState(() {
         _isBuffering = isBuffering;
         _isPlaying = isPlaying;
+        _mpvSubUiActive = subActive;
       });
     }
     // Check if ended
