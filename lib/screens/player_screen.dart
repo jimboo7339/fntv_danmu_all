@@ -10,6 +10,7 @@ import '../models/stream_response.dart';
 import '../models/play_list_item.dart';
 import '../models/danmu_comment.dart';
 import '../models/subtitle_data.dart';
+import '../models/mpv_player_settings.dart';
 import '../models/watch_record.dart';
 import 'package:crypto/crypto.dart';
 import 'dart:convert';
@@ -287,7 +288,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
         }
         if (sd.subtitleStreams != null && sd.subtitleStreams!.isNotEmpty) {
           _subtitleStreams = sd.subtitleStreams;
-          _selectedSubtitleIndex = -1;
+          _selectedSubtitleIndex = _defaultSubtitleListIndex(sd.subtitleStreams!);
         }
       }
     } catch (e) {
@@ -295,7 +296,27 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
   }
 
-  Future<void> _selectSubtitleTrack(int index, {bool fallbackToEmbedded = true}) async {
+  int _defaultSubtitleListIndex(List<SubtitleStreamInfo> streams) {
+    if (_subtitleGuid != null) {
+      final i = streams.indexWhere((s) => s.guid == _subtitleGuid);
+      if (i >= 0) return i;
+    }
+    return 0;
+  }
+
+  MpvPlayerSettings _mpvSettingsForPlayback() {
+    final base = _app.mpvSettings;
+    final hasSubs = _subtitleStreams != null && _subtitleStreams!.isNotEmpty;
+    if (!hasSubs) return base;
+    final hw = base.hwdec;
+    if (hw == 'no') return base;
+    if (hw == 'mediacodec' || hw == 'mediacodec-copy' || hw == 'auto-copy') {
+      return base.copyWith(hwdec: 'auto-safe');
+    }
+    return base;
+  }
+
+  Future<void> _selectSubtitleTrack(int index) async {
     if (_videoCtrl == null) return;
     if (index < 0) {
       await _videoCtrl!.setSubtitleTrack(-1);
@@ -309,9 +330,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
 
     final streams = _subtitleStreams;
-    await _videoCtrl!.prepareCleanPlayback();
+    if (mounted) {
+      setState(() {
+        _selectedSubtitleIndex = index;
+        _softwareSubtitle = null;
+      });
+    }
 
-    // 多轨字幕：优先走软件字幕层，避免 MPV 解码字幕干扰音画同步
     if (_mediaGuid != null && streams != null && index < streams.length) {
       final svc = SubtitleService(_app.api);
       final data = await svc.loadByStreamIndex(
@@ -331,13 +356,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
       }
     }
 
-    if (mounted) setState(() => _softwareSubtitle = null);
-    // 内嵌字幕解码器与当前播放配置不兼容（mediacodec-copy + 网络流），会导致音画不同步
-    // 仅支持软件字幕，不 fallback 到 MPV 内嵌字幕
-    if (fallbackToEmbedded) {
-      debugPrint('⚠️ Embedded subtitle disabled to prevent A/V desync');
+    if (mounted) {
+      setState(() {
+        _softwareSubtitle = null;
+        _selectedSubtitleIndex = index;
+      });
+      debugPrint('⚠️ Subtitle track $index: server extract failed');
     }
-    return;
   }
 
   Future<void> _loadExternalSubtitle() async {
@@ -360,7 +385,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
       if (data == null || data.entries.isEmpty) return;
 
       if (mounted) {
-        await _videoCtrl?.prepareCleanPlayback();
         setState(() {
           _softwareSubtitle = data;
           _selectedSubtitleIndex = -1;
@@ -412,13 +436,29 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   Future<void> _autoLoadDefaultSubtitle() async {
     final streams = _subtitleStreams;
-    if (streams == null || streams.isEmpty || _selectedSubtitleIndex >= 0) return;
-    var idx = 0;
-    if (_subtitleGuid != null) {
-      final i = streams.indexWhere((s) => s.guid == _subtitleGuid);
-      if (i >= 0) idx = i;
+    if (streams == null || streams.isEmpty || _mediaGuid == null) return;
+    final idx = _selectedSubtitleIndex >= 0
+        ? _selectedSubtitleIndex
+        : _defaultSubtitleListIndex(streams);
+
+    if (mounted && _selectedSubtitleIndex < 0) {
+      setState(() => _selectedSubtitleIndex = idx);
     }
-    await _selectSubtitleTrack(idx, fallbackToEmbedded: false);
+
+    final svc = SubtitleService(_app.api);
+    final data = await svc.loadDefault(
+      mediaGuid: _mediaGuid!,
+      subtitleGuid: _subtitleGuid,
+      videoGuid: _videoGuid,
+      streams: streams,
+    );
+    if (data != null && mounted) {
+      setState(() {
+        _softwareSubtitle = data;
+        _selectedSubtitleIndex = idx;
+      });
+      debugPrint('✅ Auto subtitle $idx: ${data.entries.length} entries');
+    }
   }
 
   void _initVideo(String url) {
@@ -429,7 +469,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _videoCtrl = VideoWrapper(
       url: url,
       headers: _app!.api.headers,
-      settings: _app!.mpvSettings,
+      settings: _mpvSettingsForPlayback(),
     );
     _videoCtrl!.onPositionRegression = (lastStable) {
       debugPrint('🔄 Recovering playback position to ${lastStable.inSeconds}s');
@@ -439,24 +479,24 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _videoCtrl!.addListener(_videoListener);
     _videoCtrl!.initialize(startAt: startAt).then((_) async {
       if (!mounted) return;
-      // 多音轨仅在非默认轨时切换，避免无谓 remap 导致音画不同步
-      if (_audioStreams != null &&
-          _audioStreams!.length > 1 &&
-          _selectedAudioIndex > 0) {
-        await _videoCtrl!.applyInitialAudioIfNeeded(
-          audioStreams: _audioStreams,
-          preferredListIndex: _selectedAudioIndex,
-        );
-      }
-      if (!mounted) return;
-      await _autoLoadDefaultSubtitle();
-      if (!mounted) return;
       setState(() => _isInitialized = true);
       await _videoCtrl!.play();
       await _videoCtrl!.setSpeed(_speed);
       _isPlaying = true;
+
+      if (_audioStreams != null &&
+          _audioStreams!.length > 1 &&
+          _selectedAudioIndex > 0) {
+        _videoCtrl!.applyInitialAudioIfNeeded(
+          audioStreams: _audioStreams,
+          preferredListIndex: _selectedAudioIndex,
+        );
+      }
+
+      _autoLoadDefaultSubtitle();
+
       if (seekTs > 0) {
-        debugPrint('🎯 Resume from ${seekTs}s (pre-seek during init)');
+        debugPrint('🎯 Resume from ${seekTs}s');
       }
       Future.delayed(const Duration(seconds: 2), () => _saveProgress());
       _startProgressTimer();

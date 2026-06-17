@@ -83,8 +83,10 @@ class VideoWrapper {
     });
     _mpvPlayer!.stream.position.listen(_onPositionUpdate);
     _mpvPlayer!.stream.duration.listen((dur) {
-      _duration = dur;
-      _notifyAll();
+      if (dur.inMilliseconds > 0) {
+        _duration = dur;
+        _notifyAll();
+      }
     });
     _mpvPlayer!.stream.buffering.listen((buf) {
       _isBuffering = buf;
@@ -105,30 +107,19 @@ class VideoWrapper {
       }
     });
 
-    // 解码/同步相关属性必须在 open 前设置
     await _applyInitProperties();
-
-    // open 前关闭字幕解码器，避免字幕 demux 干扰音画同步
-    final nativePre = _native;
-    if (nativePre != null) {
-      await nativePre.setProperty('sid', 'no');
-      await nativePre.setProperty('sub-visibility', 'no');
-      _mpvSubtitleActive = false;
-    }
+    await _lockSubtitleDecoderOff();
 
     await _mpvPlayer!.open(
       Media(url, httpHeaders: headers ?? const {}),
       play: false,
     );
-    await _waitForMetadata();
+
+    await _waitUntilPlayable();
     _readVideoDimensions();
 
-    // 先等轨加载完、关字幕解码器，解码器安顿好再 seek
-    await _waitForMpvTracks();
-    await _disableEmbeddedSubtitles();
-
     if (startAt != null && startAt > Duration.zero) {
-      await _accurateSeek(startAt);
+      await _fastSeek(startAt);
     }
 
     _isInitialized = true;
@@ -137,17 +128,31 @@ class VideoWrapper {
     _notifyAll();
   }
 
+  Future<void> _lockSubtitleDecoderOff() async {
+    final native = _native;
+    if (native == null) return;
+    try {
+      for (final e in const {
+        'sid': 'no',
+        'sub-visibility': 'no',
+        'sub-auto': 'no',
+        'subs-fallback': 'no',
+        'sub-forced-only': 'no',
+      }.entries) {
+        await native.setProperty(e.key, e.value);
+      }
+      _mpvSubtitleActive = false;
+    } catch (e) {
+      debugPrint('lockSubtitleDecoderOff error: $e');
+    }
+  }
+
   /// 多音轨/字幕容器：默认关闭 MPV 字幕解码，软件字幕层单独渲染。
   Future<void> _disableEmbeddedSubtitles() async {
     if (_mpvPlayer == null) return;
     try {
       await _mpvPlayer!.setSubtitleTrack(SubtitleTrack.no());
-      _mpvSubtitleActive = false;
-      final native = _native;
-      if (native != null) {
-        await native.setProperty('sid', 'no');
-        await native.setProperty('sub-visibility', 'no');
-      }
+      await _lockSubtitleDecoderOff();
     } catch (e) {
       debugPrint('disableEmbeddedSubtitles error: $e');
     }
@@ -155,14 +160,31 @@ class VideoWrapper {
 
   Future<void> prepareCleanPlayback() => _disableEmbeddedSubtitles();
 
-  Future<void> _waitForMpvTracks({int attempts = 50}) async {
+  Future<void> _waitForMpvTracks({int attempts = 30}) async {
     for (var i = 0; i < attempts; i++) {
       final tracks = _mpvPlayer?.state.tracks;
       if (tracks != null &&
-          (tracks.audio.length > 2 || tracks.subtitle.length > 2 || i > 20)) {
+          (tracks.audio.length > 2 || tracks.subtitle.length > 2 || i > 12)) {
         return;
       }
-      await Future.delayed(const Duration(milliseconds: 50));
+      await Future.delayed(const Duration(milliseconds: 40));
+    }
+  }
+
+  /// 尽快达到可播放状态，不等待完整轨列表。
+  Future<void> _waitUntilPlayable({int maxMs = 2500}) async {
+    final deadline = DateTime.now().add(Duration(milliseconds: maxMs));
+    while (DateTime.now().isBefore(deadline)) {
+      final player = _mpvPlayer;
+      if (player == null) return;
+      final dur = player.state.duration;
+      final w = player.state.width;
+      final h = player.state.height;
+      if (dur.inMilliseconds > 0 || (w != null && w > 0 && h != null && h > 0)) {
+        if (dur.inMilliseconds > 0) _duration = dur;
+        return;
+      }
+      await Future.delayed(const Duration(milliseconds: 40));
     }
   }
 
@@ -275,6 +297,9 @@ class VideoWrapper {
       'sub-fix-timing': 'yes',
       'sub-delay': '0',
       'sub-ass-override': 'no',
+      'sub-auto': 'no',
+      'subs-fallback': 'no',
+      'mkv-subtitle-preroll': 'no',
     };
     try {
       for (final e in props.entries) {
@@ -347,18 +372,7 @@ class VideoWrapper {
     });
   }
 
-  Future<void> _waitForMetadata() async {
-    for (var i = 0; i < 150; i++) {
-      await Future.delayed(const Duration(milliseconds: 100));
-      final dur = _mpvPlayer?.state.duration ?? Duration.zero;
-      if (dur.inMilliseconds > 0) {
-        _duration = dur;
-        return;
-      }
-    }
-  }
-
-  Future<void> _accurateSeek(Duration target) async {
+  Future<void> _fastSeek(Duration target) async {
     if (_mpvPlayer == null) return;
     _isSeeking = true;
     try {
@@ -368,17 +382,10 @@ class VideoWrapper {
 
       await _mpvPlayer!.seek(clamped);
 
-      for (var i = 0; i < 50; i++) {
-        await Future.delayed(const Duration(milliseconds: 80));
+      for (var i = 0; i < 8; i++) {
+        await Future.delayed(const Duration(milliseconds: 50));
         final pos = _mpvPlayer!.state.position;
-        if ((pos - clamped).inMilliseconds.abs() < 1200) {
-          _position = pos;
-          _lastStablePosition = pos;
-          positionNotifier.value = pos;
-          _notifyAll();
-          return;
-        }
-        if (pos.inMilliseconds > 1000 && pos >= clamped - const Duration(seconds: 2)) {
+        if ((pos - clamped).inMilliseconds.abs() < 2000 || pos >= clamped) {
           _position = pos;
           _lastStablePosition = pos;
           positionNotifier.value = pos;
@@ -386,10 +393,16 @@ class VideoWrapper {
           return;
         }
       }
+      _position = clamped;
+      _lastStablePosition = clamped;
+      positionNotifier.value = clamped;
+      _notifyAll();
     } finally {
       _isSeeking = false;
     }
   }
+
+  Future<void> _accurateSeek(Duration target) => _fastSeek(target);
 
   void _throttledNotify(Duration pos) {
     final now = DateTime.now();

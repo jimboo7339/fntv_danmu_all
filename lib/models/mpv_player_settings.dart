@@ -21,6 +21,23 @@ class MpvPlayerSettings {
 
   int get bufferBytes => bufferMb * 1024 * 1024;
 
+  MpvPlayerSettings copyWith({
+    String? hwdec,
+    String? vo,
+    String? videoSync,
+    int? bufferMb,
+    int? cacheSecs,
+    bool? interpolation,
+  }) =>
+      MpvPlayerSettings(
+        hwdec: hwdec ?? this.hwdec,
+        vo: vo ?? this.vo,
+        videoSync: videoSync ?? this.videoSync,
+        bufferMb: bufferMb ?? this.bufferMb,
+        cacheSecs: cacheSecs ?? this.cacheSecs,
+        interpolation: interpolation ?? this.interpolation,
+      );
+
   static const hwdecOptions = [
     'auto-copy',
     'auto-safe',
