@@ -131,6 +131,10 @@ class ApiClient {
     return '$_baseUrl/v/api/v1/media/range/$mediaGuid?direct_link_quality_index=$qualityIndex';
   }
 
+  String getMediaUrlWithTranscodeQuality(String mediaGuid, int qualityIndex) {
+    return '$_baseUrl/v/api/v1/media/range/$mediaGuid?quality_index=$qualityIndex';
+  }
+
   String getImageUrl(String? path, {int width = 400}) {
     if (path == null || path.isEmpty) return '';
     final p = path.startsWith('/') ? path : '/$path';

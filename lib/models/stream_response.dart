@@ -1,5 +1,6 @@
 class StreamResponse {
   final List<DirectLinkQuality>? directLinkQualities;
+  final List<DirectLinkQuality>? qualities;
   final VideoStreamInfo? videoStream;
   final List<AudioStreamInfo>? audioStreams;
   final List<SubtitleStreamInfo>? subtitleStreams;
@@ -7,6 +8,7 @@ class StreamResponse {
 
   StreamResponse({
     this.directLinkQualities,
+    this.qualities,
     this.videoStream,
     this.audioStreams,
     this.subtitleStreams,
@@ -17,6 +19,9 @@ class StreamResponse {
     return StreamResponse(
       directLinkQualities: json['direct_link_qualities'] != null
           ? (json['direct_link_qualities'] as List).map((e) => DirectLinkQuality.fromJson(e)).toList()
+          : null,
+      qualities: json['qualities'] != null
+          ? (json['qualities'] as List).map((e) => DirectLinkQuality.fromJson(e)).toList()
           : null,
       videoStream: json['video_stream'] != null ? VideoStreamInfo.fromJson(json['video_stream']) : null,
       audioStreams: json['audio_streams'] != null

@@ -16,6 +16,7 @@ import 'package:crypto/crypto.dart';
 import 'dart:convert';
 import '../utils/theme.dart';
 import '../utils/toast.dart';
+import '../utils/format.dart';
 import '../widgets/danmu_overlay.dart';
 import '../widgets/subtitle_overlay.dart';
 import '../widgets/player_controls.dart';
@@ -115,6 +116,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   int _qualityCount = 0;
   List<String> _qualityLabels = [];
   List<String> _qualityUrls = [];
+  bool _qualityIsDirectLink = false;
   bool _isStrmFile = false;
 
   // Episodes
@@ -180,6 +182,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       DeviceOrientation.landscapeRight,
     ]);
     _loadPlayInfo();
+    _resetHideTimer();
   }
 
   // Cached AppState reference (safe to use in dispose)
@@ -285,11 +288,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
           _isStrmFile = fp.toLowerCase().endsWith('.strm') || fn.toLowerCase().endsWith('.strm');
         }
         if (sd.directLinkQualities != null && sd.directLinkQualities!.isNotEmpty) {
-          _qualityCount = sd.directLinkQualities!.length;
-          _qualityLabels = sd.directLinkQualities!.map((q) => q.resolution ?? '画质').toList();
-          _qualityUrls = sd.directLinkQualities!.map((q) => (q.url ?? '').replaceAll(r'\u0026', '&')).toList();
-          if (_qualityIndex >= _qualityCount) _qualityIndex = 0;
-          _cloudDirectUrl = _qualityUrls[_qualityIndex];
+          _applyQualityOptions(sd.directLinkQualities!, isDirectLink: true);
+        } else if (sd.qualities != null && sd.qualities!.isNotEmpty) {
+          _applyQualityOptions(sd.qualities!, isDirectLink: false);
         }
         // Parse audio/subtitle streams
         if (sd.audioStreams != null && sd.audioStreams!.isNotEmpty) {
@@ -498,6 +499,34 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
   }
 
+  void _applyQualityOptions(List<DirectLinkQuality> options, {required bool isDirectLink}) {
+    _qualityCount = options.length;
+    _qualityIsDirectLink = isDirectLink;
+    _qualityLabels = options.map(_qualityOptionLabel).toList();
+    _qualityUrls = options.map((q) => (q.url ?? '').replaceAll(r'\u0026', '&')).toList();
+    if (_qualityIndex >= _qualityCount) _qualityIndex = 0;
+    _cloudDirectUrl = isDirectLink ? _qualityUrls[_qualityIndex] : '';
+  }
+
+  String _qualityOptionLabel(DirectLinkQuality q) {
+    final res = q.resolution ?? '画质';
+    if (q.bitrate > 0) return '$res · ${formatBitrate(q.bitrate)}';
+    return res;
+  }
+
+  String _resolvePlaybackUrl() {
+    if (_cloudDirectUrl.isNotEmpty) return _cloudDirectUrl;
+    if (_qualityCount > 0 && _mediaGuid != null) {
+      final direct = _qualityUrls.length > _qualityIndex ? _qualityUrls[_qualityIndex] : '';
+      if (direct.isNotEmpty) return direct;
+      if (_qualityIsDirectLink) {
+        return _app.api.getMediaUrlWithQuality(_mediaGuid!, _qualityIndex);
+      }
+      return _app.api.getMediaUrlWithTranscodeQuality(_mediaGuid!, _qualityIndex);
+    }
+    return _app.api.getMediaUrl(_mediaGuid!);
+  }
+
   Future<void> _loadExternalSubtitle() async {
     try {
       final result = await FilePicker.platform.pickFiles(
@@ -534,14 +563,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   void _startPlayback() {
     if (_mediaGuid == null) return;
-    String url;
-    if (_cloudDirectUrl.isNotEmpty) {
-      url = _cloudDirectUrl;
-    } else if (_cloudDirectMode && _qualityCount > 0) {
-      url = _app.api.getMediaUrlWithQuality(_mediaGuid!, _qualityIndex);
-    } else {
-      url = _app.api.getMediaUrl(_mediaGuid!);
-    }
+    final url = _resolvePlaybackUrl();
     debugPrint('Playing (${_app.playerCore.label}): $url');
     _initVideo(url);
   }
@@ -831,7 +853,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   Widget _buildVideoArea(_SubtitleStyle style) {
     if (!_isInitialized || _videoCtrl == null) {
-      return const Center(child: CircularProgressIndicator(color: FnTheme.danmuGreen));
+      return const ColoredBox(color: Colors.black);
     }
     final video = _videoCtrl!.buildVideo(
       subtitleSize: style.size,
@@ -902,6 +924,109 @@ class _PlayerScreenState extends State<PlayerScreen> {
     });
   }
 
+  void _onPlayerTap() {
+    if (_isLocked) return;
+    if (_showControls) {
+      setState(() => _showControls = false);
+    } else {
+      _resetHideTimer();
+    }
+  }
+
+  Widget _buildPlayerGestureLayer(BuildContext context, int seekStep) {
+    return Positioned.fill(
+      child: GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onTap: _onPlayerTap,
+        onDoubleTapDown: (details) {
+          if (_isLocked) return;
+          final w = MediaQuery.of(context).size.width;
+          final dx = details.globalPosition.dx;
+          final leftAction = _app.doubleTapLeft;
+          final rightAction = _app.doubleTapRight;
+          if (dx < w / 3) {
+            if (leftAction == 'pause') {
+              _togglePlay();
+            } else {
+              _seek(Duration(seconds: -seekStep));
+            }
+          } else if (dx > w * 2 / 3) {
+            if (rightAction == 'pause') {
+              _togglePlay();
+            } else {
+              _seek(Duration(seconds: seekStep));
+            }
+          } else {
+            _togglePlay();
+          }
+        },
+        onVerticalDragStart: (details) {
+          if (_isLocked) return;
+          _gestureStartDx = details.globalPosition.dx;
+        },
+        onVerticalDragUpdate: (details) {
+          if (_isLocked) return;
+          final screenW = MediaQuery.of(context).size.width;
+          final isLeftSide = _gestureStartDx < screenW / 2;
+          final delta = -details.delta.dy / 200;
+          if (isLeftSide) {
+            _currentBrightness = (_currentBrightness + delta).clamp(0.0, 1.0);
+            _showGestureOverlayWith(
+              '☀', '${(_currentBrightness * 100).toInt()}%', _currentBrightness);
+            try { ScreenBrightness().setScreenBrightness(_currentBrightness); } catch (_) {}
+          } else {
+            _currentVolume = (_currentVolume + delta).clamp(0.0, 1.0);
+            _showGestureOverlayWith(
+              '🔊', '${(_currentVolume * 100).toInt()}%', _currentVolume);
+            try { FlutterVolumeController.setVolume(_currentVolume); } catch (_) {}
+          }
+        },
+        onVerticalDragEnd: (_) => _hideGestureOverlay(),
+        onHorizontalDragStart: (details) {
+          if (_isLocked) return;
+          _seekStartPosition = _videoCtrl?.position ?? Duration.zero;
+          _seekAccumulator = 0.0;
+        },
+        onHorizontalDragUpdate: (details) {
+          if (_isLocked) return;
+          _seekAccumulator += details.delta.dx * 200;
+          final dur = _videoCtrl?.duration ?? Duration.zero;
+          final pos = _seekStartPosition + Duration(milliseconds: _seekAccumulator.toInt());
+          final clampedMs = pos.inMilliseconds.clamp(0, dur.inMilliseconds);
+          final progress = dur.inMilliseconds > 0 ? clampedMs / dur.inMilliseconds : 0.0;
+          final current = Duration(milliseconds: clampedMs);
+          _showGestureOverlayWith(
+            details.delta.dx > 0 ? '⏩' : '⏪',
+            '${_formatDuration(current)} / ${_formatDuration(dur)}',
+            progress);
+        },
+        onHorizontalDragEnd: (details) {
+          if (_isLocked) return;
+          final dur = _videoCtrl?.duration ?? Duration.zero;
+          final pos = _seekStartPosition + Duration(milliseconds: _seekAccumulator.toInt());
+          final clampedMs = pos.inMilliseconds.clamp(0, dur.inMilliseconds);
+          _videoCtrl?.seekTo(Duration(milliseconds: clampedMs));
+          _hideGestureOverlay();
+        },
+        onLongPressStart: (_) {
+          if (_isLocked) return;
+          _isLongPressing = true;
+          _preLongPressSpeed = _speed;
+          final longSpeed = _app.danmuLongPressSpeed;
+          _setSpeed(longSpeed);
+          _showGestureOverlayWith('⚡', '${longSpeed}x 倍速', 1.0);
+        },
+        onLongPressEnd: (_) {
+          if (!_isLongPressing) return;
+          _isLongPressing = false;
+          _setSpeed(_preLongPressSpeed);
+          _hideGestureOverlay();
+        },
+        child: const SizedBox.expand(),
+      ),
+    );
+  }
+
   @override
   void dispose() {
     _hideTimer?.cancel();
@@ -951,102 +1076,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       },
       child: Scaffold(
       backgroundColor: Colors.black,
-      body: GestureDetector(
-        onTap: () {
-          if (_isLocked) return;
-          if (_showControls) {
-            setState(() => _showControls = false);
-          } else {
-            _resetHideTimer();
-          }
-        },
-        onDoubleTapDown: (details) {
-          if (_isLocked) return;
-          final w = MediaQuery.of(context).size.width;
-          final dx = details.globalPosition.dx;
-          final leftAction = _app.doubleTapLeft;
-          final rightAction = _app.doubleTapRight;
-          if (dx < w / 3) {
-            if (leftAction == 'pause') {
-              _togglePlay();
-            } else {
-              _seek(Duration(seconds: -seekStep));
-            }
-          } else if (dx > w * 2 / 3) {
-            if (rightAction == 'pause') {
-              _togglePlay();
-            } else {
-              _seek(Duration(seconds: seekStep));
-            }
-          } else {
-            _togglePlay();
-          }
-        },
-        onVerticalDragStart: (details) {
-          if (_isLocked) return;
-          _gestureStartDx = details.globalPosition.dx;
-        },
-        onVerticalDragUpdate: (details) {
-          if (_isLocked) return;
-          final screenW = MediaQuery.of(context).size.width;
-          final isLeftSide = _gestureStartDx < screenW / 2;
-          // Sensitivity: full screen height = 0-100%
-          final delta = -details.delta.dy / 200; // positive = up
-          if (isLeftSide) {
-            _currentBrightness = (_currentBrightness + delta).clamp(0.0, 1.0);
-            _showGestureOverlayWith(
-              '☀', '${(_currentBrightness * 100).toInt()}%', _currentBrightness);
-            try { ScreenBrightness().setScreenBrightness(_currentBrightness); } catch (_) {}
-          } else {
-            _currentVolume = (_currentVolume + delta).clamp(0.0, 1.0);
-            _showGestureOverlayWith(
-              '🔊', '${(_currentVolume * 100).toInt()}%', _currentVolume);
-            try { FlutterVolumeController.setVolume(_currentVolume); } catch (_) {}
-          }
-        },
-        onVerticalDragEnd: (_) => _hideGestureOverlay(),
-        onHorizontalDragStart: (details) {
-          if (_isLocked) return;
-          _seekStartPosition = _videoCtrl?.position ?? Duration.zero;
-          _seekAccumulator = 0.0;
-        },
-        onHorizontalDragUpdate: (details) {
-          if (_isLocked) return;
-          // 1 pixel ≈ 200ms
-          _seekAccumulator += details.delta.dx * 200;
-          final dur = _videoCtrl?.duration ?? Duration.zero;
-          final pos = _seekStartPosition + Duration(milliseconds: _seekAccumulator.toInt());
-          final clampedMs = pos.inMilliseconds.clamp(0, dur.inMilliseconds);
-          final progress = dur.inMilliseconds > 0 ? clampedMs / dur.inMilliseconds : 0.0;
-          final current = Duration(milliseconds: clampedMs);
-          _showGestureOverlayWith(
-            details.delta.dx > 0 ? '⏩' : '⏪',
-            '${_formatDuration(current)} / ${_formatDuration(dur)}',
-            progress);
-        },
-        onHorizontalDragEnd: (details) {
-          if (_isLocked) return;
-          final dur = _videoCtrl?.duration ?? Duration.zero;
-          final pos = _seekStartPosition + Duration(milliseconds: _seekAccumulator.toInt());
-          final clampedMs = pos.inMilliseconds.clamp(0, dur.inMilliseconds);
-          _videoCtrl?.seekTo(Duration(milliseconds: clampedMs));
-          _hideGestureOverlay();
-        },
-        onLongPressStart: (_) {
-          if (_isLocked) return;
-          _isLongPressing = true;
-          _preLongPressSpeed = _speed;
-          final longSpeed = _app.danmuLongPressSpeed;
-          _setSpeed(longSpeed);
-          _showGestureOverlayWith('⚡', '${longSpeed}x 倍速', 1.0);
-        },
-        onLongPressEnd: (_) {
-          if (!_isLongPressing) return;
-          _isLongPressing = false;
-          _setSpeed(_preLongPressSpeed);
-          _hideGestureOverlay();
-        },
-        child: Stack(
+      body: Stack(
           fit: StackFit.expand,
           children: [
             // Video + 字幕样式（仅监听字幕相关设置）
@@ -1062,9 +1092,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
               builder: (context, style, _) => _buildVideoArea(style),
             ),
 
+            // 全屏手势层（覆盖原生播放器，加载/缓冲时也能唤出控制条）
+            _buildPlayerGestureLayer(context, seekStep),
+
             // Buffering indicator
-            if (_isBuffering)
-              const Center(child: CircularProgressIndicator(color: FnTheme.danmuGreen, strokeWidth: 3)),
+            if (_isBuffering || !_isInitialized)
+              const IgnorePointer(
+                child: Center(
+                  child: CircularProgressIndicator(color: FnTheme.danmuGreen, strokeWidth: 3),
+                ),
+              ),
 
             // Danmu overlay（监听弹幕设置变化，调速实时生效）
             if (_danmuOn && _videoCtrl != null && _danmuItems.isNotEmpty)
@@ -1166,7 +1203,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   final pos = _videoCtrl?.position.inSeconds ?? 0;
                   setState(() {
                     _qualityIndex = idx;
-                    _cloudDirectUrl = _qualityUrls[idx];
+                    if (_qualityIsDirectLink && idx < _qualityUrls.length) {
+                      _cloudDirectUrl = _qualityUrls[idx];
+                    } else {
+                      _cloudDirectUrl = '';
+                    }
                     if (pos > 0) _explicitSeekTs = pos;
                   });
                   _disposeVideoCtrl();
@@ -1280,7 +1321,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 ),
               ),
           ],
-        ),
       ),
     ),
     );
