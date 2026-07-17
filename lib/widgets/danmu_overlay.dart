@@ -1,6 +1,7 @@
 import 'dart:math';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import '../models/danmu_comment.dart';
 
 class DanmuOverlay extends StatefulWidget {
@@ -45,8 +46,7 @@ class DanmuOverlay extends StatefulWidget {
   State<DanmuOverlay> createState() => _DanmuOverlayState();
 }
 
-class _DanmuOverlayState extends State<DanmuOverlay>
-    with SingleTickerProviderStateMixin {
+class _DanmuOverlayState extends State<DanmuOverlay> with SingleTickerProviderStateMixin {
   static const _maxActive = 25;
   static const _maxLateSec = 12.0;
   static const _crossBaseSeconds = 10.0;
@@ -149,9 +149,7 @@ class _DanmuOverlayState extends State<DanmuOverlay>
     while (_scanIdx < list.length) {
       final c = list[_scanIdx];
       if (c.time > sec + 0.08) break;
-      if (_visible(c.type) &&
-          !_queued.contains(_scanIdx) &&
-          _pending.length < 200) {
+      if (_visible(c.type) && !_queued.contains(_scanIdx) && _pending.length < 200) {
         _pending.add(_PendingDanmu(index: _scanIdx, comment: c));
         _queued.add(_scanIdx);
       }
@@ -162,8 +160,7 @@ class _DanmuOverlayState extends State<DanmuOverlay>
 
     final emitCap = 2;
     var emitted = 0;
-    while (
-        _pending.isNotEmpty && _live.length < _maxActive && emitted < emitCap) {
+    while (_pending.isNotEmpty && _live.length < _maxActive && emitted < emitCap) {
       final p = _pending.first;
       final c = p.comment;
       if (c.type == 4 || c.type == 5) {
@@ -176,7 +173,10 @@ class _DanmuOverlayState extends State<DanmuOverlay>
           type: c.type,
           width: para.width,
           para: para,
-          x: (sw - para.width) / 2,
+          isStatic: true,
+          fixedX: c.type == 5
+              ? widget.topMargin + lnH + _static.length * lnH
+              : _size.height - lnH * 0.2 - _static.length * lnH,
           y: c.type == 5
               ? widget.topMargin + lnH + _static.length * lnH
               : _size.height - lnH * 0.2 - _static.length * lnH,
@@ -249,22 +249,14 @@ class _DanmuOverlayState extends State<DanmuOverlay>
   }
 
   _Para _getPara(String text) {
-    final key =
-        '${widget.fontSize}_${widget.showOutline}_${widget.opacity}_$text';
+    final key = '${widget.fontSize}_${widget.showOutline}_${widget.opacity}_$text';
     final hit = _paraCache[key];
     if (hit != null) return hit;
 
-    final style = ui.ParagraphStyle(
-        fontSize: widget.fontSize, fontWeight: FontWeight.bold);
-    final fillStyle = ui.TextStyle(
-        color: Colors.white
-            .withAlpha((widget.opacity * 255).toInt().clamp(0, 255)),
-        fontSize: widget.fontSize);
-    final fillB = ui.ParagraphBuilder(style)
-      ..pushStyle(fillStyle)
-      ..addText(text);
-    final fill = fillB.build()
-      ..layout(const ui.ParagraphConstraints(width: double.infinity));
+    final style = ui.ParagraphStyle(fontSize: widget.fontSize, fontWeight: FontWeight.bold);
+    final fillStyle = ui.TextStyle(color: Colors.white.withAlpha((widget.opacity * 255).toInt().clamp(0, 255)), fontSize: widget.fontSize);
+    final fillB = ui.ParagraphBuilder(style)..pushStyle(fillStyle)..addText(text);
+    final fill = fillB.build()..layout(const ui.ParagraphConstraints(width: double.infinity));
 
     ui.Paragraph? outline;
     if (widget.showOutline) {
@@ -273,18 +265,13 @@ class _DanmuOverlayState extends State<DanmuOverlay>
         foreground: Paint()
           ..style = PaintingStyle.stroke
           ..strokeWidth = 1.2
-          ..color = Colors.black
-              .withAlpha((widget.opacity * 255).toInt().clamp(0, 255)),
+          ..color = Colors.black.withAlpha((widget.opacity * 255).toInt().clamp(0, 255)),
       );
-      final outB = ui.ParagraphBuilder(style)
-        ..pushStyle(outlineStyle)
-        ..addText(text);
-      outline = outB.build()
-        ..layout(const ui.ParagraphConstraints(width: double.infinity));
+      final outB = ui.ParagraphBuilder(style)..pushStyle(outlineStyle)..addText(text);
+      outline = outB.build()..layout(const ui.ParagraphConstraints(width: double.infinity));
     }
 
-    final para =
-        _Para(width: fill.longestLine + 10, fill: fill, outline: outline);
+    final para = _Para(width: fill.longestLine + 10, fill: fill, outline: outline);
     if (_paraCache.length > 400) {
       _paraCache.remove(_paraCache.keys.first);
     }
@@ -381,7 +368,8 @@ class _LiveDanmu {
   final double y;
   final double videoTime;
   final double? releaseSec;
-  double x;
+  final bool isStatic;
+  final double fixedX;
   double ttl;
 
   _LiveDanmu({
@@ -395,10 +383,17 @@ class _LiveDanmu {
     this.videoTime = 0,
     this.releaseSec,
     this.ttl = 6.0,
-    double? x,
-  }) : x = x ?? 0;
+    this.isStatic = false,
+    this.fixedX = 0,
+  });
 
   double get _start => releaseSec ?? videoTime;
+
+  double x(double sec, double sw, double pxPerSec) {
+    if (isStatic) return fixedX;
+    final elapsed = max(0.0, sec - _start);
+    return sw - elapsed * pxPerSec;
+  }
 }
 
 class _Para {
@@ -437,7 +432,9 @@ class _DanmuPainter extends CustomPainter {
     }
 
     for (final d in static) {
-      final off = Offset(d.x, d.y);
+      final x = d.x(t, sw, px);
+      if (x > sw + 4 || x + d.width < -4) continue;
+      final off = Offset(x, d.y);
       if (d.para.outline != null) canvas.drawParagraph(d.para.outline!, off);
       canvas.drawParagraph(d.para.fill, off);
     }
