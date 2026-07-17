@@ -1,4 +1,5 @@
 import 'dart:math';
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import '../models/danmu_comment.dart';
 
@@ -46,7 +47,7 @@ class DanmuOverlay extends StatefulWidget {
 
 class _DanmuOverlayState extends State<DanmuOverlay>
     with SingleTickerProviderStateMixin {
-  static const _maxActive = 40;
+  static const _maxActive = 25;
   static const _maxLateSec = 12.0;
   static const _crossBaseSeconds = 10.0;
 
@@ -55,6 +56,7 @@ class _DanmuOverlayState extends State<DanmuOverlay>
   final List<_LiveDanmu> _static = [];
   final List<_PendingDanmu> _pending = [];
   final Set<int> _queued = {};
+  final Map<String, _Para> _paraCache = {};
 
   Size _size = Size.zero;
   int _lastCount = 0;
@@ -74,6 +76,7 @@ class _DanmuOverlayState extends State<DanmuOverlay>
   void dispose() {
     widget.positionListenable?.removeListener(_onPositionJump);
     _ticker.dispose();
+    _paraCache.clear();
     super.dispose();
   }
 
@@ -101,8 +104,8 @@ class _DanmuOverlayState extends State<DanmuOverlay>
 
   double _rowGap() {
     final density = widget.danmuDensity.clamp(0.1, 1.0);
-    final chars = 3.2 + (1.0 - density) * 3.0;
-    return widget.fontSize * chars * (widget.antiOverlap ? 1.25 : 1.05);
+    final chars = 3.5 + (1.0 - density) * 3.0;
+    return widget.fontSize * chars;
   }
 
   double _lineH() => widget.fontSize * 1.5;
@@ -132,7 +135,7 @@ class _DanmuOverlayState extends State<DanmuOverlay>
     }
     _lastSec = sec;
 
-    _live.removeWhere((d) => d.x(sec, sw, px) + d.width < -6);
+    _live.removeWhere((d) => d.x(sec, sw, px) + d.width < -10);
 
     _static.removeWhere((d) {
       d.ttl -= 1 / 60.0;
@@ -166,13 +169,14 @@ class _DanmuOverlayState extends State<DanmuOverlay>
       if (c.type == 4 || c.type == 5) {
         _pending.removeAt(0);
         emitted++;
-        final w = _measure(c.text);
+        final para = _getPara(c.text);
         final item = _LiveDanmu(
           text: c.text,
           color: c.color,
           type: c.type,
-          width: w,
-          x: (sw - w) / 2,
+          width: para.width,
+          para: para,
+          x: (sw - para.width) / 2,
           y: c.type == 5
               ? widget.topMargin + lnH + _static.length * lnH
               : _size.height - lnH * 0.2 - _static.length * lnH,
@@ -182,10 +186,10 @@ class _DanmuOverlayState extends State<DanmuOverlay>
         continue;
       }
 
-      final tw = _measure(c.text);
+      final para = _getPara(c.text);
       int? row;
       for (var r = 0; r < tracks; r++) {
-        if (_canAdd(r, tw, sec, px, gap)) {
+        if (_canAdd(r, para.width, sec, px, gap)) {
           row = r;
           break;
         }
@@ -199,7 +203,8 @@ class _DanmuOverlayState extends State<DanmuOverlay>
         text: c.text,
         color: c.color,
         type: c.type,
-        width: tw,
+        width: para.width,
+        para: para,
         row: row,
         y: widget.topMargin + lnH + row * lnH,
         videoTime: c.time,
@@ -234,6 +239,7 @@ class _DanmuOverlayState extends State<DanmuOverlay>
     _scanIdx = 0;
     _lastSec = 0;
     _frozenSec = null;
+    if (!keepCache) _paraCache.clear();
   }
 
   bool _visible(int type) {
@@ -242,15 +248,48 @@ class _DanmuOverlayState extends State<DanmuOverlay>
     return widget.showScroll;
   }
 
-  double _measure(String text) {
-    final tp = TextPainter(
-      text: TextSpan(
-          text: text,
-          style: TextStyle(
-              fontSize: widget.fontSize, fontWeight: FontWeight.bold)),
-      textDirection: TextDirection.ltr,
-    )..layout();
-    return tp.width + 8;
+  _Para _getPara(String text) {
+    final key =
+        '${widget.fontSize}_${widget.showOutline}_${widget.opacity}_$text';
+    final hit = _paraCache[key];
+    if (hit != null) return hit;
+
+    final style = ui.ParagraphStyle(
+        fontSize: widget.fontSize, fontWeight: FontWeight.bold);
+    final fillStyle = ui.TextStyle(
+        color: Colors.white
+            .withAlpha((widget.opacity * 255).toInt().clamp(0, 255)),
+        fontSize: widget.fontSize);
+    final fillB = ui.ParagraphBuilder(style)
+      ..pushStyle(fillStyle)
+      ..addText(text);
+    final fill = fillB.build()
+      ..layout(const ui.ParagraphConstraints(width: double.infinity));
+
+    ui.Paragraph? outline;
+    if (widget.showOutline) {
+      final outlineStyle = ui.TextStyle(
+        fontSize: widget.fontSize,
+        foreground: Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.2
+          ..color = Colors.black
+              .withAlpha((widget.opacity * 255).toInt().clamp(0, 255)),
+      );
+      final outB = ui.ParagraphBuilder(style)
+        ..pushStyle(outlineStyle)
+        ..addText(text);
+      outline = outB.build()
+        ..layout(const ui.ParagraphConstraints(width: double.infinity));
+    }
+
+    final para =
+        _Para(width: fill.longestLine + 10, fill: fill, outline: outline);
+    if (_paraCache.length > 400) {
+      _paraCache.remove(_paraCache.keys.first);
+    }
+    _paraCache[key] = para;
+    return para;
   }
 
   static int _lowerBound(List<DanmuComment> list, double t) {
@@ -310,53 +349,17 @@ class _DanmuOverlayState extends State<DanmuOverlay>
           if (w > 0 && h > 0) _size = Size(w, h);
 
           return RepaintBoundary(
-            child: Stack(
-              children: [
-                for (final d in _static)
-                  _buildItem(d.text, d.color, d.x, d.y, true, 0),
-                for (final d in _live)
-                  if (d.x(now, sw, px) + d.width > -4 &&
-                      d.x(now, sw, px) < sw + 4)
-                    _buildItem(d.text, d.color, d.x(now, sw, px), d.y, false,
-                        d.x(now, sw, px)),
-              ],
+            child: CustomPaint(
+              painter: _DanmuPainter(
+                sec: _sec,
+                pxPerSec: _pxPerSec,
+                live: _live,
+                static: _static,
+              ),
+              size: Size.infinite,
             ),
           );
         },
-      ),
-    );
-  }
-
-  Widget _buildItem(String text, int colorValue, double x, double y,
-      bool isStatic, double alphaFactor) {
-    final c = Color(colorValue);
-    final alpha = (c.alpha * widget.opacity).toInt().clamp(0, 255);
-    final style = TextStyle(
-        color: c.withAlpha(alpha),
-        fontSize: widget.fontSize,
-        fontWeight: FontWeight.bold);
-    final outlineStyle = widget.showOutline
-        ? TextStyle(
-            fontSize: widget.fontSize,
-            fontWeight: FontWeight.bold,
-            foreground: Paint()
-              ..style = PaintingStyle.stroke
-              ..strokeWidth = 1.2
-              ..color = Colors.black
-                  .withAlpha((widget.opacity * 255).toInt().clamp(0, 255)),
-          )
-        : null;
-
-    return Positioned(
-      left: x,
-      top: y,
-      child: Stack(
-        children: [
-          if (outlineStyle != null)
-            Text(text,
-                style: outlineStyle, maxLines: 1, overflow: TextOverflow.clip),
-          Text(text, style: style, maxLines: 1, overflow: TextOverflow.clip),
-        ],
       ),
     );
   }
@@ -373,6 +376,7 @@ class _LiveDanmu {
   final int color;
   final int type;
   final double width;
+  final _Para para;
   final int? row;
   final double y;
   final double videoTime;
@@ -385,6 +389,7 @@ class _LiveDanmu {
     required this.color,
     required this.type,
     required this.width,
+    required this.para,
     this.row,
     this.y = 0,
     this.videoTime = 0,
@@ -394,4 +399,50 @@ class _LiveDanmu {
   }) : x = x ?? 0;
 
   double get _start => releaseSec ?? videoTime;
+}
+
+class _Para {
+  final double width;
+  final ui.Paragraph fill;
+  final ui.Paragraph? outline;
+  const _Para({required this.width, required this.fill, this.outline});
+}
+
+class _DanmuPainter extends CustomPainter {
+  final double Function() sec;
+  final double Function() pxPerSec;
+  final List<_LiveDanmu> live;
+  final List<_LiveDanmu> static;
+
+  _DanmuPainter({
+    required this.sec,
+    required this.pxPerSec,
+    required this.live,
+    required this.static,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.width <= 0) return;
+    final t = sec();
+    final px = pxPerSec();
+    final sw = size.width;
+
+    for (final d in live) {
+      final x = d.x(t, sw, px);
+      if (x > sw + 4 || x + d.width < -4) continue;
+      final off = Offset(x, d.y);
+      if (d.para.outline != null) canvas.drawParagraph(d.para.outline!, off);
+      canvas.drawParagraph(d.para.fill, off);
+    }
+
+    for (final d in static) {
+      final off = Offset(d.x, d.y);
+      if (d.para.outline != null) canvas.drawParagraph(d.para.outline!, off);
+      canvas.drawParagraph(d.para.fill, off);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _DanmuPainter old) => true;
 }
