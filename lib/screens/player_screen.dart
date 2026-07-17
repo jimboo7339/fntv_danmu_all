@@ -77,7 +77,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   // Stream info
   String? _mediaGuid;
-  String? _episodeGuid;   // play/info 返回的实际 episode GUID
+  String? _episodeGuid; // play/info 返回的实际 episode GUID
   String? _videoGuid;
   String? _audioGuid;
   String? _subtitleGuid;
@@ -170,10 +170,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _danmuOn = _appState!.danmuOn;
     // Initialize brightness and volume from system
     try {
-      ScreenBrightness().current.then((v) { _currentBrightness = v; }).catchError((_) {});
+      ScreenBrightness().current.then((v) {
+        _currentBrightness = v;
+      }).catchError((_) {});
     } catch (_) {}
     try {
-      FlutterVolumeController.getVolume().then((v) { if (v != null) _currentVolume = v; }).catchError((_) {});
+      FlutterVolumeController.getVolume().then((v) {
+        if (v != null) _currentVolume = v;
+      }).catchError((_) {});
     } catch (_) {}
     WakelockPlus.enable();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
@@ -233,7 +237,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
         if (info.item != null) {
           if (info.item!.tvTitle != null) _tvTitle = info.item!.tvTitle!;
           _itemTitle = info.item!.title ?? _itemTitle;
-          _seasonNumber = info.item!.seasonNumber > 0 ? info.item!.seasonNumber : 1;
+          _seasonNumber =
+              info.item!.seasonNumber > 0 ? info.item!.seasonNumber : 1;
           _episodeNumber = info.item!.episodeNumber;
           _logoUrl = _logoUrlFromItem(info.item);
         }
@@ -264,12 +269,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
       final ipHash = _md5Hex(account);
       final body = <String, dynamic>{
         'header': {
-          'User-Agent': ['Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36']
+          'User-Agent': [
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+          ]
         },
         'level': 1,
         'media_guid': _mediaGuid,
         'ip': ipHash,
-        'nonce': (100000 + (DateTime.now().millisecondsSinceEpoch % 900000)).toString(),
+        'nonce': (100000 + (DateTime.now().millisecondsSinceEpoch % 900000))
+            .toString(),
       };
       final resp = await _app.api.getStream(body);
       if (resp['code'] == 0 && resp['data'] != null) {
@@ -285,9 +293,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
           final fn = sd.fileStream!.fileName ?? '';
           final fp = sd.fileStream!.path ?? '';
           if (_streamDuration <= 0) _streamDuration = sd.fileStream!.duration;
-          _isStrmFile = fp.toLowerCase().endsWith('.strm') || fn.toLowerCase().endsWith('.strm');
+          _isStrmFile = fp.toLowerCase().endsWith('.strm') ||
+              fn.toLowerCase().endsWith('.strm');
         }
-        if (sd.directLinkQualities != null && sd.directLinkQualities!.isNotEmpty) {
+        if (sd.directLinkQualities != null &&
+            sd.directLinkQualities!.isNotEmpty) {
           _applyQualityOptions(sd.directLinkQualities!, isDirectLink: true);
         } else if (sd.qualities != null && sd.qualities!.isNotEmpty) {
           _applyQualityOptions(sd.qualities!, isDirectLink: false);
@@ -299,7 +309,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
         }
         if (sd.subtitleStreams != null && sd.subtitleStreams!.isNotEmpty) {
           _subtitleStreams = sd.subtitleStreams;
-          _selectedSubtitleIndex = _defaultSubtitleListIndex(sd.subtitleStreams!);
+          _selectedSubtitleIndex =
+              _defaultSubtitleListIndex(sd.subtitleStreams!);
         }
       }
     } catch (e) {
@@ -315,8 +326,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     return 0;
   }
 
-  bool get _preferEmbeddedSubtitle =>
-      _cloudDirectUrl.isNotEmpty || _isStrmFile;
+  bool get _preferEmbeddedSubtitle => _cloudDirectUrl.isNotEmpty || _isStrmFile;
 
   MpvPlayerSettings _mpvSettingsForPlayback() {
     final base = _app.mpvSettings;
@@ -357,18 +367,19 @@ class _PlayerScreenState extends State<PlayerScreen> {
       debugPrint('🔄 Position regression at ${lastStable.inSeconds}s');
     };
 
-    final deferSeek = core == PlayerCoreType.mpv &&
-        _preferEmbeddedSubtitle &&
-        seekTs > 0;
+    final deferSeek =
+        core == PlayerCoreType.mpv && _preferEmbeddedSubtitle && seekTs > 0;
 
     _networkSpeedBps = 0;
     _videoCtrl!.networkSpeedBps.addListener(_onNetworkSpeedUpdate);
     _videoCtrl!.addListener(_videoListener);
-    _videoCtrl!.initialize(
+    _videoCtrl!
+        .initialize(
       startAt: deferSeek ? null : startAt,
       initialSpeed: _speed,
       deferSeek: deferSeek,
-    ).then((_) async {
+    )
+        .then((_) async {
       if (!mounted || _videoCtrl == null) return;
       setState(() => _isInitialized = true);
       await _videoCtrl!.play();
@@ -449,7 +460,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
     final preferEmbedded = _preferEmbeddedSubtitle;
     final cacheKey = '${_mediaGuid ?? ''}:$index';
-    final streamInfo = streams != null && index < streams.length ? streams[index] : null;
+    final streamInfo =
+        streams != null && index < streams.length ? streams[index] : null;
 
     if (!preferEmbedded &&
         _mediaGuid != null &&
@@ -469,7 +481,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
           _softwareSubtitle = data;
           _selectedSubtitleIndex = index;
         });
-        debugPrint('✅ Software subtitle $index: ${data.entries.length} entries');
+        debugPrint(
+            '✅ Software subtitle $index: ${data.entries.length} entries');
         return;
       }
       _subtitleServerFailed.add(cacheKey);
@@ -483,7 +496,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
       info: streamInfo,
       delay: preferEmbedded
           ? const Duration(milliseconds: 1000)
-          : (_isPlaying ? const Duration(milliseconds: 400) : const Duration(milliseconds: 800)),
+          : (_isPlaying
+              ? const Duration(milliseconds: 400)
+              : const Duration(milliseconds: 800)),
     );
     if (ok && mounted) {
       setState(() {
@@ -499,11 +514,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
   }
 
-  void _applyQualityOptions(List<DirectLinkQuality> options, {required bool isDirectLink}) {
+  void _applyQualityOptions(List<DirectLinkQuality> options,
+      {required bool isDirectLink}) {
     _qualityCount = options.length;
     _qualityIsDirectLink = isDirectLink;
     _qualityLabels = options.map(_qualityOptionLabel).toList();
-    _qualityUrls = options.map((q) => (q.url ?? '').replaceAll(r'\u0026', '&')).toList();
+    _qualityUrls =
+        options.map((q) => (q.url ?? '').replaceAll(r'\u0026', '&')).toList();
     if (_qualityIndex >= _qualityCount) _qualityIndex = 0;
     _cloudDirectUrl = isDirectLink ? _qualityUrls[_qualityIndex] : '';
   }
@@ -517,12 +534,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
   String _resolvePlaybackUrl() {
     if (_cloudDirectUrl.isNotEmpty) return _cloudDirectUrl;
     if (_qualityCount > 0 && _mediaGuid != null) {
-      final direct = _qualityUrls.length > _qualityIndex ? _qualityUrls[_qualityIndex] : '';
+      final direct = _qualityUrls.length > _qualityIndex
+          ? _qualityUrls[_qualityIndex]
+          : '';
       if (direct.isNotEmpty) return direct;
       if (_qualityIsDirectLink) {
         return _app.api.getMediaUrlWithQuality(_mediaGuid!, _qualityIndex);
       }
-      return _app.api.getMediaUrlWithTranscodeQuality(_mediaGuid!, _qualityIndex);
+      return _app.api
+          .getMediaUrlWithTranscodeQuality(_mediaGuid!, _qualityIndex);
     }
     return _app.api.getMediaUrl(_mediaGuid!);
   }
@@ -551,9 +571,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
           _softwareSubtitle = data;
           _selectedSubtitleIndex = -1;
         });
-        debugPrint('✅ Loaded ${data.entries.length} subtitle entries from ${file.name}');
+        debugPrint(
+            '✅ Loaded ${data.entries.length} subtitle entries from ${file.name}');
         if (mounted) {
-          FnToast.show(context, '已加载 ${data.entries.length} 条字幕', type: FnToastType.success);
+          FnToast.show(context, '已加载 ${data.entries.length} 条字幕',
+              type: FnToastType.success);
         }
       }
     } catch (e) {
@@ -631,7 +653,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   void _onPlaybackComplete() {
-    if (_episodeList != null && _currentEpIndex >= 0 && _currentEpIndex < _episodeList!.length - 1) {
+    if (_episodeList != null &&
+        _currentEpIndex >= 0 &&
+        _currentEpIndex < _episodeList!.length - 1) {
       _playEpisode(_currentEpIndex + 1);
     }
   }
@@ -688,7 +712,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
         'duration': dur,
       });
     } catch (e) {
-      debugPrint('❌ recordPlayStatus error: $e (item=$episodeGuid, media=${_mediaGuid ?? ""}, ts=$pos, dur=$dur)');
+      debugPrint(
+          '❌ recordPlayStatus error: $e (item=$episodeGuid, media=${_mediaGuid ?? ""}, ts=$pos, dur=$dur)');
     }
   }
 
@@ -732,7 +757,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
           _danmuItems = result.comments;
           _danmuSource = result.source;
         });
-        debugPrint('Danmu: loaded ${result.comments.length} from manual source');
+        debugPrint(
+            'Danmu: loaded ${result.comments.length} from manual source');
       }
     } catch (e) {
       debugPrint('loadDanmuFromSource error: $e');
@@ -744,7 +770,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
     try {
       final resp = await _app.api.getEpisodeList(_parentGuid!);
       if (resp['code'] == 0 && resp['data'] != null) {
-        final list = (resp['data'] as List).map((e) => PlayListItem.fromJson(e)).toList();
+        final list = (resp['data'] as List)
+            .map((e) => PlayListItem.fromJson(e))
+            .toList();
         list.sort((a, b) {
           final an = a.episodeNumber > 0 ? a.episodeNumber : 9999;
           final bn = b.episodeNumber > 0 ? b.episodeNumber : 9999;
@@ -754,7 +782,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
           _episodeList = list;
           _currentEpIndex = list.indexWhere((e) => e.guid == widget.itemGuid);
           if (_currentEpIndex < 0) {
-            _currentEpIndex = list.indexWhere((e) => e.episodeNumber == _episodeNumber);
+            _currentEpIndex =
+                list.indexWhere((e) => e.episodeNumber == _episodeNumber);
           }
         });
       }
@@ -764,7 +793,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   void _playEpisode(int index, {bool resumeFromServer = false}) {
-    if (_episodeList == null || index < 0 || index >= _episodeList!.length) return;
+    if (_episodeList == null || index < 0 || index >= _episodeList!.length)
+      return;
     final ep = _episodeList![index];
     _useRouteSeekTs = false;
     if (resumeFromServer) {
@@ -840,7 +870,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   void _setAspectMode(String mode) {
     setState(() => _aspectMode = mode);
-    SharedPreferences.getInstance().then((p) => p.setString('aspect_mode', mode));
+    SharedPreferences.getInstance()
+        .then((p) => p.setString('aspect_mode', mode));
   }
 
   void _toggleOrientation() {
@@ -861,7 +892,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
       subtitleBackground: style.background,
       subtitleColor: Color(style.color),
       subtitleWeight: style.weight,
-      subtitleVisible: _softwareSubtitle == null && _videoCtrl!.mpvSubtitleActive,
+      subtitleVisible:
+          _softwareSubtitle == null && _videoCtrl!.mpvSubtitleActive,
     );
     switch (_aspectMode) {
       case 'fill':
@@ -879,14 +911,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
         return Center(
           child: AspectRatio(
             aspectRatio: 16 / 9,
-            child: ClipRect(child: FittedBox(fit: BoxFit.contain, child: video)),
+            child:
+                ClipRect(child: FittedBox(fit: BoxFit.contain, child: video)),
           ),
         );
       case '4:3':
         return Center(
           child: AspectRatio(
             aspectRatio: 4 / 3,
-            child: ClipRect(child: FittedBox(fit: BoxFit.contain, child: video)),
+            child:
+                ClipRect(child: FittedBox(fit: BoxFit.contain, child: video)),
           ),
         );
       default:
@@ -902,7 +936,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
   String get _playbackInfoLabel {
     final buf = StringBuffer(_activeCore.label);
     if (_isStrmFile && _cloudDirectUrl.isNotEmpty) buf.write(' · 直链');
-    if (_streamVWidth > 0 && _streamVHeight > 0) buf.write(' · ${_streamVWidth}x$_streamVHeight');
+    if (_streamVWidth > 0 && _streamVHeight > 0)
+      buf.write(' · ${_streamVWidth}x$_streamVHeight');
     return buf.toString();
   }
 
@@ -925,7 +960,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   void _onPlayerTap() {
-    if (_isLocked) return;
+    if (_isLocked) {
+      setState(() => _isLocked = false);
+      _resetHideTimer();
+      return;
+    }
     if (_showControls) {
       setState(() => _showControls = false);
     } else {
@@ -971,14 +1010,18 @@ class _PlayerScreenState extends State<PlayerScreen> {
           final delta = -details.delta.dy / 200;
           if (isLeftSide) {
             _currentBrightness = (_currentBrightness + delta).clamp(0.0, 1.0);
-            _showGestureOverlayWith(
-              '☀', '${(_currentBrightness * 100).toInt()}%', _currentBrightness);
-            try { ScreenBrightness().setScreenBrightness(_currentBrightness); } catch (_) {}
+            _showGestureOverlayWith('☀',
+                '${(_currentBrightness * 100).toInt()}%', _currentBrightness);
+            try {
+              ScreenBrightness().setScreenBrightness(_currentBrightness);
+            } catch (_) {}
           } else {
             _currentVolume = (_currentVolume + delta).clamp(0.0, 1.0);
             _showGestureOverlayWith(
-              '🔊', '${(_currentVolume * 100).toInt()}%', _currentVolume);
-            try { FlutterVolumeController.setVolume(_currentVolume); } catch (_) {}
+                '🔊', '${(_currentVolume * 100).toInt()}%', _currentVolume);
+            try {
+              FlutterVolumeController.setVolume(_currentVolume);
+            } catch (_) {}
           }
         },
         onVerticalDragEnd: (_) => _hideGestureOverlay(),
@@ -991,19 +1034,22 @@ class _PlayerScreenState extends State<PlayerScreen> {
           if (_isLocked) return;
           _seekAccumulator += details.delta.dx * 200;
           final dur = _videoCtrl?.duration ?? Duration.zero;
-          final pos = _seekStartPosition + Duration(milliseconds: _seekAccumulator.toInt());
+          final pos = _seekStartPosition +
+              Duration(milliseconds: _seekAccumulator.toInt());
           final clampedMs = pos.inMilliseconds.clamp(0, dur.inMilliseconds);
-          final progress = dur.inMilliseconds > 0 ? clampedMs / dur.inMilliseconds : 0.0;
+          final progress =
+              dur.inMilliseconds > 0 ? clampedMs / dur.inMilliseconds : 0.0;
           final current = Duration(milliseconds: clampedMs);
           _showGestureOverlayWith(
-            details.delta.dx > 0 ? '⏩' : '⏪',
-            '${_formatDuration(current)} / ${_formatDuration(dur)}',
-            progress);
+              details.delta.dx > 0 ? '⏩' : '⏪',
+              '${_formatDuration(current)} / ${_formatDuration(dur)}',
+              progress);
         },
         onHorizontalDragEnd: (details) {
           if (_isLocked) return;
           final dur = _videoCtrl?.duration ?? Duration.zero;
-          final pos = _seekStartPosition + Duration(milliseconds: _seekAccumulator.toInt());
+          final pos = _seekStartPosition +
+              Duration(milliseconds: _seekAccumulator.toInt());
           final clampedMs = pos.inMilliseconds.clamp(0, dur.inMilliseconds);
           _videoCtrl?.seekTo(Duration(milliseconds: clampedMs));
           _hideGestureOverlay();
@@ -1075,8 +1121,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
         if (!didPop) _exitPlayer();
       },
       child: Scaffold(
-      backgroundColor: Colors.black,
-      body: Stack(
+        backgroundColor: Colors.black,
+        body: Stack(
           fit: StackFit.expand,
           children: [
             // Video + 字幕样式（仅监听字幕相关设置）
@@ -1099,7 +1145,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
             if (_isBuffering || !_isInitialized)
               const IgnorePointer(
                 child: Center(
-                  child: CircularProgressIndicator(color: FnTheme.danmuGreen, strokeWidth: 3),
+                  child: CircularProgressIndicator(
+                      color: FnTheme.danmuGreen, strokeWidth: 3),
                 ),
               ),
 
@@ -1159,8 +1206,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   showBackground: style.background,
                   color: Color(style.color),
                   fontWeight: FontWeight.values[
-                    ((style.weight.clamp(100, 900) - 100) / 100).round().clamp(0, 8)
-                  ],
+                      ((style.weight.clamp(100, 900) - 100) / 100)
+                          .round()
+                          .clamp(0, 8)],
                   bottomMargin: style.bottomMargin,
                 ),
               ),
@@ -1219,7 +1267,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   final streams = _audioStreams;
                   await _videoCtrl?.setAudioTrackByInfo(
                     listIndex: idx,
-                    info: streams != null && idx < streams.length ? streams[idx] : null,
+                    info: streams != null && idx < streams.length
+                        ? streams[idx]
+                        : null,
                   );
                 },
                 seekStep: seekStep,
@@ -1249,7 +1299,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 hasNextEpisode: _episodeList != null &&
                     _currentEpIndex >= 0 &&
                     _currentEpIndex < _episodeList!.length - 1,
-                onPrevEpisode: _currentEpIndex > 0 ? () => _playEpisode(_currentEpIndex - 1) : null,
+                onPrevEpisode: _currentEpIndex > 0
+                    ? () => _playEpisode(_currentEpIndex - 1)
+                    : null,
                 onNextEpisode: (_episodeList != null &&
                         _currentEpIndex >= 0 &&
                         _currentEpIndex < _episodeList!.length - 1)
@@ -1261,37 +1313,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 networkSpeedBps: _networkSpeedBps,
               ),
 
-            // Lock button (always visible)
-            Positioned(
-              right: 16,
-              top: 0, bottom: 0,
-              child: Center(
-                child: GestureDetector(
-                  onTap: () => setState(() {
-                    _isLocked = !_isLocked;
-                    if (!_isLocked) _resetHideTimer();
-                  }),
-                  child: Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.black45,
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Icon(
-                      _isLocked ? Icons.lock_rounded : Icons.lock_open_rounded,
-                      color: Colors.white70,
-                      size: 20,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-
             // Gesture overlay (brightness / volume / seek / speed)
             if (_showGestureOverlay)
               Center(
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
                   decoration: BoxDecoration(
                     color: Colors.black.withOpacity(0.7),
                     borderRadius: BorderRadius.circular(12),
@@ -1299,10 +1326,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Text(_gestureOverlayIcon, style: const TextStyle(fontSize: 28)),
+                      Text(_gestureOverlayIcon,
+                          style: const TextStyle(fontSize: 28)),
                       const SizedBox(height: 6),
                       Text(_gestureOverlayText,
-                        style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600)),
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600)),
                       const SizedBox(height: 8),
                       SizedBox(
                         width: 140,
@@ -1311,7 +1342,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
                           child: LinearProgressIndicator(
                             value: _gestureOverlayProgress,
                             backgroundColor: Colors.white24,
-                            valueColor: const AlwaysStoppedAnimation<Color>(FnTheme.danmuGreen),
+                            valueColor: const AlwaysStoppedAnimation<Color>(
+                                FnTheme.danmuGreen),
                             minHeight: 4,
                           ),
                         ),
@@ -1321,8 +1353,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 ),
               ),
           ],
+        ),
       ),
-    ),
     );
   }
 
@@ -1359,7 +1391,8 @@ class _SubtitleStyle {
       other.bottomMargin == bottomMargin;
 
   @override
-  int get hashCode => Object.hash(size, outline, background, color, weight, bottomMargin);
+  int get hashCode =>
+      Object.hash(size, outline, background, color, weight, bottomMargin);
 }
 
 class _DanmuStyle {
@@ -1406,7 +1439,16 @@ class _DanmuStyle {
 
   @override
   int get hashCode => Object.hash(
-    opacity, fontSize, areaPercent, showOutline, speed,
-    danmuDensity, topMargin, showScroll, showTop, showBottom, antiOverlap,
-  );
+        opacity,
+        fontSize,
+        areaPercent,
+        showOutline,
+        speed,
+        danmuDensity,
+        topMargin,
+        showScroll,
+        showTop,
+        showBottom,
+        antiOverlap,
+      );
 }

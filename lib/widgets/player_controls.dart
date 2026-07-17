@@ -10,6 +10,7 @@ import '../models/stream_response.dart';
 import '../providers/app_state.dart';
 import '../services/api_client.dart';
 import 'danmu_heatmap.dart';
+
 class PlayerControls extends StatelessWidget {
   final String title;
   final String logoUrl;
@@ -111,14 +112,20 @@ class PlayerControls extends StatelessWidget {
     if (isLocked) return const SizedBox.shrink();
 
     final posMs = position.inMilliseconds.toDouble();
-    final durMs = duration.inMilliseconds.toDouble().clamp(1.0, double.infinity);
+    final durMs =
+        duration.inMilliseconds.toDouble().clamp(1.0, double.infinity);
 
     return Container(
       decoration: const BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: [Colors.black54, Colors.transparent, Colors.transparent, Colors.black54],
+          colors: [
+            Colors.black54,
+            Colors.transparent,
+            Colors.transparent,
+            Colors.black54
+          ],
           stops: [0, 0.2, 0.7, 1],
         ),
       ),
@@ -131,9 +138,26 @@ class PlayerControls extends StatelessWidget {
               child: Row(
                 children: [
                   IconButton(
-                    icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
+                    icon: const Icon(Icons.arrow_back_rounded,
+                        color: Colors.white),
                     onPressed: onBack,
                   ),
+                  GestureDetector(
+                    onTap: onLock,
+                    child: Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        color: Colors.black45,
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Icon(
+                        isLocked ? Icons.lock_rounded : Icons.lock_open_rounded,
+                        color: isLocked ? Colors.orange : Colors.white70,
+                        size: 18,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
                   Expanded(
                     child: _buildHeaderBrand(context),
                   ),
@@ -144,26 +168,38 @@ class PlayerControls extends StatelessWidget {
                   GestureDetector(
                     onTap: () => _showDanmuPanel(context),
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 6),
                       decoration: BoxDecoration(
-                        color: danmuOn ? FnTheme.danmuGreen.withOpacity(0.28) : Colors.white10,
+                        color: danmuOn
+                            ? FnTheme.danmuGreen.withOpacity(0.28)
+                            : Colors.white10,
                         borderRadius: BorderRadius.circular(14),
                         border: Border.all(
-                          color: danmuOn ? FnTheme.danmuGreen.withOpacity(0.5) : Colors.white24,
+                          color: danmuOn
+                              ? FnTheme.danmuGreen.withOpacity(0.5)
+                              : Colors.white24,
                         ),
                       ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Icon(
-                            danmuOn ? Icons.comment_rounded : Icons.comment_outlined,
-                            color: danmuOn ? FnTheme.danmuGreen : Colors.white54,
+                            danmuOn
+                                ? Icons.comment_rounded
+                                : Icons.comment_outlined,
+                            color:
+                                danmuOn ? FnTheme.danmuGreen : Colors.white54,
                             size: 16,
                           ),
                           const SizedBox(width: 4),
-                          Text('弹幕', style: TextStyle(
-                            color: danmuOn ? FnTheme.danmuGreen : Colors.white54,
-                            fontSize: 13, fontWeight: FontWeight.w600)),
+                          Text('弹幕',
+                              style: TextStyle(
+                                  color: danmuOn
+                                      ? FnTheme.danmuGreen
+                                      : Colors.white54,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600)),
                         ],
                       ),
                     ),
@@ -184,21 +220,26 @@ class PlayerControls extends StatelessWidget {
                   children: [
                     if (playbackInfo.isNotEmpty)
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 3),
                         decoration: BoxDecoration(
                           color: Colors.black45,
                           borderRadius: BorderRadius.circular(6),
                           border: Border.all(color: Colors.white12),
                         ),
                         child: Text(playbackInfo,
-                          style: const TextStyle(color: Colors.white70, fontSize: 10, fontWeight: FontWeight.w600)),
+                            style: const TextStyle(
+                                color: Colors.white70,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w600)),
                       ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              color: Colors.white70, fontSize: 12)),
                     ),
                   ],
                 ),
@@ -218,9 +259,11 @@ class PlayerControls extends StatelessWidget {
                     activeTrackColor: FnTheme.danmuGreen,
                     inactiveTrackColor: Colors.white24,
                     thumbColor: FnTheme.danmuGreen,
-                    thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                    thumbShape:
+                        const RoundSliderThumbShape(enabledThumbRadius: 6),
                     trackHeight: 3,
-                    overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
+                    overlayShape:
+                        const RoundSliderOverlayShape(overlayRadius: 14),
                   ),
                   child: Slider(
                     value: posMs.clamp(0.0, durMs),
@@ -235,7 +278,8 @@ class PlayerControls extends StatelessWidget {
                     children: [
                       Text(
                         '${formatDuration(position.inSeconds)} / ${formatDuration(duration.inSeconds)}',
-                        style: const TextStyle(color: Colors.white70, fontSize: 12),
+                        style: const TextStyle(
+                            color: Colors.white70, fontSize: 12),
                       ),
                       const SizedBox(width: 8),
                       Expanded(
@@ -245,40 +289,60 @@ class PlayerControls extends StatelessWidget {
                           child: Row(
                             children: [
                               if (hasPrevEpisode && onPrevEpisode != null)
-                                _iconBtn(Icons.skip_previous_rounded, onPrevEpisode!),
+                                _iconBtn(Icons.skip_previous_rounded,
+                                    onPrevEpisode!),
                               GestureDetector(
                                 onTap: onPlayPause,
                                 child: Container(
                                   padding: const EdgeInsets.all(8),
-                                  margin: const EdgeInsets.symmetric(horizontal: 4),
+                                  margin:
+                                      const EdgeInsets.symmetric(horizontal: 4),
                                   decoration: BoxDecoration(
                                     color: FnTheme.danmuGreen.withOpacity(0.2),
                                     shape: BoxShape.circle,
                                   ),
                                   child: Icon(
-                                    isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                                    color: Colors.white, size: 26,
+                                    isPlaying
+                                        ? Icons.pause_rounded
+                                        : Icons.play_arrow_rounded,
+                                    color: Colors.white,
+                                    size: 26,
                                   ),
                                 ),
                               ),
                               if (hasNextEpisode && onNextEpisode != null)
-                                _iconBtn(Icons.skip_next_rounded, onNextEpisode!),
+                                _iconBtn(
+                                    Icons.skip_next_rounded, onNextEpisode!),
                               const SizedBox(width: 4),
-                              _ctrlBtn('${seekStep}s', () => onSeek(Duration(seconds: -seekStep))),
-                              _ctrlBtn('${seekStep}s', () => onSeek(Duration(seconds: seekStep))),
-                              _ctrlBtn('${speed}x', () => _showSpeedMenu(context)),
-                              _ctrlBtn(_aspectLabel(aspectMode), () => _showAspectMenu(context)),
+                              _ctrlBtn('${seekStep}s',
+                                  () => onSeek(Duration(seconds: -seekStep))),
+                              _ctrlBtn('${seekStep}s',
+                                  () => onSeek(Duration(seconds: seekStep))),
+                              _ctrlBtn(
+                                  '${speed}x', () => _showSpeedMenu(context)),
+                              _ctrlBtn(_aspectLabel(aspectMode),
+                                  () => _showAspectMenu(context)),
                               _ctrlBtn('旋转', onRotate),
                               if (qualityCount > 0)
-                                _ctrlBtn(qualityLabels.isNotEmpty ? qualityLabels[qualityIndex] : '画质', () => _showQualityMenu(context)),
-                              if (episodeList != null && episodeList!.isNotEmpty)
-                                _ctrlBtn('选集', () => _showEpisodePanel(context)),
-                              if (audioStreams != null && audioStreams!.length > 1)
+                                _ctrlBtn(
+                                    qualityLabels.isNotEmpty
+                                        ? qualityLabels[qualityIndex]
+                                        : '画质',
+                                    () => _showQualityMenu(context)),
+                              if (episodeList != null &&
+                                  episodeList!.isNotEmpty)
+                                _ctrlBtn(
+                                    '选集', () => _showEpisodePanel(context)),
+                              if (audioStreams != null &&
+                                  audioStreams!.length > 1)
                                 _ctrlBtn('音频', () => _showAudioMenu(context)),
-                              if (subtitleStreams != null && subtitleStreams!.isNotEmpty)
-                                _ctrlBtn('字幕', () => _showSubtitlePanel(context))
+                              if (subtitleStreams != null &&
+                                  subtitleStreams!.isNotEmpty)
+                                _ctrlBtn(
+                                    '字幕', () => _showSubtitlePanel(context))
                               else if (onLoadExternalSubtitle != null)
-                                _ctrlBtn('字幕', () => _showSubtitlePanel(context)),
+                                _ctrlBtn(
+                                    '字幕', () => _showSubtitlePanel(context)),
                             ],
                           ),
                         ),
@@ -350,10 +414,14 @@ class PlayerControls extends StatelessWidget {
 
   String _aspectLabel(String mode) {
     switch (mode) {
-      case 'fill': return '填充';
-      case '16:9': return '16:9';
-      case '4:3': return '4:3';
-      default: return '适应';
+      case 'fill':
+        return '填充';
+      case '16:9':
+        return '16:9';
+      case '4:3':
+        return '4:3';
+      default:
+        return '适应';
     }
   }
 
@@ -375,14 +443,17 @@ class PlayerControls extends StatelessWidget {
               width: double.infinity,
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               decoration: BoxDecoration(
-                color: isCurrent ? FnTheme.danmuGreen.withOpacity(0.15) : Colors.transparent,
+                color: isCurrent
+                    ? FnTheme.danmuGreen.withOpacity(0.15)
+                    : Colors.transparent,
                 borderRadius: BorderRadius.circular(6),
               ),
-              child: Text(labels[i], style: TextStyle(
-                color: isCurrent ? FnTheme.danmuGreen : Colors.white70,
-                fontSize: 13,
-                fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
-              )),
+              child: Text(labels[i],
+                  style: TextStyle(
+                    color: isCurrent ? FnTheme.danmuGreen : Colors.white70,
+                    fontSize: 13,
+                    fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
+                  )),
             ),
           );
         }),
@@ -400,7 +471,8 @@ class PlayerControls extends StatelessWidget {
           color: Colors.white10,
           borderRadius: BorderRadius.circular(6),
         ),
-        child: Text(label, style: const TextStyle(color: Colors.white70, fontSize: 12)),
+        child: Text(label,
+            style: const TextStyle(color: Colors.white70, fontSize: 12)),
       ),
     );
   }
@@ -416,7 +488,8 @@ class PlayerControls extends StatelessWidget {
         children: [
           const Padding(
             padding: EdgeInsets.only(bottom: 8),
-            child: Text('倍速', style: TextStyle(color: Colors.white70, fontSize: 13)),
+            child: Text('倍速',
+                style: TextStyle(color: Colors.white70, fontSize: 13)),
           ),
           Wrap(
             spacing: 6,
@@ -429,7 +502,8 @@ class PlayerControls extends StatelessWidget {
                   onSpeed(s);
                 },
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                   decoration: BoxDecoration(
                     color: isCurrent ? FnTheme.danmuGreen : Colors.white12,
                     borderRadius: BorderRadius.circular(8),
@@ -439,7 +513,8 @@ class PlayerControls extends StatelessWidget {
                     style: TextStyle(
                       color: isCurrent ? Colors.white : Colors.white70,
                       fontSize: 13,
-                      fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
+                      fontWeight:
+                          isCurrent ? FontWeight.bold : FontWeight.normal,
                     ),
                   ),
                 ),
@@ -469,19 +544,24 @@ class PlayerControls extends StatelessWidget {
               width: double.infinity,
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               decoration: BoxDecoration(
-                color: isCurrent ? FnTheme.danmuGreen.withOpacity(0.15) : Colors.transparent,
+                color: isCurrent
+                    ? FnTheme.danmuGreen.withOpacity(0.15)
+                    : Colors.transparent,
                 borderRadius: BorderRadius.circular(6),
               ),
               child: Row(
                 children: [
                   if (isCurrent)
-                    const Icon(Icons.check, color: FnTheme.danmuGreen, size: 14),
+                    const Icon(Icons.check,
+                        color: FnTheme.danmuGreen, size: 14),
                   if (isCurrent) const SizedBox(width: 4),
-                  Text(qualityLabels[i], style: TextStyle(
-                    color: isCurrent ? FnTheme.danmuGreen : Colors.white,
-                    fontSize: 12,
-                    fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
-                  )),
+                  Text(qualityLabels[i],
+                      style: TextStyle(
+                        color: isCurrent ? FnTheme.danmuGreen : Colors.white,
+                        fontSize: 12,
+                        fontWeight:
+                            isCurrent ? FontWeight.bold : FontWeight.normal,
+                      )),
                 ],
               ),
             ),
@@ -511,7 +591,8 @@ class PlayerControls extends StatelessWidget {
               borderRadius: BorderRadius.circular(12),
               clipBehavior: Clip.antiAlias,
               child: ConstrainedBox(
-                constraints: BoxConstraints(maxWidth: 400, maxHeight: maxHeight),
+                constraints:
+                    BoxConstraints(maxWidth: 400, maxHeight: maxHeight),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -519,14 +600,19 @@ class PlayerControls extends StatelessWidget {
                       padding: const EdgeInsets.fromLTRB(14, 8, 2, 0),
                       child: Row(
                         children: [
-                          Text(title, style: const TextStyle(
-                            color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14)),
+                          Text(title,
+                              style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 14)),
                           const Spacer(),
                           IconButton(
                             visualDensity: VisualDensity.compact,
                             padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-                            icon: const Icon(Icons.close_rounded, color: Colors.white54, size: 20),
+                            constraints: const BoxConstraints(
+                                minWidth: 32, minHeight: 32),
+                            icon: const Icon(Icons.close_rounded,
+                                color: Colors.white54, size: 20),
                             onPressed: () => Navigator.pop(dialogCtx),
                           ),
                         ],
@@ -581,10 +667,12 @@ class PlayerControls extends StatelessWidget {
           Navigator.pop(dialogCtx);
           onSubtitleSelected(idx);
         },
-        onLoadExternal: onLoadExternalSubtitle != null ? () {
-          Navigator.pop(dialogCtx);
-          onLoadExternalSubtitle!();
-        } : null,
+        onLoadExternal: onLoadExternalSubtitle != null
+            ? () {
+                Navigator.pop(dialogCtx);
+                onLoadExternalSubtitle!();
+              }
+            : null,
       ),
     );
   }
@@ -653,7 +741,6 @@ class PlayerControls extends StatelessWidget {
       ),
     );
   }
-
 }
 
 class _CompactNetworkBadge extends StatefulWidget {
@@ -677,7 +764,8 @@ class _CompactNetworkBadgeState extends State<_CompactNetworkBadge> {
 
   void _tick() {
     final now = DateTime.now();
-    final t = '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
+    final t =
+        '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
     if (t != _clockText && mounted) setState(() => _clockText = t);
   }
 
@@ -703,10 +791,14 @@ class _CompactNetworkBadgeState extends State<_CompactNetworkBadge> {
           const SizedBox(width: 4),
           Text(
             formatNetworkSpeed(widget.networkSpeedBps),
-            style: const TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w600),
+            style: const TextStyle(
+                color: Colors.white70,
+                fontSize: 11,
+                fontWeight: FontWeight.w600),
           ),
           const SizedBox(width: 6),
-          Text(_clockText, style: const TextStyle(color: Colors.white38, fontSize: 10)),
+          Text(_clockText,
+              style: const TextStyle(color: Colors.white38, fontSize: 10)),
         ],
       ),
     );
@@ -750,18 +842,22 @@ class _NetworkInfoBarState extends State<_NetworkInfoBar> {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        Icon(Icons.speed_rounded, size: 13, color: Colors.white.withOpacity(0.55)),
+        Icon(Icons.speed_rounded,
+            size: 13, color: Colors.white.withOpacity(0.55)),
         const SizedBox(width: 4),
         Text(
           formatNetworkSpeed(widget.networkSpeedBps),
-          style: const TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w600),
+          style: const TextStyle(
+              color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w600),
         ),
         const Spacer(),
-        Icon(Icons.schedule_rounded, size: 13, color: Colors.white.withOpacity(0.55)),
+        Icon(Icons.schedule_rounded,
+            size: 13, color: Colors.white.withOpacity(0.55)),
         const SizedBox(width: 4),
         Text(
           _clockText(),
-          style: const TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w600),
+          style: const TextStyle(
+              color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w600),
         ),
       ],
     );
@@ -796,20 +892,28 @@ class _AudioPanel extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
             margin: const EdgeInsets.only(bottom: 4),
             decoration: BoxDecoration(
-              color: isCurrent ? FnTheme.danmuGreen.withOpacity(0.15) : Colors.transparent,
+              color: isCurrent
+                  ? FnTheme.danmuGreen.withOpacity(0.15)
+                  : Colors.transparent,
               borderRadius: BorderRadius.circular(8),
-              border: isCurrent ? Border.all(color: FnTheme.danmuGreen.withOpacity(0.3)) : null,
+              border: isCurrent
+                  ? Border.all(color: FnTheme.danmuGreen.withOpacity(0.3))
+                  : null,
             ),
             child: Row(
               children: [
                 Icon(isCurrent ? Icons.check_circle : Icons.circle_outlined,
-                  color: isCurrent ? FnTheme.danmuGreen : Colors.white38, size: 16),
+                    color: isCurrent ? FnTheme.danmuGreen : Colors.white38,
+                    size: 16),
                 const SizedBox(width: 8),
-                Expanded(child: Text(label, style: TextStyle(
-                  color: isCurrent ? FnTheme.danmuGreen : Colors.white,
-                  fontSize: 13,
-                  fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
-                ))),
+                Expanded(
+                    child: Text(label,
+                        style: TextStyle(
+                          color: isCurrent ? FnTheme.danmuGreen : Colors.white,
+                          fontSize: 13,
+                          fontWeight:
+                              isCurrent ? FontWeight.bold : FontWeight.normal,
+                        ))),
               ],
             ),
           ),
@@ -822,7 +926,8 @@ class _AudioPanel extends StatelessWidget {
     final parts = <String>[];
     if (a.title != null && a.title!.isNotEmpty) parts.add(a.title!);
     if (a.language != null && a.language!.isNotEmpty) parts.add(a.language!);
-    if (a.codecName != null && a.codecName!.isNotEmpty) parts.add(a.codecName!.toUpperCase());
+    if (a.codecName != null && a.codecName!.isNotEmpty)
+      parts.add(a.codecName!.toUpperCase());
     if (a.channels > 0) parts.add('${a.channels}ch');
     if (parts.isEmpty) return '音频 ${index + 1}';
     return parts.join(' · ');
@@ -856,22 +961,29 @@ class _SubtitlePanelState extends State<_SubtitlePanel> {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const Text('字幕轨道', style: TextStyle(
-          color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w600)),
+        const Text('字幕轨道',
+            style: TextStyle(
+                color: Colors.white70,
+                fontSize: 12,
+                fontWeight: FontWeight.w600)),
         const SizedBox(height: 4),
         ...List.generate(widget.subtitleStreams.length + 1, (i) {
           final isOff = i == 0;
           final isCurrent = isOff
               ? widget.selectedIndex < 0
               : (i - 1) == widget.selectedIndex;
-          final label = isOff ? '关闭字幕' : _subtitleLabel(widget.subtitleStreams[i - 1], i - 1);
+          final label = isOff
+              ? '关闭字幕'
+              : _subtitleLabel(widget.subtitleStreams[i - 1], i - 1);
           return GestureDetector(
             onTap: () => widget.onSelect(isOff ? -1 : i - 1),
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
               margin: const EdgeInsets.only(bottom: 3),
               decoration: BoxDecoration(
-                color: isCurrent ? FnTheme.danmuGreen.withOpacity(0.15) : Colors.transparent,
+                color: isCurrent
+                    ? FnTheme.danmuGreen.withOpacity(0.15)
+                    : Colors.transparent,
                 borderRadius: BorderRadius.circular(8),
                 border: isCurrent
                     ? Border.all(color: FnTheme.danmuGreen.withOpacity(0.3))
@@ -880,13 +992,18 @@ class _SubtitlePanelState extends State<_SubtitlePanel> {
               child: Row(
                 children: [
                   Icon(isCurrent ? Icons.check_circle : Icons.circle_outlined,
-                    color: isCurrent ? FnTheme.danmuGreen : Colors.white38, size: 16),
+                      color: isCurrent ? FnTheme.danmuGreen : Colors.white38,
+                      size: 16),
                   const SizedBox(width: 8),
-                  Expanded(child: Text(label, style: TextStyle(
-                    color: isCurrent ? FnTheme.danmuGreen : Colors.white,
-                    fontSize: 13,
-                    fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
-                  ))),
+                  Expanded(
+                      child: Text(label,
+                          style: TextStyle(
+                            color:
+                                isCurrent ? FnTheme.danmuGreen : Colors.white,
+                            fontSize: 13,
+                            fontWeight:
+                                isCurrent ? FontWeight.bold : FontWeight.normal,
+                          ))),
                 ],
               ),
             ),
@@ -905,7 +1022,8 @@ class _SubtitlePanelState extends State<_SubtitlePanel> {
               ),
               child: Row(
                 children: [
-                  const Icon(Icons.file_open_rounded, color: FnTheme.danmuGreen, size: 16),
+                  const Icon(Icons.file_open_rounded,
+                      color: FnTheme.danmuGreen, size: 16),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
@@ -915,21 +1033,40 @@ class _SubtitlePanelState extends State<_SubtitlePanel> {
                       style: const TextStyle(color: Colors.white, fontSize: 12),
                     ),
                   ),
-                  const Icon(Icons.chevron_right, color: Colors.white38, size: 16),
+                  const Icon(Icons.chevron_right,
+                      color: Colors.white38, size: 16),
                 ],
               ),
             ),
           ),
         ],
         const Divider(color: Colors.white12, height: 20),
-        const Text('字幕样式', style: TextStyle(
-          color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w600)),
+        const Text('字幕样式',
+            style: TextStyle(
+                color: Colors.white70,
+                fontSize: 12,
+                fontWeight: FontWeight.w600)),
         const SizedBox(height: 4),
-        _styleSlider('字号', app.subtitleSize, 14, 40, (v) => setState(() => app.subtitleSize = v)),
-        _styleSlider('粗细', app.subtitleWeight, 100, 900, (v) => setState(() => app.subtitleWeight = v), _weightLabel(app.subtitleWeight)),
-        _styleSlider('描边', app.subtitleOutline, 0, 4, (v) => setState(() => app.subtitleOutline = v)),
-        _switchRow('背景', app.subtitleBackground, (v) => setState(() => app.subtitleBackground = v)),
-        _styleSlider('底部边距', app.subtitleBottomMargin, -100, 200, (v) => setState(() => app.subtitleBottomMargin = v), '${app.subtitleBottomMargin.toInt()}px'),
+        _styleSlider('字号', app.subtitleSize, 14, 40,
+            (v) => setState(() => app.subtitleSize = v)),
+        _styleSlider(
+            '粗细',
+            app.subtitleWeight,
+            100,
+            900,
+            (v) => setState(() => app.subtitleWeight = v),
+            _weightLabel(app.subtitleWeight)),
+        _styleSlider('描边', app.subtitleOutline, 0, 4,
+            (v) => setState(() => app.subtitleOutline = v)),
+        _switchRow('背景', app.subtitleBackground,
+            (v) => setState(() => app.subtitleBackground = v)),
+        _styleSlider(
+            '底部边距',
+            app.subtitleBottomMargin,
+            -100,
+            200,
+            (v) => setState(() => app.subtitleBottomMargin = v),
+            '${app.subtitleBottomMargin.toInt()}px'),
         _colorRow(app),
       ],
     );
@@ -945,12 +1082,16 @@ class _SubtitlePanelState extends State<_SubtitlePanel> {
   }
 
   Widget _styleSlider(String label, double value, double min, double max,
-      void Function(double) onChanged, [String? displayValue]) {
+      void Function(double) onChanged,
+      [String? displayValue]) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 3),
       child: Row(
         children: [
-          SizedBox(width: 40, child: Text(label, style: const TextStyle(color: Colors.white70, fontSize: 12))),
+          SizedBox(
+              width: 40,
+              child: Text(label,
+                  style: const TextStyle(color: Colors.white70, fontSize: 12))),
           Expanded(
             child: SliderTheme(
               data: SliderTheme.of(context).copyWith(
@@ -971,8 +1112,8 @@ class _SubtitlePanelState extends State<_SubtitlePanel> {
           SizedBox(
             width: 36,
             child: Text(displayValue ?? value.toStringAsFixed(1),
-              style: const TextStyle(color: Colors.white54, fontSize: 10),
-              textAlign: TextAlign.right),
+                style: const TextStyle(color: Colors.white54, fontSize: 10),
+                textAlign: TextAlign.right),
           ),
         ],
       ),
@@ -984,7 +1125,10 @@ class _SubtitlePanelState extends State<_SubtitlePanel> {
       padding: const EdgeInsets.symmetric(vertical: 2),
       child: Row(
         children: [
-          SizedBox(width: 40, child: Text(label, style: const TextStyle(color: Colors.white70, fontSize: 12))),
+          SizedBox(
+              width: 40,
+              child: Text(label,
+                  style: const TextStyle(color: Colors.white70, fontSize: 12))),
           Expanded(
             child: SwitchListTile(
               dense: true,
@@ -1004,12 +1148,16 @@ class _SubtitlePanelState extends State<_SubtitlePanel> {
       padding: const EdgeInsets.symmetric(vertical: 2),
       child: Row(
         children: [
-          const SizedBox(width: 40, child: Text('颜色', style: TextStyle(color: Colors.white70, fontSize: 12))),
-          ...([0xFFFFFFFF, 0xFFFFFF00, 0xFF00FF00, 0xFF00FFFF, 0xFFFF6600].map((c) =>
-            GestureDetector(
+          const SizedBox(
+              width: 40,
+              child: Text('颜色',
+                  style: TextStyle(color: Colors.white70, fontSize: 12))),
+          ...([0xFFFFFFFF, 0xFFFFFF00, 0xFF00FF00, 0xFF00FFFF, 0xFFFF6600].map(
+            (c) => GestureDetector(
               onTap: () => setState(() => app.subtitleColorValue = c),
               child: Container(
-                width: 24, height: 24,
+                width: 24,
+                height: 24,
                 margin: const EdgeInsets.only(right: 6),
                 decoration: BoxDecoration(
                   color: Color(c),
@@ -1030,7 +1178,8 @@ class _SubtitlePanelState extends State<_SubtitlePanel> {
     final parts = <String>[];
     if (s.title != null && s.title!.isNotEmpty) parts.add(s.title!);
     if (s.language != null && s.language!.isNotEmpty) parts.add(s.language!);
-    if (s.codecName != null && s.codecName!.isNotEmpty) parts.add(s.codecName!.toUpperCase());
+    if (s.codecName != null && s.codecName!.isNotEmpty)
+      parts.add(s.codecName!.toUpperCase());
     if (parts.isEmpty) return '字幕 ${index + 1}';
     return parts.join(' · ');
   }
@@ -1084,7 +1233,8 @@ class _DanmuPanelState extends State<_DanmuPanel> {
         SwitchListTile(
           dense: true,
           contentPadding: EdgeInsets.zero,
-          title: const Text('开启弹幕', style: TextStyle(color: Colors.white, fontSize: 13)),
+          title: const Text('开启弹幕',
+              style: TextStyle(color: Colors.white, fontSize: 13)),
           value: _danmuOn,
           activeColor: FnTheme.danmuGreen,
           onChanged: (v) {
@@ -1095,24 +1245,32 @@ class _DanmuPanelState extends State<_DanmuPanel> {
         const Divider(color: Colors.white12, height: 12),
         _buildSourceCard(context, app),
         const Divider(color: Colors.white12, height: 12),
-        _slider('字号', app.danmuFontSize, 14, 36, (v) => app.danmuFontSize = v, '${app.danmuFontSize.toInt()}'),
-        _slider('速度', app.danmuSpeed, 0.1, 2.0, (v) => app.danmuSpeed = v, '${app.danmuSpeed.toStringAsFixed(1)}x'),
+        _slider('字号', app.danmuFontSize, 14, 36, (v) => app.danmuFontSize = v,
+            '${app.danmuFontSize.toInt()}'),
+        _slider('速度', app.danmuSpeed, 0.1, 2.0, (v) => app.danmuSpeed = v,
+            '${app.danmuSpeed.toStringAsFixed(1)}x'),
         Padding(
           padding: const EdgeInsets.only(left: 4, bottom: 6),
           child: Text(
             '1.0 ≈ 14 秒横穿 · 越小越慢',
-            style: TextStyle(color: Colors.white.withOpacity(0.35), fontSize: 10),
+            style:
+                TextStyle(color: Colors.white.withOpacity(0.35), fontSize: 10),
           ),
         ),
-        _slider('透明度', app.danmuOpacity, 0.1, 1.0, (v) => app.danmuOpacity = v, '${(app.danmuOpacity * 100).toInt()}%'),
-        _slider('区域', app.danmuArea.toDouble(), 10, 100, (v) => app.danmuArea = v.toInt(), '${app.danmuArea}%'),
-        _slider('顶部边距', app.danmuTopMargin, -100, 200, (v) => app.danmuTopMargin = v, '${app.danmuTopMargin.toInt()}px'),
-        _slider('密度', app.danmuDensity.toDouble(), 10, 100, (v) => app.danmuDensity = v.toInt(), '${app.danmuDensity}%'),
+        _slider('透明度', app.danmuOpacity, 0.1, 1.0, (v) => app.danmuOpacity = v,
+            '${(app.danmuOpacity * 100).toInt()}%'),
+        _slider('区域', app.danmuArea.toDouble(), 10, 100,
+            (v) => app.danmuArea = v.toInt(), '${app.danmuArea}%'),
+        _slider('顶部边距', app.danmuTopMargin, -100, 200,
+            (v) => app.danmuTopMargin = v, '${app.danmuTopMargin.toInt()}px'),
+        _slider('密度', app.danmuDensity.toDouble(), 10, 100,
+            (v) => app.danmuDensity = v.toInt(), '${app.danmuDensity}%'),
         const Divider(color: Colors.white12, height: 12),
         SwitchListTile(
           dense: true,
           contentPadding: EdgeInsets.zero,
-          title: const Text('文字描边', style: TextStyle(color: Colors.white, fontSize: 13)),
+          title: const Text('文字描边',
+              style: TextStyle(color: Colors.white, fontSize: 13)),
           value: app.danmuOutline,
           activeColor: FnTheme.danmuGreen,
           onChanged: (v) => app.danmuOutline = v,
@@ -1120,7 +1278,8 @@ class _DanmuPanelState extends State<_DanmuPanel> {
         SwitchListTile(
           dense: true,
           contentPadding: EdgeInsets.zero,
-          title: const Text('防止重叠', style: TextStyle(color: Colors.white, fontSize: 13)),
+          title: const Text('防止重叠',
+              style: TextStyle(color: Colors.white, fontSize: 13)),
           value: app.danmuAntiOverlap,
           activeColor: FnTheme.danmuGreen,
           onChanged: (v) => app.danmuAntiOverlap = v,
@@ -1128,7 +1287,8 @@ class _DanmuPanelState extends State<_DanmuPanel> {
         SwitchListTile(
           dense: true,
           contentPadding: EdgeInsets.zero,
-          title: const Text('合并重复', style: TextStyle(color: Colors.white, fontSize: 13)),
+          title: const Text('合并重复',
+              style: TextStyle(color: Colors.white, fontSize: 13)),
           value: app.danmuMergeDuplicates,
           activeColor: FnTheme.danmuGreen,
           onChanged: (v) => app.danmuMergeDuplicates = v,
@@ -1147,9 +1307,14 @@ class _DanmuPanelState extends State<_DanmuPanel> {
       child: Container(
         padding: const EdgeInsets.all(10),
         decoration: BoxDecoration(
-          color: hasSource ? FnTheme.danmuGreen.withOpacity(0.08) : Colors.white.withOpacity(0.05),
+          color: hasSource
+              ? FnTheme.danmuGreen.withOpacity(0.08)
+              : Colors.white.withOpacity(0.05),
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: hasSource ? FnTheme.danmuGreen.withOpacity(0.3) : Colors.white12),
+          border: Border.all(
+              color: hasSource
+                  ? FnTheme.danmuGreen.withOpacity(0.3)
+                  : Colors.white12),
         ),
         child: Row(
           children: [
@@ -1161,25 +1326,35 @@ class _DanmuPanelState extends State<_DanmuPanel> {
             const SizedBox(width: 10),
             Expanded(
               child: hasSource
-                ? Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(animeName, style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
-                        maxLines: 1, overflow: TextOverflow.ellipsis),
-                      const SizedBox(height: 2),
-                      Text('第${epNum}集 · $commentCount 条弹幕',
-                        style: TextStyle(color: FnTheme.danmuGreen.withOpacity(0.8), fontSize: 11)),
-                    ],
-                  )
-                : Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(widget.showName.isNotEmpty ? '未匹配到弹幕' : '未知剧集',
-                        style: const TextStyle(color: Colors.white70, fontSize: 13)),
-                      const SizedBox(height: 2),
-                      const Text('点击手动搜索弹幕源', style: TextStyle(color: Colors.white38, fontSize: 11)),
-                    ],
-                  ),
+                  ? Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(animeName,
+                            style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis),
+                        const SizedBox(height: 2),
+                        Text('第${epNum}集 · $commentCount 条弹幕',
+                            style: TextStyle(
+                                color: FnTheme.danmuGreen.withOpacity(0.8),
+                                fontSize: 11)),
+                      ],
+                    )
+                  : Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(widget.showName.isNotEmpty ? '未匹配到弹幕' : '未知剧集',
+                            style: const TextStyle(
+                                color: Colors.white70, fontSize: 13)),
+                        const SizedBox(height: 2),
+                        const Text('点击手动搜索弹幕源',
+                            style:
+                                TextStyle(color: Colors.white38, fontSize: 11)),
+                      ],
+                    ),
             ),
             const Icon(Icons.chevron_right, color: Colors.white38, size: 18),
           ],
@@ -1216,7 +1391,10 @@ class _DanmuPanelState extends State<_DanmuPanel> {
       padding: const EdgeInsets.symmetric(vertical: 2),
       child: Row(
         children: [
-          SizedBox(width: 44, child: Text(label, style: const TextStyle(color: Colors.white70, fontSize: 12))),
+          SizedBox(
+              width: 44,
+              child: Text(label,
+                  style: const TextStyle(color: Colors.white70, fontSize: 12))),
           Expanded(
             child: SliderTheme(
               data: const SliderThemeData(
@@ -1236,7 +1414,9 @@ class _DanmuPanelState extends State<_DanmuPanel> {
           ),
           SizedBox(
             width: 40,
-            child: Text(display, style: const TextStyle(color: Colors.white54, fontSize: 10), textAlign: TextAlign.right),
+            child: Text(display,
+                style: const TextStyle(color: Colors.white54, fontSize: 10),
+                textAlign: TextAlign.right),
           ),
         ],
       ),
@@ -1268,7 +1448,7 @@ class _DanmuSearchDialogState extends State<_DanmuSearchDialog> {
   bool _searching = false;
   String _error = '';
   List<Map<String, dynamic>> _animeResults = [];
-  
+
   // 当前选中的动画
   Map<String, dynamic>? _selectedAnime;
   List<Map<String, dynamic>> _episodeResults = [];
@@ -1292,39 +1472,63 @@ class _DanmuSearchDialogState extends State<_DanmuSearchDialog> {
   Future<void> _doSearch() async {
     final kw = _searchCtrl.text.trim();
     if (kw.isEmpty || widget.danmuUrl.isEmpty) return;
-    setState(() { _searching = true; _error = ''; _animeResults = []; _selectedAnime = null; _episodeResults = []; });
+    setState(() {
+      _searching = true;
+      _error = '';
+      _animeResults = [];
+      _selectedAnime = null;
+      _episodeResults = [];
+    });
     try {
       final resp = await widget.api.dio.get(
         '${widget.danmuUrl}/api/v2/search/anime',
         queryParameters: {'keyword': kw},
       );
       if (resp.statusCode != 200 || resp.data == null) {
-        setState(() { _error = '搜索失败'; _searching = false; });
+        setState(() {
+          _error = '搜索失败';
+          _searching = false;
+        });
         return;
       }
       final raw = resp.data;
       List<dynamic> results = [];
-      if (raw is List) results = raw;
-      else if (raw is Map && raw['animes'] is List) results = raw['animes'] as List;
+      if (raw is List)
+        results = raw;
+      else if (raw is Map && raw['animes'] is List)
+        results = raw['animes'] as List;
       else if (raw is Map && raw['data'] is List) results = raw['data'] as List;
       setState(() {
-        _animeResults = results.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+        _animeResults = results
+            .whereType<Map>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList();
         _searching = false;
         if (_animeResults.isEmpty) _error = '未找到结果';
       });
     } catch (e) {
-      setState(() { _error = '搜索出错: \$e'; _searching = false; });
+      setState(() {
+        _error = '搜索出错: \$e';
+        _searching = false;
+      });
     }
   }
 
   Future<void> _loadEpisodes(Map<String, dynamic> anime) async {
     final animeId = anime['animeId'] ?? anime['id'] ?? anime['bangumiId'] ?? 0;
     if (animeId == 0) return;
-    setState(() { _selectedAnime = anime; _loadingEpisodes = true; _episodeResults = []; });
+    setState(() {
+      _selectedAnime = anime;
+      _loadingEpisodes = true;
+      _episodeResults = [];
+    });
     try {
-      final resp = await widget.api.dio.get('${widget.danmuUrl}/api/v2/bangumi/$animeId');
+      final resp = await widget.api.dio
+          .get('${widget.danmuUrl}/api/v2/bangumi/$animeId');
       if (resp.statusCode != 200 || resp.data == null) {
-        setState(() { _loadingEpisodes = false; });
+        setState(() {
+          _loadingEpisodes = false;
+        });
         return;
       }
       final bData = resp.data;
@@ -1336,16 +1540,23 @@ class _DanmuSearchDialogState extends State<_DanmuSearchDialog> {
           episodes = bData['episodes'] as List;
       }
       setState(() {
-        _episodeResults = episodes.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+        _episodeResults = episodes
+            .whereType<Map>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList();
         _loadingEpisodes = false;
       });
     } catch (e) {
-      setState(() { _loadingEpisodes = false; });
+      setState(() {
+        _loadingEpisodes = false;
+      });
     }
   }
 
   void _selectEpisode(Map<String, dynamic> ep) {
-    final animeName = _selectedAnime?['animeName'] ?? _selectedAnime?['name'] ?? _searchCtrl.text;
+    final animeName = _selectedAnime?['animeName'] ??
+        _selectedAnime?['name'] ??
+        _searchCtrl.text;
     final episodeId = ep['episodeId'] ?? ep['id'] ?? 0;
     final episodeNumber = ep['episodeNumber'] ?? ep['episodeIndex'] ?? 0;
     final commentCount = ep['commentCount'] ?? 0;
@@ -1354,7 +1565,9 @@ class _DanmuSearchDialogState extends State<_DanmuSearchDialog> {
       'animeId': animeId,
       'animeName': animeName,
       'episodeId': episodeId,
-      'episodeNumber': episodeNumber is String ? int.tryParse(episodeNumber) ?? 0 : episodeNumber,
+      'episodeNumber': episodeNumber is String
+          ? int.tryParse(episodeNumber) ?? 0
+          : episodeNumber,
       'commentCount': commentCount,
     });
   }
@@ -1382,20 +1595,28 @@ class _DanmuSearchDialogState extends State<_DanmuSearchDialog> {
                   children: [
                     if (_selectedAnime != null)
                       GestureDetector(
-                        onTap: () => setState(() { _selectedAnime = null; _episodeResults = []; }),
-                        child: const Icon(Icons.arrow_back, color: Colors.white70, size: 20),
+                        onTap: () => setState(() {
+                          _selectedAnime = null;
+                          _episodeResults = [];
+                        }),
+                        child: const Icon(Icons.arrow_back,
+                            color: Colors.white70, size: 20),
                       ),
                     if (_selectedAnime != null) const SizedBox(width: 8),
                     Expanded(
                       child: Text(
                         _selectedAnime != null
-                          ? '${_selectedAnime!['animeName'] ?? _selectedAnime!['name'] ?? ''}'
-                          : '搜索弹幕源',
-                        style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                            ? '${_selectedAnime!['animeName'] ?? _selectedAnime!['name'] ?? ''}'
+                            : '搜索弹幕源',
+                        style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold),
                       ),
                     ),
                     IconButton(
-                      icon: const Icon(Icons.close, color: Colors.white54, size: 20),
+                      icon: const Icon(Icons.close,
+                          color: Colors.white54, size: 20),
                       onPressed: () => Navigator.pop(context),
                     ),
                   ],
@@ -1410,7 +1631,8 @@ class _DanmuSearchDialogState extends State<_DanmuSearchDialog> {
                       Expanded(
                         child: TextField(
                           controller: _searchCtrl,
-                          style: const TextStyle(color: Colors.white, fontSize: 14),
+                          style: const TextStyle(
+                              color: Colors.white, fontSize: 14),
                           decoration: InputDecoration(
                             hintText: '输入剧名搜索...',
                             hintStyle: const TextStyle(color: Colors.white38),
@@ -1420,7 +1642,8 @@ class _DanmuSearchDialogState extends State<_DanmuSearchDialog> {
                               borderRadius: BorderRadius.circular(8),
                               borderSide: BorderSide.none,
                             ),
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                            contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 10),
                             isDense: true,
                           ),
                           onSubmitted: (_) => _doSearch(),
@@ -1430,14 +1653,23 @@ class _DanmuSearchDialogState extends State<_DanmuSearchDialog> {
                       GestureDetector(
                         onTap: _doSearch,
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 10),
                           decoration: BoxDecoration(
                             color: FnTheme.danmuGreen,
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: _searching
-                            ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                            : const Text('搜索', style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600)),
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                      strokeWidth: 2, color: Colors.white))
+                              : const Text('搜索',
+                                  style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w600)),
                         ),
                       ),
                     ],
@@ -1457,9 +1689,12 @@ class _DanmuSearchDialogState extends State<_DanmuSearchDialog> {
   Widget _buildContent() {
     if (_selectedAnime == null) {
       // 动画搜索结果列表
-      if (_error.isNotEmpty) return Center(child: Text(_error, style: const TextStyle(color: Colors.white54)));
+      if (_error.isNotEmpty)
+        return Center(
+            child: Text(_error, style: const TextStyle(color: Colors.white54)));
       if (_animeResults.isEmpty && !_searching) {
-        return const Center(child: Text('输入关键词搜索弹幕源', style: TextStyle(color: Colors.white38)));
+        return const Center(
+            child: Text('输入关键词搜索弹幕源', style: TextStyle(color: Colors.white38)));
       }
       return ListView.builder(
         itemCount: _animeResults.length,
@@ -1480,32 +1715,44 @@ class _DanmuSearchDialogState extends State<_DanmuSearchDialog> {
               child: Row(
                 children: [
                   Container(
-                    width: 40, height: 40,
+                    width: 40,
+                    height: 40,
                     decoration: BoxDecoration(
                       color: Colors.white12,
                       borderRadius: BorderRadius.circular(6),
                     ),
                     child: imageUrl.isNotEmpty
-                      ? ClipRRect(
-                          borderRadius: BorderRadius.circular(6),
-                          child: Image.network(imageUrl, fit: BoxFit.cover, errorBuilder: (_, __, ___) =>
-                            const Icon(Icons.movie, color: Colors.white38, size: 20)),
-                        )
-                      : const Icon(Icons.movie, color: Colors.white38, size: 20),
+                        ? ClipRRect(
+                            borderRadius: BorderRadius.circular(6),
+                            child: Image.network(imageUrl,
+                                fit: BoxFit.cover,
+                                errorBuilder: (_, __, ___) => const Icon(
+                                    Icons.movie,
+                                    color: Colors.white38,
+                                    size: 20)),
+                          )
+                        : const Icon(Icons.movie,
+                            color: Colors.white38, size: 20),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(name, style: const TextStyle(color: Colors.white, fontSize: 14),
-                          maxLines: 1, overflow: TextOverflow.ellipsis),
+                        Text(name,
+                            style: const TextStyle(
+                                color: Colors.white, fontSize: 14),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis),
                         const SizedBox(height: 2),
-                        Text('$epCount 集', style: const TextStyle(color: Colors.white54, fontSize: 12)),
+                        Text('$epCount 集',
+                            style: const TextStyle(
+                                color: Colors.white54, fontSize: 12)),
                       ],
                     ),
                   ),
-                  const Icon(Icons.chevron_right, color: Colors.white38, size: 18),
+                  const Icon(Icons.chevron_right,
+                      color: Colors.white38, size: 18),
                 ],
               ),
             ),
@@ -1514,8 +1761,12 @@ class _DanmuSearchDialogState extends State<_DanmuSearchDialog> {
       );
     } else {
       // 剧集列表
-      if (_loadingEpisodes) return const Center(child: CircularProgressIndicator(color: FnTheme.danmuGreen));
-      if (_episodeResults.isEmpty) return const Center(child: Text('没有找到剧集', style: TextStyle(color: Colors.white54)));
+      if (_loadingEpisodes)
+        return const Center(
+            child: CircularProgressIndicator(color: FnTheme.danmuGreen));
+      if (_episodeResults.isEmpty)
+        return const Center(
+            child: Text('没有找到剧集', style: TextStyle(color: Colors.white54)));
       return ListView.builder(
         itemCount: _episodeResults.length,
         itemBuilder: (_, i) {
@@ -1535,22 +1786,32 @@ class _DanmuSearchDialogState extends State<_DanmuSearchDialog> {
               child: Row(
                 children: [
                   Container(
-                    width: 32, height: 32,
+                    width: 32,
+                    height: 32,
                     alignment: Alignment.center,
                     decoration: BoxDecoration(
                       color: FnTheme.danmuGreen.withOpacity(0.15),
                       borderRadius: BorderRadius.circular(6),
                     ),
-                    child: Text('$epNum', style: TextStyle(color: FnTheme.danmuGreen, fontSize: 14, fontWeight: FontWeight.bold)),
+                    child: Text('$epNum',
+                        style: TextStyle(
+                            color: FnTheme.danmuGreen,
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold)),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(epTitle, style: const TextStyle(color: Colors.white, fontSize: 13),
-                          maxLines: 1, overflow: TextOverflow.ellipsis),
-                        Text('$commentCount 条弹幕', style: const TextStyle(color: Colors.white54, fontSize: 11)),
+                        Text(epTitle,
+                            style: const TextStyle(
+                                color: Colors.white, fontSize: 13),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis),
+                        Text('$commentCount 条弹幕',
+                            style: const TextStyle(
+                                color: Colors.white54, fontSize: 11)),
                       ],
                     ),
                   ),
@@ -1591,7 +1852,9 @@ class _EpisodePanel extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
             margin: const EdgeInsets.only(bottom: 4),
             decoration: BoxDecoration(
-              color: isCurrent ? FnTheme.danmuGreen.withOpacity(0.15) : Colors.transparent,
+              color: isCurrent
+                  ? FnTheme.danmuGreen.withOpacity(0.15)
+                  : Colors.transparent,
               borderRadius: BorderRadius.circular(8),
               border: isCurrent
                   ? Border.all(color: FnTheme.danmuGreen.withOpacity(0.3))
@@ -1600,7 +1863,8 @@ class _EpisodePanel extends StatelessWidget {
             child: Row(
               children: [
                 Container(
-                  width: 32, height: 32,
+                  width: 32,
+                  height: 32,
                   alignment: Alignment.center,
                   decoration: BoxDecoration(
                     color: isCurrent ? FnTheme.danmuGreen : Colors.white12,
@@ -1618,18 +1882,21 @@ class _EpisodePanel extends StatelessWidget {
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    ep.title ?? '第${ep.episodeNumber > 0 ? ep.episodeNumber : i + 1}集',
+                    ep.title ??
+                        '第${ep.episodeNumber > 0 ? ep.episodeNumber : i + 1}集',
                     style: TextStyle(
                       color: isCurrent ? FnTheme.danmuGreen : Colors.white,
                       fontSize: 13,
-                      fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
+                      fontWeight:
+                          isCurrent ? FontWeight.bold : FontWeight.normal,
                     ),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
                 if (isCurrent)
-                  const Icon(Icons.play_circle_filled, color: FnTheme.danmuGreen, size: 18),
+                  const Icon(Icons.play_circle_filled,
+                      color: FnTheme.danmuGreen, size: 18),
               ],
             ),
           ),
