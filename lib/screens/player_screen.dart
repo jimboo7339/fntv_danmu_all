@@ -71,6 +71,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   bool _isPlaying = false;
   bool _showControls = true;
   bool _isLocked = false;
+  bool _showLockButton = false;
   bool _isBuffering = false;
   bool _isInitialized = false;
   bool _mpvSubUiActive = false;
@@ -951,17 +952,28 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   void _resetHideTimer() {
     _hideTimer?.cancel();
-    setState(() => _showControls = true);
-    _hideTimer = Timer(const Duration(seconds: 5), () {
-      if (mounted && !_isLocked) {
-        setState(() => _showControls = false);
-      }
+    setState(() {
+      _showControls = !_isLocked;
+      _showLockButton = false;
     });
+    if (!_isLocked) {
+      _hideTimer = Timer(const Duration(seconds: 5), () {
+        if (mounted) {
+          setState(() => _showControls = false);
+        }
+      });
+    }
   }
 
   void _onPlayerTap() {
     if (_isLocked) {
-      _resetHideTimer();
+      setState(() => _showLockButton = true);
+      _hideTimer?.cancel();
+      _hideTimer = Timer(const Duration(seconds: 3), () {
+        if (mounted) {
+          setState(() => _showLockButton = false);
+        }
+      });
       return;
     }
     if (_showControls) {
@@ -1312,36 +1324,40 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 networkSpeedBps: _networkSpeedBps,
               ),
 
-            // Lock button — 屏幕右侧中间，始终可点，用于上锁/解锁
-            Positioned(
-              right: 12,
-              top: 0,
-              bottom: 0,
-              child: Center(
-                child: GestureDetector(
-                  onTap: () => setState(() {
-                    _isLocked = !_isLocked;
-                    if (_isLocked) {
-                      _showControls = false;
-                    } else {
-                      _resetHideTimer();
-                    }
-                  }),
-                  child: Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.black45,
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Icon(
-                      _isLocked ? Icons.lock_rounded : Icons.lock_open_rounded,
-                      color: _isLocked ? Colors.orange : Colors.white70,
-                      size: 20,
+            // Lock button — 屏幕右侧中间，上锁后点击屏幕呼出，用于解锁
+            if (_showLockButton || _isLocked)
+              Positioned(
+                right: 12,
+                top: 0,
+                bottom: 0,
+                child: Center(
+                  child: GestureDetector(
+                    onTap: () => setState(() {
+                      _isLocked = !_isLocked;
+                      if (!_isLocked) {
+                        _showLockButton = false;
+                        _resetHideTimer();
+                      } else {
+                        _showControls = false;
+                      }
+                    }),
+                    child: Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Colors.black45,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Icon(
+                        _isLocked
+                            ? Icons.lock_rounded
+                            : Icons.lock_open_rounded,
+                        color: _isLocked ? Colors.orange : Colors.white70,
+                        size: 22,
+                      ),
                     ),
                   ),
                 ),
               ),
-            ),
 
             // Gesture overlay (brightness / volume / seek / speed)
             if (_showGestureOverlay)
