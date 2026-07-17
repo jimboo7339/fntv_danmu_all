@@ -961,7 +961,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   void _onPlayerTap() {
     if (_isLocked) {
-      setState(() => _isLocked = false);
       _resetHideTimer();
       return;
     }
@@ -1312,6 +1311,37 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 showNetworkSpeed: _app.showNetworkSpeed,
                 networkSpeedBps: _networkSpeedBps,
               ),
+
+            // Lock button — 屏幕右侧中间，始终可点，用于上锁/解锁
+            Positioned(
+              right: 12,
+              top: 0,
+              bottom: 0,
+              child: Center(
+                child: GestureDetector(
+                  onTap: () => setState(() {
+                    _isLocked = !_isLocked;
+                    if (_isLocked) {
+                      _showControls = false;
+                    } else {
+                      _resetHideTimer();
+                    }
+                  }),
+                  child: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.black45,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Icon(
+                      _isLocked ? Icons.lock_rounded : Icons.lock_open_rounded,
+                      color: _isLocked ? Colors.orange : Colors.white70,
+                      size: 20,
+                    ),
+                  ),
+                ),
+              ),
+            ),
 
             // Gesture overlay (brightness / volume / seek / speed)
             if (_showGestureOverlay)

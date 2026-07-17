@@ -48,12 +48,14 @@ class DanmuOverlay extends StatefulWidget {
   State<DanmuOverlay> createState() => _DanmuOverlayState();
 }
 
-class _DanmuOverlayState extends State<DanmuOverlay> with SingleTickerProviderStateMixin {
+class _DanmuOverlayState extends State<DanmuOverlay>
+    with SingleTickerProviderStateMixin {
   static const _maxActiveScroll = 200;
   static const _maxParagraphCache = 800;
   static const _maxLateSec = 12.0;
   static const _maxPending = 500;
   static const _crossBaseSeconds = 12.0;
+  static const _emitPerFrame = 6;
 
   late final Ticker _ticker;
   final ValueNotifier<int> _frameTick = ValueNotifier(0);
@@ -96,8 +98,7 @@ class _DanmuOverlayState extends State<DanmuOverlay> with SingleTickerProviderSt
     return _secFromPlayer();
   }
 
-  double _secFromPlayer() =>
-      widget.getCurrentTime().inMilliseconds / 1000.0;
+  double _secFromPlayer() => widget.getCurrentTime().inMilliseconds / 1000.0;
 
   double _pxPerSec() {
     final rate = widget.speed.clamp(0.08, 3.0);
@@ -106,9 +107,9 @@ class _DanmuOverlayState extends State<DanmuOverlay> with SingleTickerProviderSt
 
   double _rowGapPx() {
     final density = widget.danmuDensity.clamp(0.1, 1.0);
-    final chars = 2.5 + (1.0 - density) * 3.5;
+    final chars = 3.0 + (1.0 - density) * 3.0;
     final gap = widget.fontSize * chars;
-    return widget.antiOverlap ? gap * 1.4 : gap;
+    return widget.antiOverlap ? gap * 1.3 : gap * 1.1;
   }
 
   double _lineHeight() => widget.fontSize * 1.5;
@@ -153,7 +154,8 @@ class _DanmuOverlayState extends State<DanmuOverlay> with SingleTickerProviderSt
       });
     }
 
-    while (_scanIdx < comments.length && comments[_scanIdx].time < videoSec - _maxLateSec) {
+    while (_scanIdx < comments.length &&
+        comments[_scanIdx].time < videoSec - _maxLateSec) {
       _scanIdx++;
     }
 
@@ -172,7 +174,11 @@ class _DanmuOverlayState extends State<DanmuOverlay> with SingleTickerProviderSt
     if (_pending.isEmpty || _scroll.length >= _maxActiveScroll) return;
 
     var progressed = true;
-    while (progressed && _pending.isNotEmpty && _scroll.length < _maxActiveScroll) {
+    var emitted = 0;
+    while (progressed &&
+        _pending.isNotEmpty &&
+        _scroll.length < _maxActiveScroll &&
+        emitted < _emitPerFrame) {
       progressed = false;
       final p = _pending.first;
       final c = p.comment;
@@ -180,6 +186,7 @@ class _DanmuOverlayState extends State<DanmuOverlay> with SingleTickerProviderSt
       if (c.type == 4 || c.type == 5) {
         _pending.removeAt(0);
         progressed = true;
+        emitted++;
         final w = _measureText(c.text);
         final item = _StaticDanmu(
           text: c.text,
@@ -212,6 +219,7 @@ class _DanmuOverlayState extends State<DanmuOverlay> with SingleTickerProviderSt
 
       _pending.removeAt(0);
       progressed = true;
+      emitted++;
       final late = videoSec > c.time + 0.15;
       _scroll.add(_ScrollDanmu(
         comment: c,
@@ -226,7 +234,8 @@ class _DanmuOverlayState extends State<DanmuOverlay> with SingleTickerProviderSt
   }
 
   /// canvas_danmaku / B 站轨道碰撞：入屏不重叠，且长弹幕不追尾短弹幕
-  bool _canAddScroll(int row, double newW, double videoSec, double px, double gap) {
+  bool _canAddScroll(
+      int row, double newW, double videoSec, double px, double gap) {
     final sw = _size.width;
     for (final d in _scroll) {
       if (d.row != row) continue;
@@ -266,7 +275,8 @@ class _DanmuOverlayState extends State<DanmuOverlay> with SingleTickerProviderSt
   double _measureText(String text) => _paragraphs(text, 0xFFFFFFFF).width;
 
   _DanmuParagraphs _paragraphs(String text, int colorValue) {
-    final key = '${widget.fontSize}_${widget.showOutline}_${widget.opacity}_${colorValue}_$text';
+    final key =
+        '${widget.fontSize}_${widget.showOutline}_${widget.opacity}_${colorValue}_$text';
     final hit = _paragraphCache[key];
     if (hit != null) return hit;
 
@@ -277,17 +287,20 @@ class _DanmuOverlayState extends State<DanmuOverlay> with SingleTickerProviderSt
     ui.Paragraph? outlineP;
     if (widget.showOutline) {
       final b = ui.ParagraphBuilder(
-        ui.ParagraphStyle(fontSize: widget.fontSize, fontWeight: FontWeight.bold),
+        ui.ParagraphStyle(
+            fontSize: widget.fontSize, fontWeight: FontWeight.bold),
       )
         ..pushStyle(ui.TextStyle(
           fontSize: widget.fontSize,
           foreground: Paint()
             ..style = PaintingStyle.stroke
             ..strokeWidth = 1.5
-            ..color = Colors.black.withAlpha((widget.opacity * 255).toInt().clamp(0, 255)),
+            ..color = Colors.black
+                .withAlpha((widget.opacity * 255).toInt().clamp(0, 255)),
         ))
         ..addText(text);
-      outlineP = b.build()..layout(const ui.ParagraphConstraints(width: double.infinity));
+      outlineP = b.build()
+        ..layout(const ui.ParagraphConstraints(width: double.infinity));
     }
 
     final c = Color(colorValue);
@@ -295,9 +308,11 @@ class _DanmuOverlayState extends State<DanmuOverlay> with SingleTickerProviderSt
     final fillB = ui.ParagraphBuilder(
       ui.ParagraphStyle(fontSize: widget.fontSize, fontWeight: FontWeight.bold),
     )
-      ..pushStyle(ui.TextStyle(color: c.withAlpha(alpha), fontSize: widget.fontSize))
+      ..pushStyle(
+          ui.TextStyle(color: c.withAlpha(alpha), fontSize: widget.fontSize))
       ..addText(text);
-    final fillP = fillB.build()..layout(const ui.ParagraphConstraints(width: double.infinity));
+    final fillP = fillB.build()
+      ..layout(const ui.ParagraphConstraints(width: double.infinity));
 
     final result = _DanmuParagraphs(
       fill: fillP,
@@ -460,7 +475,8 @@ class _DanmuParagraphs {
   final ui.Paragraph fill;
   final ui.Paragraph? outline;
   final double width;
-  const _DanmuParagraphs({required this.fill, this.outline, required this.width});
+  const _DanmuParagraphs(
+      {required this.fill, this.outline, required this.width});
 }
 
 class _DanmuPainter extends CustomPainter {
@@ -489,6 +505,7 @@ class _DanmuPainter extends CustomPainter {
     for (final d in scroll) {
       final x = d.xAt(t, sw, px);
       if (x > sw + 4) continue;
+      if (x + d.width < -4) continue;
       final paras = getParagraphs(d.comment.text, d.comment.color);
       final offset = Offset(x, d.y);
       if (paras.outline != null) canvas.drawParagraph(paras.outline!, offset);

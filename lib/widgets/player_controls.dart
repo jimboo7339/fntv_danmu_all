@@ -142,22 +142,6 @@ class PlayerControls extends StatelessWidget {
                         color: Colors.white),
                     onPressed: onBack,
                   ),
-                  GestureDetector(
-                    onTap: onLock,
-                    child: Container(
-                      padding: const EdgeInsets.all(6),
-                      decoration: BoxDecoration(
-                        color: Colors.black45,
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: Icon(
-                        isLocked ? Icons.lock_rounded : Icons.lock_open_rounded,
-                        color: isLocked ? Colors.orange : Colors.white70,
-                        size: 18,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
                   Expanded(
                     child: _buildHeaderBrand(context),
                   ),
